@@ -4,7 +4,7 @@
  * Created:
  *   17 Feb 2022, 10:27:28
  * Last edited:
- *   08 May 2022, 14:35:24
+ *   09 May 2022, 15:01:54
  * Auto updated?
  *   Yes
  *
@@ -403,8 +403,6 @@ pub enum UtilError {
     BuildxVersionNoParts{ version: String },
     /// The Buildx version is not prepended with a 'v'
     BuildxVersionNoV{ version: String },
-    /// The Buildx version in the buildx command is not a version split by something else
-    BuildxVersionNoDash{ version: String },
     /// The version reported by Buildx is not a valid version
     IllegalBuildxVersion{ version: String, err: VersionParseError },
 
@@ -478,7 +476,6 @@ impl Display for UtilError {
             UtilError::BuildxLaunchError{ command, err }    => write!(f, "Could not run command '{}' to get Buildx version information: {}", command, err),
             UtilError::BuildxVersionNoParts{ version }      => write!(f, "Illegal Buildx version '{}': did not find second part (separted by spaces) with version number", version),
             UtilError::BuildxVersionNoV{ version }          => write!(f, "Illegal Buildx version '{}': did not find 'v' prepending version number", version),
-            UtilError::BuildxVersionNoDash{ version }       => write!(f, "Illegal Buildx version '{}': did not find dash separating version number", version),
             UtilError::IllegalBuildxVersion{ version, err } => write!(f, "Buildx reports unparseable version '{}': {}", version, err),
 
             UtilError::DirectoryReadError{ dir, err } => write!(f, "Could not read from directory '{}': {}", dir.display(), err),

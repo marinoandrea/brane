@@ -2,6 +2,10 @@
 
 All notable changes to the Brane framework will be documented in this file.
 
+## [0.6.1] - 2022-05-09
+### Fixed
+- An issue with the `brane-cli` dependency checker where it would fail if it cannot read the Docker Buildx version. This is now patched to be a) slightly more free in what it can parse, and b) not error anymore when it sees an invalid version number but throw a warning instead.
+
 ## [0.6.0] - 2022-05-08
 ### Added
 - Garbage collection to custom Heap backend.
