@@ -2,7 +2,10 @@
 
 All notable changes to the Brane framework will be documented in this file.
 
-## [0.6.1] - 2022-05-09
+## [0.6.1] - 2022-05-12
+### Added
+- The code of the "Hello, world!" example in the documentation.
+
 ### Changed
 - `brane-drv`, `brane-job` and `brane-plr` services to accept `infra.yml` and `secrets.yml` via a shared folder again.
 

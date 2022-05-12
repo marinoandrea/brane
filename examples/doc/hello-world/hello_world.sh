@@ -6,7 +6,7 @@
 # Created:
 #   21 Feb 2022, 13:46:57
 # Last edited:
-#   23 Feb 2022, 16:08:41
+#   12 May 2022, 13:09:03
 # Auto updated?
 #   Yes
 #
@@ -16,4 +16,4 @@
 #
 
 # Simply echo the hello world with the specified format
-echo "output: Hello, world!"
+echo 'output: Hello, world!'
