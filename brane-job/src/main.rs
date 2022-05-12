@@ -55,13 +55,13 @@ struct Opts {
     #[clap(short, long, default_value = "brane-job", env = "GROUP_ID")]
     group_id: String,
     /// Infra metadata store
-    #[clap(short, long, default_value = "./infra.yml", env = "INFRA")]
+    #[clap(short, long, default_value = "/config/infra.yml", env = "INFRA")]
     infra: String,
     /// Number of workers
     #[clap(short = 'w', long, default_value = "1", env = "NUM_WORKERS")]
     num_workers: u8,
     /// Secrets store
-    #[clap(short, long, default_value = "./secrets.yml", env = "SECRETS")]
+    #[clap(short, long, default_value = "/config/secrets.yml", env = "SECRETS")]
     secrets: String,
     /// Xenon gRPC endpoint
     #[clap(short, long, default_value = "http://127.0.0.1:50051", env = "XENON")]

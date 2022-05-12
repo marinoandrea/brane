@@ -57,9 +57,9 @@ spec:
             - name: ADDRESS
               value: 0.0.0.0:50051
             - name: REGISTRY
-              value: aux-registry.brane-control.svc.cluster.local:50050
+              value: aux-registry.brane-control.svc.%BRANE_CLUSTER_DOMAIN%:50050
             - name: SCYLLA
-              value: aux-scylla.brane-control.svc.cluster.local:9042
+              value: aux-scylla.brane-control.svc.%BRANE_CLUSTER_DOMAIN%:9042
           image: 127.0.0.1:50050/brane-api:latest
           name: brane-api
           ports:

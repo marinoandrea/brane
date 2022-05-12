@@ -152,8 +152,8 @@ services:
     container_name: brane-drv
     ports:
     - "127.0.0.1:50053:50053"
-    # volumes:
-    # - ./infra.yml:/infra.yml
+    volumes:
+    - ./config:/config
     restart: always
     links:
     - brane-api:brane-api
@@ -176,8 +176,7 @@ services:
     container_name: brane-job
     restart: always
     volumes:
-    # - ./infra.yml:/infra.yml
-    # - ./secrets.yml:/secrets.yml
+    - ./config:/config
     - /var/run/docker.sock:/var/run/docker.sock
     environment:
       BROKERS: "aux-kafka:29092"
@@ -211,9 +210,8 @@ services:
     image: brane-plr:${BRANE_VERSION:-latest}
     container_name: brane-plr
     restart: always
-    # volumes:
-    # - ./infra.yml:/infra.yml
-    # - ./secrets.yml:/secrets.yml
+    volumes:
+    - ./config:/config
     environment:
       BROKERS: "aux-kafka:29092"
       COMMAND_FROM_TOPIC: drv-cmd

@@ -81,9 +81,6 @@ FROM brane-base AS brane-drv
 # Copy `brane-drv` from build stage
 COPY ./.container-bins/brane-drv /brane-drv
 
-# Copy infra
-COPY ./infra.yml /infra.yml
-
 # Run the compiled executable as base
 ENTRYPOINT [ "./brane-drv", "--debug" ]
 
@@ -97,10 +94,6 @@ FROM brane-base AS brane-job
 
 # Copy `brane-job` from build stage
 COPY ./.container-bins/brane-job /brane-job
-
-# Copy infra & sercrets
-COPY ./infra.yml /infra.yml
-COPY ./secrets.yml /secrets.yml
 
 # Run the compiled executable as base
 ENTRYPOINT [ "./brane-job", "--debug" ]
@@ -129,10 +122,6 @@ FROM brane-base AS brane-plr
 
 # Copy `brane-plr` from build stage
 COPY ./.container-bins/brane-plr /brane-plr
-
-# Copy infra & sercrets
-COPY ./infra.yml /infra.yml
-COPY ./secrets.yml /secrets.yml
 
 # Run the compiled executable as base
 ENTRYPOINT [ "./brane-plr", "--debug" ]

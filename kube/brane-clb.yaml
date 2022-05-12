@@ -57,7 +57,7 @@ spec:
             - name: ADDRESS
               value: 0.0.0.0:50052
             - name: BROKERS
-              value: aux-kafka.brane-control.svc.cluster.local:29092
+              value: aux-kafka.brane-control.svc.%BRANE_CLUSTER_DOMAIN%:29092
           image: 127.0.0.1:50050/brane-clb:latest
           name: brane-clb
           ports:

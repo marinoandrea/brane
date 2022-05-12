@@ -61,7 +61,7 @@ spec:
             - name: CONFLUENT_SUPPORT_METRICS_ENABLE
               value: "0"
             - name: KAFKA_ADVERTISED_LISTENERS
-              value: DOCKER://aux-kafka.brane-control.svc.cluster.local:29092,HOST://localhost:9092
+              value: DOCKER://aux-kafka.brane-control.svc.%BRANE_CLUSTER_DOMAIN%:29092,HOST://localhost:9092
             - name: KAFKA_BROKER_ID
               value: "0"
             - name: KAFKA_INTER_BROKER_LISTENER_NAME
@@ -75,7 +75,7 @@ spec:
             - name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR
               value: "1"
             - name: KAFKA_ZOOKEEPER_CONNECT
-              value: aux-zookeeper.brane-control.svc.cluster.local:2181
+              value: aux-zookeeper.brane-control.svc.%BRANE_CLUSTER_DOMAIN%:2181
           image: confluentinc/cp-kafka:6.2.0
           name: aux-kafka
           ports:

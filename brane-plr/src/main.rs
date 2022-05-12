@@ -77,7 +77,7 @@ struct Opts {
     #[structopt(short, long, default_value = "brane-job", env = "GROUP_ID")]
     group_id: String,
     /// Infra metadata store
-    #[structopt(short, long, default_value = "./infra.yml", env = "INFRA")]
+    #[structopt(short, long, default_value = "/config/infra.yml", env = "INFRA")]
     infra: String,
     /// Number of workers
     #[structopt(short = "w", long, default_value = "1", env = "NUM_WORKERS")]
