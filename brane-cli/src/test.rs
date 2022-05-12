@@ -132,39 +132,39 @@ fn prompt_for_input(
     let function_name = &function_list[index];
     let function = &functions[function_name];
 
-    println!("\nPlease provide input for the chosen function:\n");
-
     let mut arguments = Map::<Value>::new();
-    for p in &function.parameters {
-        let data_type = p.data_type.as_str();
+    if !function.parameters.is_empty() {
+        println!("\nPlease provide input for the chosen function:\n");
+        for p in &function.parameters {
+            let data_type = p.data_type.as_str();
 
-        debug!("{:?}", types);
-        let value = if let Some(input_type) = types.get(data_type) {
-            let mut properties = Map::<Value>::new();
+            debug!("{:?}", types);
+            let value = if let Some(input_type) = types.get(data_type) {
+                let mut properties = Map::<Value>::new();
 
-            for p in &input_type.properties {
-                let p = p.clone().into_parameter();
-                let data_type = p.data_type.as_str();
+                for p in &input_type.properties {
+                    let p = p.clone().into_parameter();
+                    let data_type = p.data_type.as_str();
 
-                let value = prompt_for_value(data_type, &p)?;
-                properties.insert(p.name.clone(), value);
-            }
+                    let value = prompt_for_value(data_type, &p)?;
+                    properties.insert(p.name.clone(), value);
+                }
 
-            Value::Struct {
-                data_type: input_type.name.clone(),
-                properties,
-            }
-        } else {
-            prompt_for_value(data_type, p)?
-        };
+                Value::Struct {
+                    data_type: input_type.name.clone(),
+                    properties,
+                }
+            } else {
+                prompt_for_value(data_type, p)?
+            };
 
-        arguments.insert(p.name.clone(), value);
+            arguments.insert(p.name.clone(), value);
+        }
+
+        debug!("Arguments: {:#?}", arguments);
     }
 
-    debug!("Arguments: {:#?}", arguments);
-
     println!();
-
     Ok((function_name.clone(), arguments))
 }
 

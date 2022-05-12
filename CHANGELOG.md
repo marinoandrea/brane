@@ -8,6 +8,7 @@ All notable changes to the Brane framework will be documented in this file.
 
 ### Changed
 - `brane-drv`, `brane-job` and `brane-plr` services to accept `infra.yml` and `secrets.yml` via a shared folder again.
+- `brane test` no longer printing useless 'Please provide input for the chosen function' statement if the function has no inputs.
 
 ### Fixed
 - An issue with the `brane-cli` dependency checker where it would fail if it cannot read the Docker Buildx version. This is now patched to be a) slightly more free in what it can parse, and b) not error anymore when it sees an invalid version number but throw a warning instead.
