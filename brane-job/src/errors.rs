@@ -4,7 +4,7 @@
  * Created:
  *   07 Feb 2022, 10:20:50
  * Last edited:
- *   21 Mar 2022, 21:33:55
+ *   13 May 2022, 15:56:19
  * Auto updated?
  *   Yes
  *
@@ -66,7 +66,7 @@ pub enum JobError {
     /// A given Kubernetes configuration file cannot be parsed as YAML
     K8sYAMLError{ location_id: String, err: serde_yaml::Error },
     /// A given Kubernetes configuration file cannot be parsed as an actual configuration file
-    K8sConfigError{ location_id: String, err: kube::Error },
+    K8sConfigError{ location_id: String, err: kube::config::KubeconfigError },
     /// Could not construct a client from the given configuration file
     K8sClientError{ location_id: String, err: kube::Error },
     /// Could not create the JobDescription from the internal JSON file

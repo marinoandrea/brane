@@ -2,7 +2,7 @@
 
 All notable changes to the Brane framework will be documented in this file.
 
-## [0.6.1] - 2022-05-12
+## [0.6.1] - 2022-05-13
 ### Added
 - The code of the "Hello, world!" example in the documentation.
 
