@@ -1,0 +1,18 @@
+locations:
+  # The name of the local infrastructure
+  local:
+    # It's a local (i.e., same-as-the-control-plane Docker engine)
+    kind: local
+
+    # The name of the Docker network for Brane. This shields it from other containers and provides hostnames. Make sure it equals the value in docker-compose-brn.yml.
+    network: brane
+
+    # The endpoint of the Docker registry. You'll likely won't have to change this.
+    registry: "localhost:50050"
+
+    # The endpoint of the brane-clb service. By default, routes within the same Docker network.
+    # Note: is relative to containers (so localhost won't work!!)
+    callback_to: "http://brane-clb:50052"
+
+    # The endpoint for the distributed filesystem mount. By default, routes within the same Docker network.
+    mount_dfs: "redis://aux-redis"

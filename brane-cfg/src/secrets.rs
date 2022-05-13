@@ -91,15 +91,15 @@ impl Secrets {
                 Ok(infra_handle) => infra_handle,
                 Err(reason)      => { return Err(SecretsError::LocalOpenError{ path: store_file.clone(), err: reason }); }
             };
-            let mut infra_reader = BufReader::new(infra_handle);
+            let mut secrets_reader = BufReader::new(infra_handle);
 
             // Read it into memory in one go
-            let mut infra_file = String::new();
-            if let Err(reason) = infra_reader.read_to_string(&mut infra_file) { return Err(SecretsError::LocalIOError{ path: store_file.clone(), err: reason }); }
-            if infra_file.is_empty() { return Err(SecretsError::EmptySecretsFile{ path: store_file.clone() }); }
+            let mut secrets_file = String::new();
+            if let Err(reason) = secrets_reader.read_to_string(&mut secrets_file) { return Err(SecretsError::LocalIOError{ path: store_file.clone(), err: reason }); }
+            if secrets_file.is_empty() { return Err(SecretsError::EmptySecretsFile{ path: store_file.clone() }); }
 
             // Finally, try to parse using serde
-            match serde_yaml::from_str::<SecretsDocument>(&infra_file) {
+            match serde_yaml::from_str::<SecretsDocument>(&secrets_file) {
                 Ok(result)  => Ok(result),
                 Err(reason) => Err(SecretsError::InvalidSecretsFile{ path: store_file.clone(), err: reason }),
             }

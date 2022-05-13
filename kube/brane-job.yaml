@@ -45,7 +45,7 @@ spec:
       containers:
         - env:
             - name: BROKERS
-              value: aux-kafka.brane-control.svc.cluster.local:29092
+              value: aux-kafka.brane-control.svc.%BRANE_CLUSTER_DOMAIN%:29092
             - name: CALLBACK_TOPIC
               value: clb
             - name: COMMAND_TOPIC
@@ -53,18 +53,19 @@ spec:
             - name: EVENT_TOPIC
               value: job-evt
             - name: XENON
-              value: brane-xenon.brane-control.svc.cluster.local:50054
+              value: brane-xenon.brane-control.svc.%BRANE_CLUSTER_DOMAIN%:50054
           image: 127.0.0.1:50050/brane-job:latest
           name: brane-job
           resources: {}
           volumeMounts:
-            - mountPath: /var/run/docker.sock
-              name: brane-job-claim0
+            - mountPath: /config
+              name: brane-job-config
       restartPolicy: Always
       volumes:
-        - name: brane-job-claim0
+        - name: brane-job-config
           persistentVolumeClaim:
-            claimName: brane-job-claim0
+            claimName: brane-job-config
+            readOnly: true
 status: {}
 ---
 apiVersion: v1
@@ -72,13 +73,13 @@ kind: PersistentVolumeClaim
 metadata:
   creationTimestamp: null
   labels:
-    io.kompose.service: brane-job-claim0
-  name: brane-job-claim0
+    io.kompose.service: brane-job-config
+  name: brane-job-config
 spec:
   accessModes:
-    - ReadWriteOnce
+    - ReadOnlyMany
   resources:
     requests:
       storage: 100Mi
-  storageClassName: my-local-storage
+  storageClassName: %BRANE_CONFIG_STORAGE%
 status: {}

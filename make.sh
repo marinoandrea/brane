@@ -5,7 +5,7 @@
 # Created:
 #   03 Mar 2022, 17:03:04
 # Last edited:
-#   08 May 2022, 22:03:47
+#   12 May 2022, 10:00:17
 # Auto updated?
 #   Yes
 #
@@ -21,7 +21,7 @@
 CACHE_DIR=./target/make_cache
 
 # The crates part of the Brane instance source code
-BRANE_INSTANCE_SRC=(./brane-api ./brane-bvm ./brane-cfg ./brane-clb ./brane-drv ./brane-dsl ./brane-job ./brane-plr ./brane-shr ./specifications ./infra.yml ./secrets.yml)
+BRANE_INSTANCE_SRC=(./brane-api ./brane-bvm ./brane-cfg ./brane-clb ./brane-drv ./brane-dsl ./brane-job ./brane-plr ./brane-shr ./specifications)
 # The images part of the Brane instance
 BRANE_INSTANCE_IMAGES=(brane-xenon brane-format brane-api brane-clb brane-drv brane-job brane-log brane-plr)
 # The services part of the Brane instance
@@ -29,6 +29,13 @@ BRANE_INSTANCE_SERVICES=(aux-scylla aux-registry aux-zookeeper aux-kafka brane-x
 
 # The timeout (in seconds) before we consider a spawned service a failure
 BRANE_INSTANCE_SERVICE_TIMEOUT=60
+
+# The to-be-replaced string for the cluster domain name
+K8S_DOMAIN_REPLACE="%BRANE_CLUSTER_DOMAIN%"
+# The to-be-replaced string for the data volume name
+K8S_DATA_SC_REPLACE="%BRANE_DATA_STORAGE%"
+# The to-be-replaced string for the config volume name
+K8S_CONFIG_SC_REPLACE="%BRANE_CONFIG_STORAGE%"
 
 # Lists the generated targets of OpenSSL
 OPENSSL_DIR="$(pwd)/target/openssl"
@@ -208,9 +215,9 @@ block_until_ready() {
 ##### CLI PARSING #####
 target="local"
 development=0
-storage_class_name=""
-registry="127.0.0.1:50050"
 cluster_domain="cluster.local"
+data_storage_name="brane-data-storage"
+config_storage_name="brane-config-storage"
 keep_registry=0
 
 state="start"
@@ -223,7 +230,7 @@ for arg in "${cli_args[@]}"; do
         # Switch between option or not
         if [[ "$allow_opts" -eq 1 && "$arg" =~ ^- ]]; then
             # Match the specific option
-            if [[ "$arg" == "-d" || "$arg" == "--dev" || "$arg" == "--development" ]]; then
+            if [[ "$arg" == "--dev" || "$arg" == "--development" ]]; then
                 # Simply check it
                 development=1
 
@@ -235,17 +242,17 @@ for arg in "${cli_args[@]}"; do
                 echo "               cluster."
                 echo "  clean        Clears everything build by this script (except for Docker images)."
 
-            elif [[ "$arg" == "-s" || "$arg" == "--storage-class-name" ]]; then
+            elif [[ "$arg" == "-D" || "$arg" == "--cluster-domain" ]]; then
                 # Do again in the next iteration
-                state="storage-class-name"
-
-            elif [[ "$arg" == "-r" || "$arg" == "--registry" ]]; then
-                # PArse the value next iteration
-                state="registry"
-
-            elif [[ "$arg" == "-c" || "$arg" == "--cluster-domain" ]]; then
-                # PArse the value next iteration
                 state="cluster-domain"
+
+            elif [[ "$arg" == "-d" || "$arg" == "--data-storage-name" ]]; then
+                # Do again in the next iteration
+                state="data-storage-name"
+
+            elif [[ "$arg" == "-c" || "$arg" == "--config-storage-name" ]]; then
+                # Do again in the next iteration
+                state="config-storage-name"
 
             elif [[ "$arg" == "-k" || "$arg" == "--keep-registry" ]]; then
                 keep_registry=1
@@ -260,20 +267,20 @@ for arg in "${cli_args[@]}"; do
                 echo "                         omitted, defaults to 'local'."
                 echo ""
                 echo "Options:"
-                echo "  -d,--dev,--development If given, compiles the Brane instance (and other executables) in"
+                echo "  --dev,--development    If given, compiles the Brane instance (and other executables) in"
                 echo "                         development mode. This includes building them in debug mode instead of"
                 echo "                         release, faster instance build times by building on-disk and adding"
                 echo "                         '--debug' flags to all instance services."
                 echo "     --targets           Lists all possible targets in the make script, then quits."
-                echo "  -s,--storage-class-name <name>"
-                echo "                         The name of the storage class to which to attach the POD persistent"
-                echo "                         storage."
-                echo "  -r,--registry <address>"
-                echo "                         The address (as \"hostname[:port]\") where the local image registry can be"
-                echo "                         found of the Brane instance. Default: \"127.0.0.1:50050\""
-                echo "  -c,--cluster-domain <domain>"
-                echo "                         The name of the cluster, used for generating resolveable service DNS names."
-                echo "                         Default: \"cluster.local\""
+                echo "  -D,--cluster-domain <name>"
+                echo "                         The domain name of the cluster where the Brane control plane services live."
+                echo "                         Default: 'cluster.local'"
+                echo "  -d,--data-storage-name <name>"
+                echo "                         The name of the storage class where the '/data' volume will be stored."
+                echo "                         Default: 'brane-data-storage'"
+                echo "  -c,--config-storage-name <name>"
+                echo "                         The name of the storage class that contains the infra.yml and secrets.yml"
+                echo "                         files. Default: 'brane-config-storage'"
                 echo "  -k,--keep-registry     If given, does not delete the registry in a remote Kubernetes environment"
                 echo "                         when running 'stop-instance-k8s'."
                 echo "  -h,--help              Shows this help menu, then quits."
@@ -306,36 +313,6 @@ for arg in "${cli_args[@]}"; do
             ((pos_i=pos_i+1))
         fi
 
-    elif [[ "$state" == "storage-class-name" ]]; then
-        # Switch between option or not
-        if [[ "$allow_opts" -eq 1 && "$arg" =~ ^- ]]; then
-            echo "Missing value for '--storage-class-name'"
-            errored=1
-
-        else
-            # Simply set it
-            storage_class_name="$arg"
-
-        fi
-
-        # Move back to the main state
-        state="start"
-
-    elif [[ "$state" == "registry" ]]; then
-        # Switch between option or not
-        if [[ "$allow_opts" -eq 1 && "$arg" =~ ^- ]]; then
-            echo "Missing value for '--registry'"
-            errored=1
-
-        else
-            # Simply set it
-            registry="$arg"
-
-        fi
-
-        # Move back to the main state
-        state="start"
-
     elif [[ "$state" == "cluster-domain" ]]; then
         # Switch between option or not
         if [[ "$allow_opts" -eq 1 && "$arg" =~ ^- ]]; then
@@ -351,6 +328,36 @@ for arg in "${cli_args[@]}"; do
         # Move back to the main state
         state="start"
 
+    elif [[ "$state" == "data-storage-name" ]]; then
+        # Switch between option or not
+        if [[ "$allow_opts" -eq 1 && "$arg" =~ ^- ]]; then
+            echo "Missing value for '--data-storage-name'"
+            errored=1
+
+        else
+            # Simply set it
+            data_storage_name="$arg"
+
+        fi
+
+        # Move back to the main state
+        state="start"
+
+    elif [[ "$state" == "config-storage-name" ]]; then
+        # Switch between option or not
+        if [[ "$allow_opts" -eq 1 && "$arg" =~ ^- ]]; then
+            echo "Missing value for '--config-storage-name'"
+            errored=1
+
+        else
+            # Simply set it
+            config_storage_name="$arg"
+
+        fi
+
+        # Move back to the main state
+        state="start"
+
     else
         echo "ERROR: Unknown state '$state'"
         exit 1
@@ -359,12 +366,16 @@ for arg in "${cli_args[@]}"; do
 done
 
 # If we're not in a start state, we didn't exist cleanly (missing values)
-if [[ "$state" == "storage-class-name" ]]; then
-    echo "Missing value for '--storage-class-name'"
+if [[ "$state" == "cluster-domain" ]]; then
+    echo "Missing value for '--cluster-domain'"
     errored=1
 
-elif [[ "$state" == "registry" ]]; then
-    echo "Missing value for '--registry'"
+elif [[ "$state" == "data-storage-name" ]]; then
+    echo "Missing value for '--data-storage-name'"
+    errored=1
+
+elif [[ "$state" == "config-storage-name" ]]; then
+    echo "Missing value for '--config-storage-name'"
     errored=1
 
 elif [[ "$state" != "start" ]]; then
@@ -617,18 +628,18 @@ elif [[ "$target" == "ensure-docker-network" ]]; then
 # Makes sure that the required infrastructure files are there
 elif [[ "$target" == "ensure-configuration" ]]; then
     # Check infra.yml
-    if [[ -f ./infra.yml ]]; then
-        echo "infra.yml exists"
+    if [[ -f ./config/infra.yml ]]; then
+        echo "'./config/infra.yml' exists"
     else
-        echo "Missing 'infra.yml'; provide one before running the Brane instance" >&2
+        echo "Missing './config/infra.yml'; provide one before running the Brane instance" >&2
         exit 1
     fi
 
     # Check secrets.yml
-    if [[ -f ./infra.yml ]]; then
-        echo "secrets.yml exists"
+    if [[ -f ./config/infra.yml ]]; then
+        echo "'./config/secrets.yml' exists"
     else
-        echo "Missing 'secrets.yml'; provide one before running the Brane instance" >&2
+        echo "Missing './config/secrets.yml'; provide one before running the Brane instance" >&2
         exit 1
     fi
 
@@ -718,10 +729,28 @@ elif [[ "$target" == "start-brn-k8s" ]]; then
         exit 1
     fi
 
+    # Copy all of the kube files to /tmp to have a better interface with per-run replacement values
+    exec_step mkdir -p ./target/kube-resolved
+    for svc in "${BRANE_INSTANCE_SERVICES[@]}"; do
+        exec_step rm -f "./target/kube-resolved/$svc.yaml"
+        exec_step cp "./kube/$svc.yaml" "./target/kube-resolved/$svc.yaml"
 
+        # Replace any reference to the cluster domain
+        exec_step sed -i "s/$K8S_DOMAIN_REPLACE/$cluster_domain/" "./target/kube-resolved/$svc.yaml"
+
+        # Replace the data volumes
+        if [[ "$svc" == "aux-minio" ]]; then
+            exec_step sed -i "s/$K8S_DATA_SC_REPLACE/$data_storage_name/" "./target/kube-resolved/$svc.yaml"
+        fi
+
+        # Replace the config volumes
+        if [[ "$svc" == "brane-drv" || "$svc" == "brane-job" || "$svc" == "brane-plr" ]]; then
+            exec_step sed -i "s/$K8S_CONFIG_SC_REPLACE/$config_storage_name/" "./target/kube-resolved/$svc.yaml"
+        fi
+    done
 
     # Deploy the registry first
-    exec_step kubectl -n brane-control apply -f ./kube/aux-registry.yaml
+    exec_step kubectl -n brane-control apply -f ./target/kube-resolved/aux-registry.yaml
 
     # Wait until the service is up and running
     echo "Waiting for registry to come online..."
@@ -746,7 +775,7 @@ elif [[ "$target" == "start-brn-k8s" ]]; then
         if [[ "$svc" == "aux-registry" ]]; then continue; fi
 
         # Apply the service
-        exec_step kubectl -n brane-control apply -f "./kube/$svc.yaml"
+        exec_step kubectl -n brane-control apply -f "./target/kube-resolved/$svc.yaml"
 
         # Wait until the service is online (but only if not a once service)
         if [[ ! "$svc" =~ ^once- && "$svc" != "brane-networkpolicy" ]]; then block_until_ready "$svc"; fi
@@ -767,15 +796,10 @@ elif [[ "$target" == "stop-brn-k8s" ]]; then
     # Simply reverse the files we ran
     for svc in "${BRANE_INSTANCE_SERVICES[@]}" brane-networkpolicy; do
         # Only do the registry if allowed
-        if [[ "$svc" == "aux-registry" ]]; then
-            if [[ "$keep_registry" -eq 0 ]]; then
-                exec_step kubectl -n brane-control delete --ignore-not-found=true -f "./kube/$svc.yaml"
-            fi
-            continue
-        fi
+        if [[ "$svc" == "aux-registry" && "$keep_registry" -eq 1 ]]; then continue; fi
 
         # For any other, always try to delete
-        exec_step kubectl -n brane-control delete --ignore-not-found=true -f "./kube/$svc.yaml"
+        exec_step kubectl -n brane-control delete --ignore-not-found=true -f "./target/kube-resolved/$svc.yaml"
     done
 
     # Done

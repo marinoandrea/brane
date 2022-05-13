@@ -52,7 +52,7 @@ struct Opts {
     #[clap(short, long, default_value = "brane-drv")]
     group_id: String,
     /// Infra metadata store
-    #[clap(short, long, default_value = "./infra.yml", env = "INFRA")]
+    #[clap(short, long, default_value = "/config/infra.yml", env = "INFRA")]
     infra: String,
 }
 /*******/

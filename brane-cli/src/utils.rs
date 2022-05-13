@@ -4,7 +4,7 @@
  * Created:
  *   21 Feb 2022, 14:43:30
  * Last edited:
- *   28 Mar 2022, 12:10:00
+ *   09 May 2022, 15:07:10
  * Auto updated?
  *   Yes
  *
@@ -21,6 +21,7 @@ use std::process::{Command, Stdio};
 use std::str::FromStr;
 
 use bollard::Docker;
+use log::warn;
 
 use specifications::package::PackageKind;
 use specifications::version::Version;
@@ -87,15 +88,18 @@ pub async fn check_dependencies() -> Result<Result<(), DependencyError>, UtilErr
     };
 
     // Try to convert the version number to a semver
-    let docker_version = match Version::from_str(&docker_version) {
-        Ok(docker_version) => docker_version,
-        Err(err)           => { return Err(UtilError::IllegalDockerVersion{ version: docker_version, err }); }
+    match Version::from_str(&docker_version) {
+        Ok(docker_version) => {
+            // Compare it with the required instance
+            if docker_version < MIN_DOCKER_VERSION {
+                return Ok(Err(DependencyError::DockerMinNotMet{ got: docker_version, expected: MIN_DOCKER_VERSION }));
+            }
+        },
+        Err(err) => {
+            warn!("{}", UtilError::IllegalDockerVersion{ version: docker_version, err });
+            warn!("Assuming Docker version is valid");
+        },
     };
-
-    // Compare it with the required instance
-    if docker_version < MIN_DOCKER_VERSION {
-        return Ok(Err(DependencyError::DockerMinNotMet{ got: docker_version, expected: MIN_DOCKER_VERSION }));
-    }
 
 
 
@@ -117,7 +121,11 @@ pub async fn check_dependencies() -> Result<Result<(), DependencyError>, UtilErr
     // Get the second when splitting on spaces
     let buildx_version = match buildx_version.split(' ').nth(1) {
         Some(buildx_version) => buildx_version,
-        None                 => { return Err(UtilError::BuildxVersionNoParts{ version: buildx_version }); }
+        None => {
+            warn!("{}", UtilError::BuildxVersionNoParts{ version: buildx_version });
+            warn!("Assuming Docker Buildx version is valid");
+            return Ok(Ok(()));
+        }
     };
 
     // Remove the first v
@@ -127,21 +135,30 @@ pub async fn check_dependencies() -> Result<Result<(), DependencyError>, UtilErr
         return Err(UtilError::BuildxVersionNoV{ version: buildx_version.to_string() });
     };
 
-    // Parse the first part up to a dash
-    let buildx_version = match buildx_version.find('-') {
-        Some(dash_pos) => buildx_version[..dash_pos].to_string(),
-        None           => { return Err(UtilError::BuildxVersionNoDash{ version: buildx_version.to_string() }); }
-    };
+    // Consume the valid version number parts
+    let mut buildx_version_raw = String::with_capacity(5);
+    for c in buildx_version.chars() {
+        // Either consume or stop consuming
+        if (c as u32 >= '0' as u32 && c as u32 <= '9' as u32) || c == '.' {
+            buildx_version_raw.push(c);
+        } else {
+            break;
+        }
+    }
 
     // Finally, try to convert into a semantic version number
-    let buildx_version = match Version::from_str(&buildx_version) {
+    let buildx_version = match Version::from_str(&buildx_version_raw) {
         Ok(buildx_version) => buildx_version,
-        Err(err)           => { return Err(UtilError::IllegalBuildxVersion{ version: buildx_version, err }); }
+        Err(err) => {
+            warn!("{}", UtilError::IllegalBuildxVersion{ version: buildx_version_raw, err });
+            warn!("Assuming Docker Buildx version is valid");
+            return Ok(Ok(()));
+        }
     };
 
     // With that all done, compare it with the required
     if buildx_version < MIN_BUILDX_VERSION {
-        return Ok(Err(DependencyError::BuildKitMinNotMet{ got: docker_version, expected: MIN_BUILDX_VERSION }));
+        return Ok(Err(DependencyError::BuildKitMinNotMet{ got: buildx_version, expected: MIN_BUILDX_VERSION }));
     }
 
 

@@ -55,11 +55,11 @@ spec:
       containers:
         - env:
             - name: BROKERS
-              value: aux-kafka.brane-control.svc.cluster.local:29092
+              value: aux-kafka.brane-control.svc.%BRANE_CLUSTER_DOMAIN%:29092
             - name: EVENT_TOPIC
               value: job-evt
             - name: SCYLLA
-              value: aux-scylla.brane-control.svc.cluster.local:9042
+              value: aux-scylla.brane-control.svc.%BRANE_CLUSTER_DOMAIN%:9042
           image: 127.0.0.1:50050/brane-log:latest
           name: brane-log
           ports:

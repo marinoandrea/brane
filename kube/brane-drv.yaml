@@ -57,17 +57,41 @@ spec:
             - name: ADDRESS
               value: 0.0.0.0:50053
             - name: BROKERS
-              value: aux-kafka.brane-control.svc.cluster.local:29092
+              value: aux-kafka.brane-control.svc.%BRANE_CLUSTER_DOMAIN%:29092
             - name: COMMAND_TOPIC
               value: drv-cmd
             - name: EVENT_TOPIC
               value: job-evt
             - name: GRAPHQL_URL
-              value: http://brane-api.brane-control.svc.cluster.local:50051/graphql
+              value: http://brane-api.brane-control.svc.%BRANE_CLUSTER_DOMAIN%:50051/graphql
           image: 127.0.0.1:50050/brane-drv:latest
           name: brane-drv
           ports:
             - containerPort: 50053
           resources: {}
+          volumeMounts:
+            - mountPath: /config
+              name: brane-drv-config
       restartPolicy: Always
+      volumes:
+        - name: brane-drv-config
+          persistentVolumeClaim:
+            claimName: brane-drv-config
+            readOnly: true
+status: {}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  creationTimestamp: null
+  labels:
+    io.kompose.service: brane-drv-config
+  name: brane-drv-config
+spec:
+  accessModes:
+    - ReadOnlyMany
+  resources:
+    requests:
+      storage: 100Mi
+  storageClassName: %BRANE_CONFIG_STORAGE%
 status: {}

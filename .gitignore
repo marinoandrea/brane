@@ -235,12 +235,7 @@ _site/
 .jekyll-metadata
 
 ### Brane sensitive configs ###
-vault.yml
-secrets.yml
-infra*.yml
-
-### Kubernetes configs ###
-config.yml
+/config/
 
 ### macOS ###
 .DS_Store

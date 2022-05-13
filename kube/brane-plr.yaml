@@ -44,7 +44,7 @@ spec:
       containers:
         - env:
             - name: BROKERS
-              value: aux-kafka.brane-control.svc.cluster.local:29092
+              value: aux-kafka.brane-control.svc.%BRANE_CLUSTER_DOMAIN%:29092
             - name: COMMAND_FROM_TOPIC
               value: drv-cmd
             - name: COMMAND_TO_TOPIC
@@ -52,5 +52,30 @@ spec:
           image: 127.0.0.1:50050/brane-plr:latest
           name: brane-plr
           resources: {}
+          volumeMounts:
+            - mountPath: /config
+              name: brane-plr-config
       restartPolicy: Always
+      volumes:
+        - name: brane-plr-config
+          persistentVolumeClaim:
+            claimName: brane-plr-config
+            readOnly: true
 status: {}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  creationTimestamp: null
+  labels:
+    io.kompose.service: brane-plr-config
+  name: brane-plr-config
+spec:
+  accessModes:
+    - ReadOnlyMany
+  resources:
+    requests:
+      storage: 100Mi
+  storageClassName: %BRANE_CONFIG_STORAGE%
+status: {}
+

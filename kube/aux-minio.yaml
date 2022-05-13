@@ -69,12 +69,12 @@ spec:
           resources: {}
           volumeMounts:
             - mountPath: /data
-              name: data
+              name: brane-data
       restartPolicy: Always
       volumes:
-        - name: data
+        - name: brane-data
           persistentVolumeClaim:
-            claimName: data
+            claimName: brane-data
 status: {}
 ---
 apiVersion: v1
@@ -82,13 +82,13 @@ kind: PersistentVolumeClaim
 metadata:
   creationTimestamp: null
   labels:
-    io.kompose.service: data
-  name: data
+    io.kompose.service: brane-data
+  name: brane-data
 spec:
   accessModes:
     - ReadWriteOnce
   resources:
     requests:
       storage: 100Mi
-  storageClassName: my-local-storage
+  storageClassName: %BRANE_DATA_STORAGE%
 status: {}
