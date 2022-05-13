@@ -2,13 +2,14 @@
 
 All notable changes to the Brane framework will be documented in this file.
 
-## [0.6.1] - 2022-05-12
+## [0.6.1] - 2022-05-13
 ### Added
 - The code of the "Hello, world!" example in the documentation.
 
 ### Changed
 - `brane-drv`, `brane-job` and `brane-plr` services to accept `infra.yml` and `secrets.yml` via a shared folder again.
 - `brane test` no longer printing useless 'Please provide input for the chosen function' statement if the function has no inputs.
+- The `kube` dependencies in `brane-job` to be pushed to `0.72`, and bumping Kube API version to 1.23.
 
 ### Fixed
 - An issue with the `brane-cli` dependency checker where it would fail if it cannot read the Docker Buildx version. This is now patched to be a) slightly more free in what it can parse, and b) not error anymore when it sees an invalid version number but throw a warning instead.
