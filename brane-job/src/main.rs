@@ -414,12 +414,8 @@ fn handle_clb_message(
     info!("Received {} callback (key: {}).", kind, key);
     debug!("{:?}", callback);
 
-    // Call the handlers
-    match kind {
-        // Do not handle the heartbeat separately, as we actually want it to reach the driver
-        // CallbackKind::Heartbeat => clb_heartbeat::handle(callback),
-        _ => clb_lifecycle::handle(callback),
-    }
+    // Call the handler
+    clb_lifecycle::handle(callback)
 }
 /*******/
 

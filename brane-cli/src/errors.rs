@@ -4,7 +4,7 @@
  * Created:
  *   17 Feb 2022, 10:27:28
  * Last edited:
- *   09 May 2022, 15:01:54
+ *   23 May 2022, 10:40:28
  * Auto updated?
  *   Yes
  *
@@ -201,74 +201,80 @@ pub enum BuildError {
     DigestFileCreateError{ path: PathBuf, err: std::io::Error },
     /// Could not write to the resulting digest.txt file
     DigestFileWriteError{ path: PathBuf, err: std::io::Error },
+
+    /// Could not get the host architecture
+    HostArchError{ err: specifications::arch::ArchError },
 }
 
 impl Display for BuildError {
     fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
+        use BuildError::*;
         match self {
-            BuildError::ContainerInfoOpenError{ file, err }  => write!(f, "Could not open the container info file '{}': {}", file.display(), err),
-            BuildError::ContainerInfoParseError{ file, err } => write!(f, "Could not parse the container info file '{}': {}", file.display(), err),
-            BuildError::PackageDirError{ err }               => write!(f, "Could not create package directory: '{}'", err),
+            ContainerInfoOpenError{ file, err }  => write!(f, "Could not open the container info file '{}': {}", file.display(), err),
+            ContainerInfoParseError{ file, err } => write!(f, "Could not parse the container info file '{}': {}", file.display(), err),
+            PackageDirError{ err }               => write!(f, "Could not create package directory: '{}'", err),
 
-            BuildError::OasDocumentParseError{ file, err } => write!(f, "Could not parse the OAS Document '{}': {}", file.display(), err),
-            BuildError::VersionParseError{ err }           => write!(f, "Could not parse OAS Document version number: {}", err),
-            BuildError::PackageInfoFromOpenAPIError{ err } => write!(f, "Could not convert the OAS Document into a Package Info file: {}", err),
+            OasDocumentParseError{ file, err } => write!(f, "Could not parse the OAS Document '{}': {}", file.display(), err),
+            VersionParseError{ err }           => write!(f, "Could not parse OAS Document version number: {}", err),
+            PackageInfoFromOpenAPIError{ err } => write!(f, "Could not convert the OAS Document into a Package Info file: {}", err),
 
-            BuildError::LockFileExists{ path }        => write!(f, "The build directory '{}' is busy; try again later (a lock file exists)", path.display()),
-            BuildError::LockCreateError{ path, err }  => write!(f, "Could not create lock file '{}': {}", path.display(), err),
-            BuildError::LockCleanupError{ path, err } => write!(f, "Could not clean the lock file ('{}') from build directory: {}", path.display(), err),
+            LockFileExists{ path }        => write!(f, "The build directory '{}' is busy; try again later (a lock file exists)", path.display()),
+            LockCreateError{ path, err }  => write!(f, "Could not create lock file '{}': {}", path.display(), err),
+            LockCleanupError{ path, err } => write!(f, "Could not clean the lock file ('{}') from build directory: {}", path.display(), err),
 
-            BuildError::DockerfileStrWriteError{ err } => write!(f, "Could not write to the internal DockerFile: {}", err),
-            BuildError::UnsafePath{ path }             => write!(f, "File '{}' tries to escape package working directory; consider moving Brane's working directory up (using --workdir) and avoid '..'", path),
-            BuildError::MissingExecutable{ path }      => write!(f, "Could not find the package entrypoint '{}'", path.display()),
+            DockerfileStrWriteError{ err } => write!(f, "Could not write to the internal DockerFile: {}", err),
+            UnsafePath{ path }             => write!(f, "File '{}' tries to escape package working directory; consider moving Brane's working directory up (using --workdir) and avoid '..'", path),
+            MissingExecutable{ path }      => write!(f, "Could not find the package entrypoint '{}'", path.display()),
 
-            BuildError::DockerfileCreateError{ path, err }                  => write!(f, "Could not create Dockerfile '{}': {}", path.display(), err),
-            BuildError::DockerfileWriteError{ path, err }                   => write!(f, "Could not write to Dockerfile '{}': {}", path.display(), err),
-            BuildError::ContainerDirCreateError{ path, err }                => write!(f, "Could not create container directory '{}': {}", path.display(), err),
-            BuildError::BraneletCanonicalizeError{ path, err }              => write!(f, "Could not resolve custom init binary path '{}': {}", path.display(), err),
-            BuildError::BraneletCopyError{ source, target, err }            => write!(f, "Could not copy custom init binary from '{}' to '{}': {}", source.display(), target.display(), err),
-            BuildError::WdClearError{ path, err }                           => write!(f, "Could not clear existing package working directory '{}': {}", path.display(), err),
-            BuildError::WdCreateError{ path, err }                          => write!(f, "Could not create package working directory '{}': {}", path.display(), err),
-            BuildError::LocalContainerInfoCreateError{ err }                => write!(f, "Could not write local container info to container directory: {}", err),
-            BuildError::WdSourceFileCanonicalizeError{ path, err }          => write!(f, "Could not resolve file '{}' in the package info file: {}", path.display(), err),
-            BuildError::WdTargetFileCanonicalizeError{ path, err }          => write!(f, "Could not resolve file '{}' in the package working directory: {}", path.display(), err),
-            BuildError::WdDirCreateError{ path, err }                       => write!(f, "Could not create directory '{}' in the package working directory: {}", path.display(), err),
+            DockerfileCreateError{ path, err }                  => write!(f, "Could not create Dockerfile '{}': {}", path.display(), err),
+            DockerfileWriteError{ path, err }                   => write!(f, "Could not write to Dockerfile '{}': {}", path.display(), err),
+            ContainerDirCreateError{ path, err }                => write!(f, "Could not create container directory '{}': {}", path.display(), err),
+            BraneletCanonicalizeError{ path, err }              => write!(f, "Could not resolve custom init binary path '{}': {}", path.display(), err),
+            BraneletCopyError{ source, target, err }            => write!(f, "Could not copy custom init binary from '{}' to '{}': {}", source.display(), target.display(), err),
+            WdClearError{ path, err }                           => write!(f, "Could not clear existing package working directory '{}': {}", path.display(), err),
+            WdCreateError{ path, err }                          => write!(f, "Could not create package working directory '{}': {}", path.display(), err),
+            LocalContainerInfoCreateError{ err }                => write!(f, "Could not write local container info to container directory: {}", err),
+            WdSourceFileCanonicalizeError{ path, err }          => write!(f, "Could not resolve file '{}' in the package info file: {}", path.display(), err),
+            WdTargetFileCanonicalizeError{ path, err }          => write!(f, "Could not resolve file '{}' in the package working directory: {}", path.display(), err),
+            WdDirCreateError{ path, err }                       => write!(f, "Could not create directory '{}' in the package working directory: {}", path.display(), err),
             BuildError::WdFileCopyError{ source, target, err }              => write!(f, "Could not copy file '{}' to '{}' in the package working directory: {}", source.display(), target.display(), err),
-            BuildError::WdDirCopyError{ source, target, err }               => write!(f, "Could not copy directory '{}' to '{}' in the package working directory: {}", source.display(), target.display(), err),
-            BuildError::WdCompressionLaunchError{ command, err }            => write!(f, "Could not run command '{}' to compress working directory: {}", command, err),
-            BuildError::WdCompressionError{ command, code, stdout, stderr } => write!(f, "Command '{}' to compress working directory returned exit code {}:\n\nstdout:\n{}\n{}\n{}\n\nstderr:\n{}\n{}\n{}\n\n", command, code, *CLI_LINE_SEPARATOR, stdout, *CLI_LINE_SEPARATOR, *CLI_LINE_SEPARATOR, stderr, *CLI_LINE_SEPARATOR),
+            WdDirCopyError{ source, target, err }               => write!(f, "Could not copy directory '{}' to '{}' in the package working directory: {}", source.display(), target.display(), err),
+            WdCompressionLaunchError{ command, err }            => write!(f, "Could not run command '{}' to compress working directory: {}", command, err),
+            WdCompressionError{ command, code, stdout, stderr } => write!(f, "Command '{}' to compress working directory returned exit code {}:\n\nstdout:\n{}\n{}\n{}\n\nstderr:\n{}\n{}\n{}\n\n", command, code, *CLI_LINE_SEPARATOR, stdout, *CLI_LINE_SEPARATOR, *CLI_LINE_SEPARATOR, stderr, *CLI_LINE_SEPARATOR),
 
-            BuildError::OpenAPISerializeError{ err }        => write!(f, "Could not re-serialize OpenAPI document: {}", err),
-            BuildError::OpenAPIFileCreateError{ path, err } => write!(f, "Could not create OpenAPI file '{}': {}", path.display(), err),
-            BuildError::OpenAPIFileWriteError{ path, err }  => write!(f, "Could not write to OpenAPI file '{}': {}", path.display(), err),
+            OpenAPISerializeError{ err }        => write!(f, "Could not re-serialize OpenAPI document: {}", err),
+            OpenAPIFileCreateError{ path, err } => write!(f, "Could not create OpenAPI file '{}': {}", path.display(), err),
+            OpenAPIFileWriteError{ path, err }  => write!(f, "Could not write to OpenAPI file '{}': {}", path.display(), err),
 
-            // BuildError::PackageFileCreateError{ path, err }     => write!(f, "Could not create file '{}' within the package directory: {}", path.display(), err),
-            // BuildError::PackageFileWriteError{ path, err }      => write!(f, "Could not write to file '{}' within the package directory: {}", path.display(), err),
-            // BuildError::ContainerInfoSerializeError{ err }      => write!(f, "Could not re-serialize container.yml: {}", err),
-            // BuildError::LocalContainerInfoSerializeError{ err } => write!(f, "Could not re-serialize container.yml as local_container.yml: {}", err),
-            // BuildError::PackageInfoSerializeError{ err }        => write!(f, "Could not serialize generated package info file: {}", err),
+            // PackageFileCreateError{ path, err }     => write!(f, "Could not create file '{}' within the package directory: {}", path.display(), err),
+            // PackageFileWriteError{ path, err }      => write!(f, "Could not write to file '{}' within the package directory: {}", path.display(), err),
+            // ContainerInfoSerializeError{ err }      => write!(f, "Could not re-serialize container.yml: {}", err),
+            // LocalContainerInfoSerializeError{ err } => write!(f, "Could not re-serialize container.yml as local_container.yml: {}", err),
+            // PackageInfoSerializeError{ err }        => write!(f, "Could not serialize generated package info file: {}", err),
 
-            BuildError::BuildKitLaunchError{ command, err }            => write!(f, "Could not determine if Docker & BuildKit are installed: failed to run command '{}': {}", command, err),
-            BuildError::BuildKitError{ command, code, stdout, stderr } => write!(f, "Could not run a Docker BuildKit (command '{}' returned exit code {}): is BuildKit installed?\n\nstdout:\n{}\n{}\n{}\n\nstderr:\n{}\n{}\n{}\n\n", command, code, *CLI_LINE_SEPARATOR, stdout, *CLI_LINE_SEPARATOR, *CLI_LINE_SEPARATOR, stderr,*CLI_LINE_SEPARATOR),
-            BuildError::ImageBuildLaunchError{ command, err }          => write!(f, "Could not run command '{}' to build the package image: {}", command, err),
-            BuildError::ImageBuildError{ command, code }               => write!(f, "Command '{}' to build the package image returned exit code {}", command, code),
+            BuildKitLaunchError{ command, err }            => write!(f, "Could not determine if Docker & BuildKit are installed: failed to run command '{}': {}", command, err),
+            BuildKitError{ command, code, stdout, stderr } => write!(f, "Could not run a Docker BuildKit (command '{}' returned exit code {}): is BuildKit installed?\n\nstdout:\n{}\n{}\n{}\n\nstderr:\n{}\n{}\n{}\n\n", command, code, *CLI_LINE_SEPARATOR, stdout, *CLI_LINE_SEPARATOR, *CLI_LINE_SEPARATOR, stderr,*CLI_LINE_SEPARATOR),
+            ImageBuildLaunchError{ command, err }          => write!(f, "Could not run command '{}' to build the package image: {}", command, err),
+            ImageBuildError{ command, code }               => write!(f, "Command '{}' to build the package image returned exit code {}", command, code),
 
-            BuildError::DigestError{ err }            => write!(f, "Could not get Docker image digest: {}", err),
-            BuildError::PackageFileCreateError{ err } => write!(f, "Could not write package info to build directory: {}", err),
+            DigestError{ err }            => write!(f, "Could not get Docker image digest: {}", err),
+            PackageFileCreateError{ err } => write!(f, "Could not write package info to build directory: {}", err),
 
             // BuildError::DockerCleanupError{ image, err } => write!(f, "Could not remove existing image '{}' from docker daemon: {}", image, err),
-            BuildError::FileCleanupError{ path, err } => write!(f, "Could not clean file '{}' from build directory: {}", path.display(), err),
-            BuildError::DirCleanupError{ path, err }  => write!(f, "Could not clean directory '{}' from build directory: {}", path.display(), err),
-            BuildError::CleanupError{ path, err }     => write!(f, "Could not clean build directory '{}': {}", path.display(), err),
+            FileCleanupError{ path, err } => write!(f, "Could not clean file '{}' from build directory: {}", path.display(), err),
+            DirCleanupError{ path, err }  => write!(f, "Could not clean directory '{}' from build directory: {}", path.display(), err),
+            CleanupError{ path, err }     => write!(f, "Could not clean build directory '{}': {}", path.display(), err),
 
-            BuildError::ImageTarOpenError{ path, err }            => write!(f, "Could not open the built image.tar ('{}'): {}", path.display(), err),
-            BuildError::ImageTarEntriesError{ path, err }         => write!(f, "Could get entries in the built image.tar ('{}'): {}", path.display(), err),
-            BuildError::ManifestParseError{ path, err }           => write!(f, "Could not parse extracted Docker manifest '{}': {}", path.display(), err),
-            BuildError::ManifestNotOneEntry{ path, n }            => write!(f, "Extracted Docker manifest '{}' has an incorrect number of entries: got {}, expected 1", path.display(), n),
-            BuildError::ManifestInvalidConfigBlob{ path, config } => write!(f, "Extracted Docker manifest '{}' has an incorrect path to the config blob: got {}, expected it to start with 'blobs/sha256/'", path.display(), config),
-            BuildError::NoManifest{ path }                        => write!(f, "Built image.tar ('{}') does not contain a manifest.json", path.display()),
-            BuildError::DigestFileCreateError{ path, err }        => write!(f, "Could not open digest file '{}': {}", path.display(), err),
-            BuildError::DigestFileWriteError{ path, err }         => write!(f, "Could not write to digest file '{}': {}", path.display(), err),
+            ImageTarOpenError{ path, err }            => write!(f, "Could not open the built image.tar ('{}'): {}", path.display(), err),
+            ImageTarEntriesError{ path, err }         => write!(f, "Could get entries in the built image.tar ('{}'): {}", path.display(), err),
+            ManifestParseError{ path, err }           => write!(f, "Could not parse extracted Docker manifest '{}': {}", path.display(), err),
+            ManifestNotOneEntry{ path, n }            => write!(f, "Extracted Docker manifest '{}' has an incorrect number of entries: got {}, expected 1", path.display(), n),
+            ManifestInvalidConfigBlob{ path, config } => write!(f, "Extracted Docker manifest '{}' has an incorrect path to the config blob: got {}, expected it to start with 'blobs/sha256/'", path.display(), config),
+            NoManifest{ path }                        => write!(f, "Built image.tar ('{}') does not contain a manifest.json", path.display()),
+            DigestFileCreateError{ path, err }        => write!(f, "Could not open digest file '{}': {}", path.display(), err),
+            DigestFileWriteError{ path, err }         => write!(f, "Could not write to digest file '{}': {}", path.display(), err),
+
+            HostArchError{ err } => write!(f, "Could not get host architecture: {}", err),
         }
     }
 }
@@ -351,6 +357,8 @@ impl Error for ReplError {}
 /// Collects errors relating to the version command.
 #[derive(Debug)]
 pub enum VersionError {
+    /// Could not get the host architecture
+    HostArchError{ err: specifications::arch::ArchError },
     /// Could not parse a Version number.
     VersionParseError{ raw: String, err: specifications::version::ParseError },
 
@@ -371,6 +379,7 @@ impl Display for VersionError {
     fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
         use VersionError::*;
         match self {
+            HostArchError{ err }          => write!(f, "Could not get the host processor architecture: {}", err),
             VersionParseError{ raw, err } => write!(f, "Could parse '{}' as Version: {}", raw, err),
 
             ConfigDirError{ err }         => write!(f, "Could not get the Brane configuration directory: {}", err),

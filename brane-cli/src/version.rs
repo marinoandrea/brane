@@ -4,7 +4,7 @@
  * Created:
  *   08 May 2022, 13:31:16
  * Last edited:
- *   08 May 2022, 14:37:46
+ *   23 May 2022, 20:50:07
  * Auto updated?
  *   Yes
  *
@@ -12,12 +12,12 @@
  *   Implements version queriers for the Brane framework.
 **/
 
-use std::fmt::{Display, Formatter, Result as FResult};
 use std::str::FromStr;
 
 use log::debug;
 use reqwest::{Response, StatusCode};
 
+use specifications::arch::Arch;
 use specifications::registry::RegistryConfig;
 use specifications::version::Version;
 
@@ -29,6 +29,8 @@ use crate::utils::get_config_dir;
 /// Struct that is used in querying the local CLI.
 #[derive(Debug)]
 struct LocalVersion {
+    /// The architecture as reported by `uname -m`
+    arch    : Arch,
     /// The version as reported by the env
     version : Version,
 }
@@ -41,7 +43,13 @@ impl LocalVersion {
     /// # Returns
     /// A new LocalVersion instance on success, or else a VersionError.
     fn new() -> Result<Self, VersionError> {
-        // Parse the env first
+        // Parse the architecture
+        let arch = match Arch::host() {
+            Ok(arch) => arch,
+            Err(err) => { return Err(VersionError::HostArchError{ err }); }
+        };
+
+        // Parse the env
         let version = match Version::from_str(env!("CARGO_PKG_VERSION")) {
             Ok(version) => version,
             Err(err)    => { return Err(VersionError::VersionParseError{ raw: env!("CARGO_PKG_VERSION").to_string(), err }); }
@@ -49,17 +57,11 @@ impl LocalVersion {
 
         // Done, return the struct
         Ok(Self {
+            arch,
             version,
         })
     }
     
-}
-
-impl Display for LocalVersion {
-    #[inline]
-    fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
-        write!(f, "{}", self.version)
-    }
 }
 
 
@@ -67,6 +69,8 @@ impl Display for LocalVersion {
 /// Struct that is used in querying the remote CLI.
 #[derive(Debug)]
 struct RemoteVersion {
+    /// The architecture as reported by the remote
+    _arch   : Arch,
     /// The version as downloaded from the remote
     version : Version,
 }
@@ -131,15 +135,9 @@ impl RemoteVersion {
         // Done!
         debug!("Remote version number: {}", &version);
         Ok(Self {
+            _arch : Arch::x86_64,
             version,
         })
-    }
-}
-
-impl Display for RemoteVersion {
-    #[inline]
-    fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
-        write!(f, "{}", self.version)
     }
 }
 
@@ -148,10 +146,19 @@ impl Display for RemoteVersion {
 
 
 /***** HANDLERS *****/
-/// Returns the local version (without any extra text).
-pub fn handle_local() -> Result<(), VersionError> {
+/// Returns the local architecture (without any extra text).
+pub fn handle_local_arch() -> Result<(), VersionError> {
     // Get the local version and print it
-    println!("v{}", LocalVersion::new()?);
+    println!("{}", LocalVersion::new()?.arch);
+
+    // Done
+    Ok(())
+}
+
+/// Returns the local version (without any extra text).
+pub fn handle_local_version() -> Result<(), VersionError> {
+    // Get the local version and print it
+    println!("{}", LocalVersion::new()?.version);
 
     // Done
     Ok(())
@@ -159,10 +166,19 @@ pub fn handle_local() -> Result<(), VersionError> {
 
 
 
-/// Returns the local version (without any extra text).
-pub async fn handle_remote() -> Result<(), VersionError> {
+/// Returns the local architecture (without any extra text).
+pub async fn handle_remote_arch() -> Result<(), VersionError> {
     // Get the remote version and print it
-    println!("v{}", RemoteVersion::new().await?);
+    println!("<TBD>");
+
+    // Done
+    Ok(())
+}
+
+/// Returns the local version (without any extra text).
+pub async fn handle_remote_version() -> Result<(), VersionError> {
+    // Get the remote version and print it
+    println!("{}", RemoteVersion::new().await?.version);
 
     // Done
     Ok(())
@@ -173,9 +189,11 @@ pub async fn handle_remote() -> Result<(), VersionError> {
 /// Returns both the local and possible remote version numbers with some pretty formatting.
 pub async fn handle() -> Result<(), VersionError> {
     // Get the local version first and immediately print
+    let local = LocalVersion::new()?;
     println!();
     println!("Brane CLI client");
-    println!(" - Version: v{}", LocalVersion::new()?);
+    println!(" - Version      : v{}", local.version);
+    println!(" - Architecture : {}", local.arch);
     println!();
 
     // If the registry file exists, then also do the remote
@@ -194,8 +212,9 @@ pub async fn handle() -> Result<(), VersionError> {
         println!("Remote Brane instance at '{}'", &registry.url);
         
         // Get the version
-        let version = RemoteVersion::from_registry_file(registry).await?;
-        println!(" - Version: v{}", version);
+        let remote = RemoteVersion::from_registry_file(registry).await?;
+        println!(" - Version      : v{}", remote.version);
+        println!(" - Architecture : <TBD>");
         println!();
     }
 

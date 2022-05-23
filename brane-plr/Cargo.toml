@@ -1,6 +1,6 @@
 [package]
 name = "brane-plr"
-version = "0.6.1"
+version = "0.6.2"
 authors = ["Onno Valkering", "Tim Müller"]
 edition = "2018"
 

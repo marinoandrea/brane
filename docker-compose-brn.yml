@@ -7,7 +7,7 @@ services:
 
   # Database that contains package metadata
   aux-scylla:
-    image: scylladb/scylla:4.4.3
+    image: scylladb/scylla:4.6.3
     ports:
       - "127.0.0.1:9042:9042"
     command: --smp 1
@@ -26,33 +26,52 @@ services:
     - kompose.service.type=nodeport
     - kompose.service.nodeport.port=50050
 
+  # # Handles events and callbacks throughout the framework
+  # aux-kafka:
+  #   image: confluentinc/cp-kafka:6.2.0
+  #   depends_on:
+  #     - aux-zookeeper
+  #   ports:
+  #     - "127.0.0.1:9092:9092"
+  #   restart: always
+  #   environment:
+  #     KAFKA_BROKER_ID: 0
+  #     KAFKA_ZOOKEEPER_CONNECT: aux-zookeeper:2181
+  #     KAFKA_LISTENERS: DOCKER://aux-kafka:29092,HOST://aux-kafka:9092
+  #     KAFKA_ADVERTISED_LISTENERS: DOCKER://aux-kafka:29092,HOST://localhost:9092
+  #     KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: DOCKER:PLAINTEXT,HOST:PLAINTEXT
+  #     KAFKA_INTER_BROKER_LISTENER_NAME: DOCKER
+  #     KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+  #     KAFKA_NUM_PARTITIONS: 1
+  #     CONFLUENT_SUPPORT_METRICS_ENABLE: 0
+  #   labels:
+  #   - kompose.service.type=nodeport
+  #   - kompose.service.nodeport.port=9092
+
+  # # Zookeeper for Kafka
+  # aux-zookeeper:
+  #   # image: confluentinc/cp-zookeeper:5.5.1
+  #   image: zookeeper:3.8.0
+  #   environment:
+  #     ZOOKEEPER_CLIENT_PORT: "2181"
+  #   restart: always
+
   # Handles events and callbacks throughout the framework
   aux-kafka:
-    image: confluentinc/cp-kafka:6.2.0
-    depends_on:
-      - aux-zookeeper
+    image: ubuntu/kafka:3.1-22.04_beta
     ports:
-      - "127.0.0.1:9092:9092"
+    - "127.0.0.1:9092:9092"
     restart: always
     environment:
-      KAFKA_BROKER_ID: 0
-      KAFKA_ZOOKEEPER_CONNECT: aux-zookeeper:2181
-      KAFKA_LISTENERS: DOCKER://aux-kafka:29092,HOST://aux-kafka:9092
-      KAFKA_ADVERTISED_LISTENERS: DOCKER://aux-kafka:29092,HOST://localhost:9092
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: DOCKER:PLAINTEXT,HOST:PLAINTEXT
-      KAFKA_INTER_BROKER_LISTENER_NAME: DOCKER
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_NUM_PARTITIONS: 1
-      CONFLUENT_SUPPORT_METRICS_ENABLE: 0
+      ZOOKEEPER_HOST: aux-zookeeper
+      ZOOKEEPER_PORT: 2181
     labels:
     - kompose.service.type=nodeport
     - kompose.service.nodeport.port=9092
 
   # Zookeeper for Kafka
   aux-zookeeper:
-    image: confluentinc/cp-zookeeper:5.5.1
-    environment:
-      ZOOKEEPER_CLIENT_PORT: "2181"
+    image: ubuntu/zookeeper:3.1-22.04_beta
     restart: always
 
   # Xenon scheduler, which allows the framework to act as its own domain-local scheduler
@@ -139,7 +158,7 @@ services:
     restart: always
     environment:
       ADDRESS: "0.0.0.0:50052"
-      BROKERS: "aux-kafka:29092"
+      BROKERS: "aux-kafka:9092"
     depends_on:
     - aux-kafka
     labels:
@@ -159,7 +178,7 @@ services:
     - brane-api:brane-api
     environment:
       ADDRESS: "0.0.0.0:50053"
-      BROKERS: "aux-kafka:29092"
+      BROKERS: "aux-kafka:9092"
       COMMAND_TOPIC: drv-cmd
       EVENT_TOPIC: job-evt
       GRAPHQL_URL: "http://brane-api:50051/graphql"
@@ -179,7 +198,7 @@ services:
     - ./config:/config
     - /var/run/docker.sock:/var/run/docker.sock
     environment:
-      BROKERS: "aux-kafka:29092"
+      BROKERS: "aux-kafka:9092"
       CALLBACK_TOPIC: clb
       COMMAND_TOPIC: plr-cmd
       EVENT_TOPIC: job-evt
@@ -196,7 +215,7 @@ services:
     - "127.0.0.1:50055:50055"
     restart: always
     environment:
-      BROKERS: "aux-kafka:29092"
+      BROKERS: "aux-kafka:9092"
       EVENT_TOPIC: job-evt
       SCYLLA: "aux-scylla:9042"
     depends_on:
@@ -213,7 +232,7 @@ services:
     volumes:
     - ./config:/config
     environment:
-      BROKERS: "aux-kafka:29092"
+      BROKERS: "aux-kafka:9092"
       COMMAND_FROM_TOPIC: drv-cmd
       COMMAND_TO_TOPIC: plr-cmd
     depends_on:

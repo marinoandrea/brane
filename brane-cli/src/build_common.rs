@@ -4,7 +4,7 @@
  * Created:
  *   21 Feb 2022, 12:32:28
  * Last edited:
- *   28 Mar 2022, 11:31:00
+ *   23 May 2022, 13:05:36
  * Auto updated?
  *   Yes
  *
@@ -16,6 +16,8 @@
 use std::fs::{self, File};
 use std::path::Path;
 use std::process::Command;
+
+use specifications::arch::Arch;
 
 use crate::errors::BuildError;
 
@@ -46,10 +48,6 @@ pub const BRANELET_URL: &str = concat!(
     concat!("v", env!("CARGO_PKG_VERSION")),
     "/branelet"
 );
-
-/// The URL Which we use to pull the latest JuiceFS executable from.
-pub const JUICE_URL: &str =
-    "https://github.com/juicedata/juicefs/releases/download/v0.12.1/juicefs-0.12.1-linux-amd64.tar.gz";
 
 
 
@@ -134,20 +132,20 @@ pub fn unlock_directory(
 
 
 
-/// **Edited: now returning BuildErrors.**
-/// 
 /// Builds the docker image in the given package directory.
 /// 
-/// **Generic types**
-///  * `P`: The Path-like type of the container directory path.
+/// # Generic types
+///  - `P`: The Path-like type of the container directory path.
 /// 
-/// **Arguments**
-///  * `package_dir`: The build directory for this image. We expect the actual image files to be under ./container.
-///  * `tag`: Tag to give to the image so we can find it later (probably just <package name>:<package version>)
+/// # Arguments
+///  - `arch`: The architecture for which to build this image.
+///  - `package_dir`: The build directory for this image. We expect the actual image files to be under ./container.
+///  - `tag`: Tag to give to the image so we can find it later (probably just <package name>:<package version>)
 /// 
-/// **Returns**  
-/// Nothing if the image was build successfully, or a BuildError otherwise.
+/// # Errors
+/// This function fails if Buildx could not be test-ran, it could not run the Docker build command or the Docker build command did not return a successfull exit code.
 pub fn build_docker_image<P: AsRef<Path>>(
+    arch        : Arch,
     package_dir : P,
     tag         : String,
 ) -> Result<(), BuildError> {
@@ -171,6 +169,12 @@ pub fn build_docker_image<P: AsRef<Path>>(
     command.arg("type=docker,dest=image.tar");
     command.arg("--tag");
     command.arg(tag);
+    command.arg("--platform");
+    command.arg(format!("linux/{}", arch.to_docker()));
+    command.arg("--build-arg");
+    command.arg(format!("GO_ARCH={}", arch.to_go()));
+    command.arg("--build-arg");
+    command.arg(format!("BRANELET_ARCH={}", arch));
     command.arg(".");
     command.current_dir(package_dir);
     let output = match command.status() {

@@ -13,7 +13,8 @@ use log::LevelFilter;
 use tempfile::tempdir;
 
 use brane_cli::{build_ecu, build_oas, packages, registry, repl, run, test, version};
-use brane_cli::errors::{CliError, ImportError};
+use brane_cli::errors::{CliError, BuildError, ImportError};
+use specifications::arch::Arch;
 use specifications::package::PackageKind;
 use specifications::version::Version;
 
@@ -33,6 +34,8 @@ struct Cli {
 enum SubCommand {
     #[clap(name = "build", about = "Build a package")]
     Build {
+        #[clap(short, long, help = "The architecture for which to compile the image.")]
+        arch: Option<Arch>,
         #[clap(short, long, help = "Path to the directory to use as container working directory (defaults to the folder of the package file itself)")]
         workdir: Option<PathBuf>,
         #[clap(name = "FILE", help = "Path to the file to build")]
@@ -47,6 +50,8 @@ enum SubCommand {
 
     #[clap(name = "import", about = "Import a package")]
     Import {
+        #[clap(short, long, help = "The architecture for which to compile the image.")]
+        arch: Option<Arch>,
         #[clap(name = "REPO", help = "Name of the GitHub repository containing the package")]
         repo: String,
         #[clap(short, long, help = "Path to the directory to use as container working directory, relative to the repository (defaults to the folder of the package file itself)")]
@@ -171,6 +176,8 @@ enum SubCommand {
 
     #[clap(name = "version", about = "Shows the version number for this Brane CLI tool and (if logged in) the remote Driver.")]
     Version {
+        #[clap(short, long, help = "If given, shows the architecture instead of the version when using '--local' or '--remote'.")]
+        arch: bool,
         #[clap(short, long, help = "If given, shows the local version in an easy-to-be-parsed format. Note that, if given in combination with '--remote', this one is always reported first.")]
         local: bool,
         #[clap(short, long, help = "If given, shows the remote Driver version in an easy-to-be-parsed format. Note that, if given in combination with '--local', this one is always reported second.")]
@@ -233,6 +240,7 @@ async fn run(options: Cli) -> Result<(), CliError> {
     use SubCommand::*;
     match options.sub_command {
         Build {
+            arch,
             workdir,
             file,
             kind,
@@ -265,14 +273,21 @@ async fn run(options: Cli) -> Result<(), CliError> {
                 }
             };
 
+            // Determine the host architecture
+            let host_arch = match Arch::host() {
+                Ok(arch) => arch,
+                Err(err) => { return Err(CliError::BuildError{ err: BuildError::HostArchError{ err } }); }
+            };
+
             // Build a new package with it
             match kind {
-                PackageKind::Ecu => build_ecu::handle(workdir, file, init, keep_files).await.map_err(|err| CliError::BuildError{ err })?,
-                PackageKind::Oas => build_oas::handle(workdir, file, init, keep_files).await.map_err(|err| CliError::BuildError{ err })?,
+                PackageKind::Ecu => build_ecu::handle(arch.unwrap_or(host_arch), workdir, file, init, keep_files).await.map_err(|err| CliError::BuildError{ err })?,
+                PackageKind::Oas => build_oas::handle(arch.unwrap_or(host_arch), workdir, file, init, keep_files).await.map_err(|err| CliError::BuildError{ err })?,
                 _                => eprintln!("Unsupported package kind: {}", kind),
             }
         }
         Import {
+            arch,
             repo,
             workdir,
             file,
@@ -330,10 +345,16 @@ async fn run(options: Cli) -> Result<(), CliError> {
                 }
             };
 
+            // Determine the host architecture
+            let host_arch = match Arch::host() {
+                Ok(arch) => arch,
+                Err(err) => { return Err(CliError::BuildError{ err: BuildError::HostArchError{ err } }); }
+            };
+
             // Build a new package with it
             match kind {
-                PackageKind::Ecu => build_ecu::handle(workdir, file, init, false).await.map_err(|err| CliError::BuildError{ err })?,
-                PackageKind::Oas => build_oas::handle(workdir, file, init, false).await.map_err(|err| CliError::BuildError{ err })?,
+                PackageKind::Ecu => build_ecu::handle(arch.unwrap_or(host_arch), workdir, file, init, false).await.map_err(|err| CliError::BuildError{ err })?,
+                PackageKind::Oas => build_oas::handle(arch.unwrap_or(host_arch), workdir, file, init, false).await.map_err(|err| CliError::BuildError{ err })?,
                 _                => eprintln!("Unsupported package kind: {}", kind),
             }
         }
@@ -383,11 +404,16 @@ async fn run(options: Cli) -> Result<(), CliError> {
         Unpublish { name, version, force } => {
             if let Err(err) = registry::unpublish(name, version, force).await { return Err(CliError::OtherError{ err }); };
         }
-        Version { local, remote } => {
+        Version { arch, local, remote } => {
             if local || remote {
                 // If any of local or remote is given, do those
-                if local  { if let Err(err) = version::handle_local()        { return Err(CliError::VersionError{ err }); } }
-                if remote { if let Err(err) = version::handle_remote().await { return Err(CliError::VersionError{ err }); } }
+                if arch {
+                    if local  { if let Err(err) = version::handle_local_arch()        { return Err(CliError::VersionError{ err }); } }
+                    if remote { if let Err(err) = version::handle_remote_arch().await { return Err(CliError::VersionError{ err }); } }
+                } else {
+                    if local  { if let Err(err) = version::handle_local_version()        { return Err(CliError::VersionError{ err }); } }
+                    if remote { if let Err(err) = version::handle_remote_version().await { return Err(CliError::VersionError{ err }); } }
+                }
 
             } else {
                 // Print neatly

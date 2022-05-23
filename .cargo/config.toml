@@ -1,4 +1,7 @@
 # # Use the appropriate linker
 # [target.x86_64-unknown-linux-musl]
 # linker = "musl-gcc"
-# rustflags = [ "-C", "link-arg=-Wl,-melf_x86_64" ]
+
+# For building branelet and stuff for M1 macs on Linux:
+[target.aarch64-unknown-linux-musl]
+linker = "aarch64-linux-musl-gcc"

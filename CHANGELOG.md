@@ -2,6 +2,25 @@
 
 All notable changes to the Brane framework will be documented in this file.
 
+## [0.6.2] - 2022-05-23
+### Added
+- Better documentation to the `hello_world` example.
+- `base64` tutorial code (for the [documentation](https://wiki.enablingpersonalizedinterventions.nl/user-guide/software-engineers/base64.html))
+- `filesystem` tutorial code (for the [documentation](https://wiki.enablingpersonalizedinterventions.nl/user-guide/software-engineers/filesystem.html))
+- `github` tutorial code (for the [documentation](https://wiki.enablingpersonalizedinterventions.nl/user-guide/software-engineers/github.html))
+- Support to compile packages for different architectures than the current host using the `--arch` flag. Check the documentation to learn more about dependencies.
+  - Note: cross-compilation does not yet work on M1 macs (due to the [multi-arch image](https://github.com/multiarch/qemu-user-static) [not supporting non-x86_64 hosts](https://github.com/multiarch/qemu-user-static#supported-host-architectures))
+- Support to compile the framework for different architectures using the `--arch` flag in `make.sh`. Check the documentation to learn more about dependencies.
+  - Note: cross-compilation does not yet work on M1 macs (due to the [multi-arch image](https://github.com/multiarch/qemu-user-static) [not supporting non-x86_64 hosts](https://github.com/multiarch/qemu-user-static#supported-host-architectures))
+- Support for building the images using pre-compiled binaries, either downloaded from Github or by manually supplying them.
+
+### Changed
+- From now on, much more binaries will be tied to each release which the `make.sh` script may download.
+
+### Fixed
+- Shared Redis filesystem not working on Kubernetes clusters due to wrong URLs being passed in the `once-format` job.
+- clippy failing again.
+
 ## [0.6.1] - 2022-05-13
 ### Added
 - The code of the "Hello, world!" example in the documentation.
