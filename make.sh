@@ -5,7 +5,7 @@
 # Created:
 #   03 Mar 2022, 17:03:04
 # Last edited:
-#   23 May 2022, 19:46:06
+#   23 May 2022, 21:26:40
 # Auto updated?
 #   Yes
 #
@@ -561,9 +561,9 @@ elif [[ "$target" == "cli" ]]; then
 
             # Try to download using wget (more generally available)
             if [[ -z "$version" ]]; then
-                exec_step wget -O "./target/$rls_dir/brane" "https://github.com/epi-project/brane/releases/downloads/latest/brane-$arch_os"
+                exec_step wget -O "./target/$rls_dir/brane" "https://github.com/epi-project/brane/releases/latest/download/brane-$arch_os"
             else
-                exec_step wget -O "./target/$rls_dir/brane" "https://github.com/epi-project/brane/releases/v$version/downloads/brane-$arch_os"
+                exec_step wget -O "./target/$rls_dir/brane" "https://github.com/epi-project/brane/releases/download/v$version/brane-$arch_os"
             fi
             # Make it executable
             exec_step chmod +x "./target/$rls_dir/brane"
@@ -712,9 +712,9 @@ elif [[ "$target" =~ -image-bin$ ]]; then
     if [[ -z "$precompiled_source" ]]; then
         # Try to download using wget (more generally available)
         if [[ -z "$version" ]]; then
-            exec_step wget -O "./.container-bins/$arch/$image_name" "https://github.com/epi-project/brane/releases/downloads/latest/$image_name-$arch"
+            exec_step wget -O "./.container-bins/$arch/$image_name" "https://github.com/epi-project/brane/releases/latest/download/$image_name-$arch"
         else
-            exec_step wget -O "./.container-bins/$arch/$image_name" "https://github.com/epi-project/brane/releases/v$version/downloads/$image_name-$arch"
+            exec_step wget -O "./.container-bins/$arch/$image_name" "https://github.com/epi-project/brane/releases/download/v$version/$image_name-$arch"
         fi
         precompiled_source="./.container-bins/$arch"
 
