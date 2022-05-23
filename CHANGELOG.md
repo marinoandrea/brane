@@ -19,6 +19,7 @@ All notable changes to the Brane framework will be documented in this file.
 
 ### Fixed
 - Shared Redis filesystem not working on Kubernetes clusters due to wrong URLs being passed in the `once-format` job.
+- clippy failing again.
 
 ## [0.6.1] - 2022-05-13
 ### Added

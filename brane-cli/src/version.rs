@@ -4,7 +4,7 @@
  * Created:
  *   08 May 2022, 13:31:16
  * Last edited:
- *   23 May 2022, 10:47:43
+ *   23 May 2022, 20:50:07
  * Auto updated?
  *   Yes
  *
@@ -169,7 +169,7 @@ pub fn handle_local_version() -> Result<(), VersionError> {
 /// Returns the local architecture (without any extra text).
 pub async fn handle_remote_arch() -> Result<(), VersionError> {
     // Get the remote version and print it
-    println!("{}", "<TBD>");
+    println!("<TBD>");
 
     // Done
     Ok(())
@@ -214,7 +214,7 @@ pub async fn handle() -> Result<(), VersionError> {
         // Get the version
         let remote = RemoteVersion::from_registry_file(registry).await?;
         println!(" - Version      : v{}", remote.version);
-        println!(" - Architecture : {}", "<TBD>");
+        println!(" - Architecture : <TBD>");
         println!();
     }
 
