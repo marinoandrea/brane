@@ -5,7 +5,7 @@
 # Created:
 #   03 Mar 2022, 17:03:04
 # Last edited:
-#   12 May 2022, 10:00:17
+#   23 May 2022, 19:46:06
 # Auto updated?
 #   Yes
 #
@@ -37,8 +37,13 @@ K8S_DATA_SC_REPLACE="%BRANE_DATA_STORAGE%"
 # The to-be-replaced string for the config volume name
 K8S_CONFIG_SC_REPLACE="%BRANE_CONFIG_STORAGE%"
 
+# The host arch
+HOST_ARCH=$(uname -m)
+if [[ "$HOST_ARCH" == "amd64" ]]; then HOST_ARCH="x86_64"; fi
+if [[ "$HOST_ARCH" == "arm64" ]]; then HOST_ARCH="aarch64"; fi
+
 # Lists the generated targets of OpenSSL
-OPENSSL_DIR="$(pwd)/target/openssl"
+OPENSSL_DIR="$(pwd)/target/openssl/$HOST_ARCH"
 OPENSSL_TARGETS=("$OPENSSL_DIR/lib/libcrypto.a" "$OPENSSL_DIR/lib/libssl.a" \
                 "$OPENSSL_DIR/lib/pkgconfig/libcrypto.pc" "$OPENSSL_DIR/lib/pkgconfig/libssl.pc" "$OPENSSL_DIR/lib/pkgconfig/openssl.pc"
                 "$OPENSSL_DIR/include/openssl/aes.h" "$OPENSSL_DIR/include/openssl/asn1err.h" "$OPENSSL_DIR/include/openssl/asn1.h"
@@ -77,7 +82,7 @@ OPENSSL_TARGETS=("$OPENSSL_DIR/lib/libcrypto.a" "$OPENSSL_DIR/lib/libssl.a" \
                 "$OPENSSL_DIR/include/openssl/x509err.h" "$OPENSSL_DIR/include/openssl/x509.h" "$OPENSSL_DIR/include/openssl/x509v3err.h"
                 "$OPENSSL_DIR/include/openssl/x509v3.h" "$OPENSSL_DIR/include/openssl/x509_vfy.h")
 
-# Capture the command line arguments as a separate variable (for the functions)
+# Capture the command line arguments as a separate variable (so we can call the script recursively from within functions)
 cli_args=($@)
 
 
@@ -87,14 +92,14 @@ cli_args=($@)
 ##### HELPER FUNCTIONS #####
 # Helper function that executes a recursive script call
 make_target() {
-    # Make sure there is only one target
-    if [[ "$#" -ne 1 ]]; then
-        echo "Usage: make_target <target>"
+    # Make sure there is at least one target
+    if [[ "$#" -lt 1 ]]; then
+        echo "Usage: make_target <target> [opts...]"
         exit 1
     fi
 
     # Run the recursive call with the error check
-    ./make.sh "$1" ${cli_args[@]:1} || exit $?
+    ./make.sh "$1" ${cli_args[@]:1} "${@:2}" || exit $?
 }
 
 # Helper function that executes a build step
@@ -208,31 +213,71 @@ block_until_ready() {
     done
 }
 
+# Returns the architecture of the current host
+host_arch() {
+    # Make sure Docker is started
+    err=$(docker info 2>&1)
+    res="$?"
+    if [[ "$res" -ne 0 ]]; then
+        echo "$err" 1>&2
+        exit 1
+    fi
+
+    # Return the architecture string
+    echo "$(docker info | grep Architecture: | awk '{print $2}')"
+    exit 0
+}
+
 
 
 
 
 ##### CLI PARSING #####
 target="local"
+precompiled=0
+precompiled_source=""
+version=""
+arch="$(host_arch)"; if [[ -z "$arch" ]]; then exit 1; fi
 development=0
+containerized=0
 cluster_domain="cluster.local"
 data_storage_name="brane-data-storage"
 config_storage_name="brane-config-storage"
 keep_registry=0
 
 state="start"
+i=0
 pos_i=0
 allow_opts=1
 errored=0
-for arg in "${cli_args[@]}"; do
+while [[ "$i" -lt "$#" ]]; do
+    arg=${cli_args[i]}
+
     # Switch between states
     if [[ "$state" == "start" ]]; then
         # Switch between option or not
         if [[ "$allow_opts" -eq 1 && "$arg" =~ ^- ]]; then
             # Match the specific option
-            if [[ "$arg" == "--dev" || "$arg" == "--development" ]]; then
+            if [[ "$arg" == "-a" || "$arg" == "--arch" ]]; then
+                # Move to the arch state to parse its value
+                state="arch"
+
+            elif [[ "$arg" == "--dev" || "$arg" == "--development" ]]; then
                 # Simply check it
                 development=1
+
+            elif [[ "$arg" == "-p" || "$arg" == "--precompiled" ]]; then
+                # Simply check it, but then check if the next one is the optional argument
+                precompiled=1
+                state="precompiled"
+
+            elif [[ "$arg" == "-v" || "$arg" == "--version" ]]; then
+                # go to the associated state to get the actual value
+                state="version"
+
+            elif [[ "$arg" == "-C" || "$arg" == "--containerized" ]]; then
+                # Simply check it
+                containerized=1
 
             elif [[ "$arg" == "--targets" ]]; then            
                 echo ""
@@ -267,10 +312,25 @@ for arg in "${cli_args[@]}"; do
                 echo "                         omitted, defaults to 'local'."
                 echo ""
                 echo "Options:"
+                echo "  -a,--arch <arch>       The architecture for which to compile. Options are: 'x86_64' and 'aarch64'."
+                echo "                         Default: 'x86_64'"
                 echo "  --dev,--development    If given, compiles the Brane instance (and other executables) in"
                 echo "                         development mode. This includes building them in debug mode instead of"
                 echo "                         release, faster instance build times by building on-disk and adding"
                 echo "                         '--debug' flags to all instance services."
+                echo "  -C,--containerized     If given, builds musl-targets in a container instead of via cross-"
+                echo "                         compilation on the host. This should only be desired in building on a mac"
+                echo "                         with Apple Silicon."
+                echo "  -p,--precompiled [<path>]"
+                echo "                         If given, uses precompiled binaries instead of compiling them. If no path"
+                echo "                         is given, then the binaries are downloaded from the repository; otherwise,"
+                echo "                         the ones given by the path are used. For the CLI, the path should point to"
+                echo "                         the executable directly; for the instance, this should point to the"
+                echo "                         containing them."
+                echo "  -v,--version <version> If '--precompiled' is given and this option is, then the script will"
+                echo "                         download the binaries of the specific Brane version. Otherwise, the latest"
+                echo "                         version will be used. Note: give as a triplet of values, without"
+                echo "                         preprending 'v' (e.g., '1.0.0')."
                 echo "     --targets           Lists all possible targets in the make script, then quits."
                 echo "  -D,--cluster-domain <name>"
                 echo "                         The domain name of the cluster where the Brane control plane services live."
@@ -312,6 +372,55 @@ for arg in "${cli_args[@]}"; do
             # Increment the index
             ((pos_i=pos_i+1))
         fi
+
+    elif [[ "$state" == "arch" ]]; then
+        # Switch between option or not
+        if [[ "$allow_opts" -eq 1 && "$arg" =~ ^- ]]; then
+            echo "Missing value for '--arch'"
+            errored=1
+
+        else
+            # Make sure the architectures are valid
+            if [[ "$arg" != "x86_64" && "$arg" != "aarch64" ]]; then
+                echo "Unknown architecture '$arg'"
+                errored=1
+            else
+                # Simply set it
+                arch="$arg"
+            fi
+
+        fi
+
+        # Move back to the main state
+        state="start"
+
+    elif [[ "$state" == "precompiled" ]]; then
+        # Switch between option or not
+        if [[ "$allow_opts" -eq 1 && "$arg" =~ ^- ]]; then
+            # It's an option; retry the value
+            ((i=i-1))
+        else
+            # Store the path
+            precompiled_source="$arg"
+        fi
+
+        # Move back to the main state
+        state="start"
+
+    elif [[ "$state" == "version" ]]; then
+        # Switch between option or not
+        if [[ "$allow_opts" -eq 1 && "$arg" =~ ^- ]]; then
+            echo "Missing value for '--arch'"
+            errored=1
+
+        else
+            # Store the version
+            version="$arg"
+
+        fi
+
+        # Move back to the main state
+        state="start"
 
     elif [[ "$state" == "cluster-domain" ]]; then
         # Switch between option or not
@@ -363,10 +472,21 @@ for arg in "${cli_args[@]}"; do
         exit 1
 
     fi
+
+    # Increment the loop variable
+    ((i=i+1))
 done
 
 # If we're not in a start state, we didn't exist cleanly (missing values)
-if [[ "$state" == "cluster-domain" ]]; then
+if [[ "$state" == "arch" ]]; then
+    echo "Missing value for '--arch'"
+    errored=1
+
+elif [[ "$state" == "version" ]]; then
+    echo "Missing value for '--version'"
+    errored=1
+
+elif [[ "$state" == "cluster-domain" ]]; then
     echo "Missing value for '--cluster-domain'"
     errored=1
 
@@ -378,7 +498,7 @@ elif [[ "$state" == "config-storage-name" ]]; then
     echo "Missing value for '--config-storage-name'"
     errored=1
 
-elif [[ "$state" != "start" ]]; then
+elif [[ "$state" != "start" && "$state" != "precompiled" ]]; then
     echo "ERROR: Unknown state '$state'"
     exit 1
 fi
@@ -418,30 +538,107 @@ elif [[ "$target" == "clean" ]]; then
 ### BINARIES ###
 # Build the command-line interface 
 elif [[ "$target" == "cli" ]]; then
-    # Use cargo to build the project; it manages dependencies and junk
+    # Decide the release flags and dir based on the development flag
+    rls_flags="--release"
+    rls_dir="release"
+    if [[ "$development" -eq 1 ]]; then
+        rls_flags=""
+        rls_dir="debug"
+    fi
 
-    # Switch between the normal or development build
-    if [[ "$development" -eq 0 ]]; then
-        exec_step cargo build --release --package brane-cli
+    # Switch between downloading or not
+    if [[ "$precompiled" -eq 1 ]]; then
+        # Switch between using a path or not
+        if [[ -z "$precompiled_source" ]]; then
+            # Resolve the architecture with the OS info
+            if [[ $OSTYPE =~ ^darwin ]]; then
+                # It's macos
+                arch_os="darwin-$arch"
+            else
+                # It's linux
+                arch_os="linux-$arch"
+            fi
+
+            # Try to download using wget (more generally available)
+            if [[ -z "$version" ]]; then
+                exec_step wget -O "./target/$rls_dir/brane" "https://github.com/epi-project/brane/releases/downloads/latest/brane-$arch_os"
+            else
+                exec_step wget -O "./target/$rls_dir/brane" "https://github.com/epi-project/brane/releases/v$version/downloads/brane-$arch_os"
+            fi
+            # Make it executable
+            exec_step chmod +x "./target/$rls_dir/brane"
+
+            # Done
+            echo "Downloaded executeable \"brane\" to './target/$rls_dir/brane'"
+
+        else
+            # Error if not a file
+            if [[ ! -f "$precompiled_source" ]]; then
+                echo "Precompiled CLI binary '$precompiled_source' does not point to a file"
+                exit 1
+            fi
+
+            # Simply copy it
+            exec_step cp "$precompiled_source" "./target/$rls_dir/brane"
+            # Make it executable
+            exec_step chmod +x "./target/$rls_dir/brane"
+
+            # Done
+            echo "Copied executeable \"brane\" from '$precompiled_source' to './target/$rls_dir/brane'"
+        fi
     else
-        exec_step cargo build --package brane-cli
+        # Switch between the normal or development build
+        exec_step cargo build $rls_flags --package brane-cli
+        echo "Compiled executeable \"brane\" to './target/$rls_dir/brane'"
     fi
 
     # Done
-    echo "Compiled executeable \"brane\" to './target/release/brane'"
 
 # Build the branelet executable by cross-compiling
 elif [[ "$target" == "branelet" ]]; then
-    # We let cargo sort out dependencies
-    exec_step rustup target add x86_64-unknown-linux-musl
-	exec_step cargo build --release --package brane-let --target x86_64-unknown-linux-musl
+    # Split on how to compile
+    if [[ "$containerized" -eq 0 ]]; then
+        # Prepare flags to build in development mode or not
+        rls_flag="--release"
+        rls_dir="release"
+        if [[ "$development" -eq 1 ]]; then
+            rls_flag=""
+            rls_dir="debug"
+        fi
 
-    # Copy the resulting executable to the output branelet
-    exec_step mkdir -p ./target/containers/target/release/
-    exec_step cp ./target/x86_64-unknown-linux-musl/release/branelet ./target/containers/target/release/
+        # We let cargo sort out dependencies
+        exec_step rustup target add "$arch-unknown-linux-musl"
+        exec_step cargo build $rls_flag --package brane-let --target "$arch-unknown-linux-musl"
 
-    # Done
-	echo "Compiled package initialization binary \"branelet\" to './target/containers/target/release/branelet'"
+        # Done
+        echo "Compiled package initialization binary \"branelet\" ($arch) to './target/$arch-unknown-linux-musl/$rls_dir/branelet'"
+
+    else
+        # Prepare flags to build in development mode or not
+        rls_flag=""
+        rls_dir="release"
+        if [[ "$development" -eq 1 ]]; then
+            rls_flag="--dev"
+            rls_dir="debug"
+        fi
+
+        # Make sure the dev image exists
+        make_target bld-image-dev --arch "$(host_arch)"
+
+        # Call upon the container to do the heavy lifting
+        exec_step docker run -it --name "brane-bld" -v "$(pwd):/build" --rm brane-bld branelet --arch "$arch" "$rls_flag"
+
+        # If done, reset the folder permissions
+        echo "Removing root ownership from target folder (might require sudo password)"
+        exec_step sudo chown -R "$(id -u)":"$(id -g)" ./target
+
+        # Copy the files to the correctly nested folder
+        exec_step mkdir -p "./target/$arch-unknown-linux-musl/$rls_dir/"
+        exec_step cp "./target/containers/$arch-unknown-linux-musl/$rls_dir/branelet" "./target/$arch-unknown-linux-musl/$rls_dir/branelet"
+
+        # Done
+        echo "Compiled package initialization binary \"branelet\" ($arch) to './target/$arch-unknown-linux-musl/$rls_dir/branelet'"
+    fi
 
 
 
@@ -449,48 +646,88 @@ elif [[ "$target" == "branelet" ]]; then
 # Build the xenon image
 elif [[ "$target" == "xenon-image" ]]; then
     # Call upon Docker to build it (it tackles caches)
-    exec_step docker build --load -t brane-xenon -f ./contrib/images/Dockerfile.xenon ./contrib/images
+    # The Xenon image specifically is build on Java, so doing it cross-arch should be relatively straightforward
+    exec_step docker build --load --platform "linux/$arch" -t brane-xenon -f ./contrib/images/Dockerfile.xenon ./contrib/images
 
     # Done
-    echo "Built xenon image to Docker Image 'brane-xenon'"
+    echo "Built xenon image ($arch) to Docker Image 'brane-xenon'"
 
 # Build the format image
 elif [[ "$target" == "format-image" ]]; then
+    # Translate the architecture names to proper ones
+    if [[ "$arch" == "x86_64" ]]; then
+        juicefs_arch="amd64"
+    elif [[ "$arch" == "aarch64" ]]; then
+        juicefs_arch="arm64"
+    else
+        # Sanity check
+        echo "Unknown architecture '$arch' (for format image)"
+        exit 1
+    fi
+
     # Call upon Docker to build it (it tackles caches)
-    exec_step docker build --load -t brane-format -f ./contrib/images/Dockerfile.juicefs ./contrib/images
+    # This image downloads a binary, so we'll have to compile from source instead
+    exec_step docker build --build-arg "ARCH=$juicefs_arch" --load --platform "linux/$arch" -t brane-format -f ./contrib/images/Dockerfile.juicefs ./contrib/images
 
     # Done
-    echo "Built Brane JuiceFS format image to Docker Image 'brane-format'"
+    echo "Built Brane JuiceFS format image ($arch/$juicefs_arch) to Docker Image 'brane-format'"
 
-# Build SSL in a Docker container
-elif [[ "$target" == "ssl-image-dev" ]]; then
+# Build musl stuff in a Docker container
+elif [[ "$target" == "bld-image-dev" ]]; then
     # Call upon Docker to build it (it tackles caches)
-    exec_step docker build --load -t brane-ssl -f Dockerfile.ssl .
+    exec_step docker build --load --platform "linux/$arch" -t brane-bld -f ./contrib/images/Dockerfile.build .
 
     # Done
-    echo "Built Brane SSL build image to Docker Image 'brane-ssl'"
+    echo "Built Brane build image to Docker Image 'brane-bld'"
 
 # Build the regular images
-elif [[ "${target: -6}" == "-image" ]]; then
+elif [[ "$target" =~ -image$ ]]; then
     # Get the name of the image
     image_name="${target%-image}"
 
     # Call upon Docker to build it (building in release as normal does not use any caching other than the caching of the image itself, sadly)
-    exec_step docker build --load -t "brane-$image_name" --target "brane-$image_name" -f Dockerfile.rls .
+    exec_step docker build --load --platform "linux/$arch" -t "brane-$image_name" --target "brane-$image_name" -f Dockerfile.rls .
 
     # Done
     echo "Built $image_name image to Docker Image 'brane-$image_name'"
 
 # Build the dev version of the images
-elif [[ "${target: -10}" == "-image-dev" ]]; then
+elif [[ "$target" =~ -image-dev$ ]]; then
     # Get the name of the image
     image_name="${target%-image-dev}"
 
     # Call upon Docker to build it (we let it deal with caching)
-    exec_step docker build --load -t "brane-$image_name" --target "brane-$image_name" -f Dockerfile.dev .
+    exec_step docker build --load --platform "linux/$arch" -t "brane-$image_name" --target "brane-$image_name" --build-arg "ARCH=$arch" -f Dockerfile.dev .
 
     # Done
     echo "Built $image_name development image to Docker Image 'brane-$image_name'"
+
+# Build the version of the images that uses precompiled binaries
+elif [[ "$target" =~ -image-bin$ ]]; then
+    # Get the name of the image
+    image_name="brane-${target%-image-bin}"
+
+    # Based on the source, download it or make sure it exists
+    exec_step mkdir -p "./.container-bins/$arch"
+    if [[ -z "$precompiled_source" ]]; then
+        # Try to download using wget (more generally available)
+        if [[ -z "$version" ]]; then
+            exec_step wget -O "./.container-bins/$arch/$image_name" "https://github.com/epi-project/brane/releases/downloads/latest/$image_name-$arch"
+        else
+            exec_step wget -O "./.container-bins/$arch/$image_name" "https://github.com/epi-project/brane/releases/v$version/downloads/$image_name-$arch"
+        fi
+        precompiled_source="./.container-bins/$arch"
+
+    elif [[ ! -f "$precompiled_source/$image_name" ]]; then
+        echo "Precompiled instance binary '$precompiled_source/$image_name' is not a file"
+        exit 1
+    fi
+
+    # Call upon Docker to build it (we let it deal with further caching)
+    exec_step docker build --load --platform "linux/$arch" -t "$image_name" --target "$image_name" --build-arg SOURCE="$precompiled_source/$image_name" -f Dockerfile.bin .
+
+    # Done
+    echo "Built $image_name image (from precompiled binary) to Docker Image '$image_name'"
 
 # Target that bundles all the normal images together
 elif [[ "$target" == "images" ]]; then
@@ -516,31 +753,48 @@ elif [[ "$target" == "images-dev" ]]; then
     make_target log-image-dev
     make_target plr-image-dev
 
+# Target that bundles all the precompiled images together
+elif [[ "$target" == "images-bin" ]]; then
+    # Simply build the images
+    make_target xenon-image
+    make_target format-image
+    make_target api-image-bin
+    make_target clb-image-bin
+    make_target drv-image-bin
+    make_target job-image-bin
+    make_target log-image-bin
+    make_target plr-image-bin
+
 
 
 ### OPENSSL ###
 # Build OpenSSL
 elif [[ "$target" == "openssl" ]]; then
     # Prepare the build image for the SSL
-    make_target ssl-image-dev
+    make_target bld-image-dev
 
     # Compile the OpenSSL library
-    exec_step docker run --attach STDIN --attach STDOUT --attach STDERR --rm -v "$(pwd):/build" brane-ssl
+    exec_step docker run --attach STDIN --attach STDOUT --attach STDERR --rm -v "$(pwd):/build" brane-bld openssl --arch "$arch"
 
     # Restore the permissions
 	echo "Removing root ownership from target folder (might require sudo password)"
 	exec_step sudo chown -R "$(id -u)":"$(id -g)" ./target
 
     # Done
-	echo "Compiled OpenSSL library to 'target/openssl/'"
+	echo "Compiled Docker cross-compilation OpenSSL library to '$OPENSSL_DIR'"
 
 
 
 ### INSTANCE ###
 # Builds the instance (which is just building the normal images OR cross-compilation, based on $development)
 elif [[ "$target" == "instance" ]]; then
-    # Switch on development mode or not
-    if [[ "$development" -ne 1 ]]; then
+    # Switch on the way that we will build the images
+    if [[ "$precompiled" -eq 1 ]]; then
+        # Use the provided binaries
+        make_target images-bin
+        echo "Built Brane instance as Docker images"
+
+    elif [[ "$development" -ne 1 ]]; then
         # We're building release mode
         make_target images
         echo "Built Brane instance as Docker images"
@@ -567,14 +821,15 @@ elif [[ "$target" == "instance" ]]; then
         done
 
         # Prepare the cross-compilation target
-        exec_step rustup target add x86_64-unknown-linux-musl
+        exec_step rustup target add "$arch-unknown-linux-musl"
 
         # Compile the framework, pointing to the compiled OpenSSL library
         echo " > OPENSSL_DIR=\"$OPENSSL_DIR\" \\"
         echo "   OPENSSL_LIB_DIR=\"$OPENSSL_DIR\" \\"
+        echo "   RUSTFLAGS=\"-C link-arg=-lgcc\" \\"
         echo "   cargo build \\"
         echo "      --target-dir \"./target/containers/target\" \\"
-        echo "      --target x86_64-unknown-linux-musl \\"
+        echo "      --target $arch-unknown-linux-musl \\"
         echo "      --package brane-api \\"
         echo "      --package brane-clb \\"
         echo "      --package brane-drv \\"
@@ -583,8 +838,9 @@ elif [[ "$target" == "instance" ]]; then
         echo "      --package brane-plr"
         OPENSSL_DIR="$OPENSSL_DIR" \
         OPENSSL_LIB_DIR="$OPENSSL_DIR/lib" \
+        RUSTFLAGS="-C link-arg=-lgcc" \
         cargo build \
-            --target x86_64-unknown-linux-musl \
+            --target "$arch-unknown-linux-musl" \
             --package brane-api \
             --package brane-clb \
             --package brane-drv \
@@ -594,14 +850,16 @@ elif [[ "$target" == "instance" ]]; then
             || exit $?
 
         # Copy the results to the correct location
-        exec_step mkdir -p ./.container-bins
-        exec_step /bin/cp -f ./target/x86_64-unknown-linux-musl/debug/brane-{api,clb,drv,job,log,plr} ./.container-bins/
+        exec_step mkdir -p "./.container-bins/$arch"
+        exec_step /bin/cp -f "./target/$arch-unknown-linux-musl/debug/brane-api" "./.container-bins/$arch"
+        exec_step /bin/cp -f "./target/$arch-unknown-linux-musl/debug/brane-clb" "./.container-bins/$arch"
+        exec_step /bin/cp -f "./target/$arch-unknown-linux-musl/debug/brane-drv" "./.container-bins/$arch"
+        exec_step /bin/cp -f "./target/$arch-unknown-linux-musl/debug/brane-job" "./.container-bins/$arch"
+        exec_step /bin/cp -f "./target/$arch-unknown-linux-musl/debug/brane-log" "./.container-bins/$arch"
+        exec_step /bin/cp -f "./target/$arch-unknown-linux-musl/debug/brane-plr" "./.container-bins/$arch"
 
         # Build the instance images
         make_target images-dev
-
-        # Remove the bins again
-        exec_step rm -r ./.container-bins
 
         # Done!
         echo "Compiled Brane instance as Docker images"
@@ -611,6 +869,24 @@ elif [[ "$target" == "instance" ]]; then
     for crate in "${BRANE_INSTANCE_SRC[@]}"; do
         cache_regen "$crate"
     done
+
+# Extract binaries from source images
+elif [[ "$target" == "extract-binaries" ]]; then
+    # Build the images first
+    make_target images
+
+    # Do quick onelines to extract the binaries in one go
+    exec_step mkdir -p "./.container-bins/$arch"
+    for image in brane-api brane-clb brane-drv brane-job brane-log brane-plr; do
+        echo " > docker run --entrypoint /bin/echo --name TEMP_CONTAINER \"$image\" \"Hello, world\""
+        docker run --entrypoint /bin/echo --name TEMP_CONTAINER "$image" "Hello, world" 2>&1 > /dev/null || exit "$?"
+        exec_step docker cp TEMP_CONTAINER:/"$image" "./.container-bins/$arch/"
+        echo " > docker rm TEMP_CONTAINER"
+        exec_step docker rm TEMP_CONTAINER 2>&1 > /dev/null || exit "$?"
+    done
+
+    # Done
+    echo "Extracted Brane instance binaries to './.container-bins/$arch'"
 
 
 
@@ -794,7 +1070,7 @@ elif [[ "$target" == "stop-brn-k8s" ]]; then
     fi
 
     # Simply reverse the files we ran
-    for svc in "${BRANE_INSTANCE_SERVICES[@]}" brane-networkpolicy; do
+    for svc in "${BRANE_INSTANCE_SERVICES[@]}"; do
         # Only do the registry if allowed
         if [[ "$svc" == "aux-registry" && "$keep_registry" -eq 1 ]]; then continue; fi
 

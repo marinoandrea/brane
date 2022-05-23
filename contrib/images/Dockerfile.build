@@ -1,0 +1,38 @@
+# DOCKERFILE.bld for BRANE
+#   by Tim Müller
+#
+# This file creates a build image, which we may use to build RUST musl targets.
+# 
+# They will be written to the './target/containers' file (as the Cargo target).
+#
+
+# Use the RUST image as base
+FROM rust:1
+
+# Install build dependencies (that are not in the rust image already)
+RUN apt-get update && apt-get install -y \
+    gcc g++ \
+    gcc-aarch64-linux-gnu \
+    cmake \
+    musl-tools \
+ && rm -rf /var/lib/apt/lists/*
+
+# Make symlinks
+RUN ln -s /bin/gcc /usr/local/bin/musl-gcc \
+ && ln -s /bin/g++ /usr/local/bin/musl-g++ \
+ && ln -s /usr/bin/aarch64-linux-gnu-gcc /usr/local/bin/aarch64-linux-musl-gcc \
+ && ln -s /usr/bin/aarch64-linux-gnu-g++ /usr/local/bin/aarch64-linux-musl-g++
+
+# Fetch the target(s)
+RUN rustup target add "x86_64-unknown-linux-musl"
+RUN rustup target add "aarch64-unknown-linux-musl"
+
+# Prepare the linked directory
+RUN mkdir /build
+
+# Copy the build script
+COPY ./contrib/scripts/container-build.sh /build.sh
+RUN chmod +x /build.sh
+
+# Run the command with whatever we specify in the `docker run`
+ENTRYPOINT [ "/build.sh" ]

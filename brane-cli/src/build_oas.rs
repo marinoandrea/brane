@@ -9,26 +9,27 @@ use brane_oas::{self, build};
 use console::style;
 use openapiv3::OpenAPI;
 
+use specifications::arch::Arch;
 use specifications::package::{PackageKind, PackageInfo};
 use specifications::version::Version;
 
-use crate::build_common::{BRANELET_URL, JUICE_URL, build_docker_image, clean_directory, lock_directory, unlock_directory};
+use crate::build_common::{BRANELET_URL, build_docker_image, clean_directory, lock_directory, unlock_directory};
 use crate::errors::BuildError;
 use crate::utils::ensure_package_dir;
 
 
 /***** BUILD FUNCTIONS *****/
-/// **Edited: Now wrapping around build() to handle the lock file properly.
+/// # Arguments
+///  - `arch`: The architecture to compile this image for.
+///  - `context`: The directory to copy additional files (executable, working directory files) from.
+///  - `file`: Path to the package's main file (a container file, in this case).
+///  - `branelet_path`: Optional path to a custom branelet executable. If left empty, will pull the standard one from Github instead.
+///  - `keep_files`: Determines whether or not to keep the build files after building.
 /// 
-/// **Arguments**
-///  * `context`: The directory to copy additional files (executable, working directory files) from.
-///  * `file`: Path to the package's main file (a container file, in this case).
-///  * `branelet_path`: Optional path to a custom branelet executable. If left empty, will pull the standard one from Github instead.
-///  * `keep_files`: Determines whether or not to keep the build files after building.
-/// 
-/// **Returns**  
-/// Nothing if the package is build successfully, but a BuildError otherwise.
+/// # Errors
+/// This function may error for many reasons.
 pub async fn handle(
+    arch: Arch,
     context: PathBuf,
     file: PathBuf,
     branelet_path: Option<PathBuf>,
@@ -52,7 +53,7 @@ pub async fn handle(
 
     // Lock the directory, build, unlock the directory
     lock_directory(&package_dir)?;
-    let res = build(document, package_info, &package_dir, branelet_path, keep_files).await;
+    let res = build(arch, document, package_info, &package_dir, branelet_path, keep_files).await;
     unlock_directory(&package_dir);
 
     // Return the result of the build process
@@ -102,16 +103,18 @@ fn create_package_info(
 
 /// Actually builds a new Ecu package from the given file(s).
 /// 
-/// **Arguments**
-///  * `document`: The OpenAPI document describing the package.
-///  * `package_dir`: The package directory to use as the build folder.
-///  * `package_info`: The PackageInfo document also describing the package, but in a package-kind-oblivious way.
-///  * `branelet_path`: Optional path to a custom branelet executable. If left empty, will pull the standard one from Github instead.
-///  * `keep_files`: Determines whether or not to keep the build files after building.
+/// # Arguments
+///  - `arch`: The architecture to compile this image for.
+///  - `document`: The OpenAPI document describing the package.
+///  - `package_dir`: The package directory to use as the build folder.
+///  - `package_info`: The PackageInfo document also describing the package, but in a package-kind-oblivious way.
+///  - `branelet_path`: Optional path to a custom branelet executable. If left empty, will pull the standard one from Github instead.
+///  - `keep_files`: Determines whether or not to keep the build files after building.
 /// 
-/// **Returns**  
-/// Nothing if the package is build successfully, but a BuildError otherwise.
+/// # Errors
+/// This function may error for many reasons.
 async fn build(
+    arch: Arch,
     document: OpenAPI,
     package_info: PackageInfo,
     package_dir: &Path,
@@ -134,8 +137,8 @@ async fn build(
 
     // Build Docker image
     let tag = format!("{}:{}", package_info.name, package_info.version);
-    debug!("Launching Docker in directory '{}'", package_dir.display());
-    match build_docker_image(package_dir, tag) {
+    debug!("Building image '{}' in directory '{}'", tag, package_dir.display());
+    match build_docker_image(arch, package_dir, tag) {
         Ok(_) => {
             println!(
                 "Successfully built version {} of Web API (OAS) package {}.",
@@ -200,9 +203,32 @@ fn generate_dockerfile(
 ) -> Result<String, BuildError> {
     let mut contents = String::new();
 
+    // First: write the build image for JuiceFS
+    writeln_build!(contents, "FROM ubuntu:20.04 AS build")?;
+    writeln_build!(contents, "ARG GO_ARCH")?;
+    writeln_build!(contents, "ARG VERSION=\"0.12.1\"")?;
+    writeln_build!(contents, "ARG GO_VERSION=\"1.18.2\"")?;
+    writeln_build!(contents, "ARG GO_RELEASE=\"go$GO_VERSION.linux-$GO_ARCH\"")?;
+    writeln_build!(contents, "RUN apt-get update && apt-get install -y \\")?;
+    writeln_build!(contents, "    gcc \\")?;
+    writeln_build!(contents, "    make \\")?;
+    writeln_build!(contents, "    wget \\")?;
+    writeln_build!(contents, " && rm -rf /var/lib/apt/lists/*")?;
+    writeln_build!(contents, "RUN wget -O \"/$GO_RELEASE.tar.gz\" \"https://go.dev/dl/$GO_RELEASE.tar.gz\" \\")?;
+    writeln_build!(contents, " && tar -xvzf \"/$GO_RELEASE.tar.gz\" \\")?;
+    writeln_build!(contents, " && rm \"/$GO_RELEASE.tar.gz\"")?;
+    writeln_build!(contents, "RUN wget -O \"/juicefs-0.12.1.tar.gz\" \"https://github.com/juicedata/juicefs/archive/refs/tags/v$VERSION.tar.gz\" \\")?;
+    writeln_build!(contents, " && tar -xvzf \"/juicefs-0.12.1.tar.gz\" \\")?;
+    writeln_build!(contents, " && mv \"/juicefs-0.12.1\" \"/juicefs\" \\")?;
+    writeln_build!(contents, " && rm \"/juicefs-0.12.1.tar.gz\"")?;
+    writeln_build!(contents, "RUN cd juicefs && PATH=\"/go/bin:$PATH\" make")?;
+
     // Add default heading
     writeln_build!(contents, "# Generated by Brane")?;
     writeln_build!(contents, "FROM alpine")?;
+
+    // Set the architecture build arg
+    writeln_build!(contents, "ARG BRANELET_ARCH")?;
 
     // Add dependencies
     writeln_build!(contents, "RUN apk add --no-cache iptables")?;
@@ -211,16 +237,13 @@ fn generate_dockerfile(
     if override_branelet {
         writeln_build!(contents, "ADD ./container/branelet /branelet")?;
     } else {
-        writeln_build!(contents, "ADD {} /branelet", BRANELET_URL)?;
+        writeln_build!(contents, "ADD {}-$BRANELET_ARCH /branelet", BRANELET_URL)?;
     }
     writeln_build!(contents, "RUN chmod +x /branelet")?;
 
     // Add JuiceFS
-    writeln_build!(contents, "ADD {} /juicefs.tar.gz", JUICE_URL)?;
-    writeln_build!(
-        contents,
-        "RUN tar -xzf /juicefs.tar.gz && rm /juicefs.tar.gz && mkdir /data"
-    )?;
+    writeln_build!(contents, "RUN mkdir /data")?;
+    writeln_build!(contents, "COPY --from=build /juicefs/juicefs /juicefs")?;
 
     // Copy files
     writeln_build!(contents, "ADD ./container/wd.tar.gz /opt")?;

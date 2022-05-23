@@ -53,10 +53,10 @@ spec:
         io.kompose.service: aux-redis
     spec:
       containers:
-        - image: redis:6-alpine
-          name: aux-redis
-          ports:
-            - containerPort: 6379
-          resources: {}
+      - image: redis:6-alpine
+        name: aux-redis
+        ports:
+        - containerPort: 6379
+        resources: {}
       restartPolicy: Always
 status: {}

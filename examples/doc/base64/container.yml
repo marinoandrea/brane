@@ -1,0 +1,59 @@
+# CONTAINER.yml
+#   by Tim Müller
+#
+# This file implements the second tutorial in the Brane: The User Guide book.
+# Check: https://wiki.enablingpersonalizedinterventions.nl/user-guide/software-
+#        engineers/base64.html
+#
+# Specifically, it defines a simple package that can encode/decode Base64
+# strings.
+#
+
+
+# Define the file metadata
+name: base64
+version: 1.0.0
+kind: ecu
+
+# Define the files that are part of the package
+files:
+- code.py
+
+# Defines the file to call whenever a function is called
+entrypoint:
+  kind: task
+  exec: code.py
+
+# Define the dependencies (as Ubuntu packages)
+dependencies:
+- python3
+- python3-yaml
+
+# Define the actions
+actions:
+  encode:
+    command:
+      # This is just a list of arguments we pass to the function (i.e., sys.argv in Python)
+      args:
+      - encode
+    input:
+    # Define the input: a single string under the 'INPUT' environment variable
+    - name: input
+      type: string
+    output:
+    # Define the output: a string, identifyable by the 'output' key
+    - name: output
+      type: string
+
+  decode:
+    command:
+      args:
+      - decode
+    input:
+    # Define the input: a single string under the 'INPUT' environment variable
+    - name: input
+      type: string
+    output:
+    # Define the output: a string, identifyable by the 'output' key
+    - name: output
+      type: string

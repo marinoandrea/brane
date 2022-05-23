@@ -1,19 +1,33 @@
+# DOCKERFILE.xenon for BRANE
+#   by Tim Müller and Onno Valkering
+#
+# Builds a container with the Xenon middleware server.
+# 
+# Because Xenon is in Java, we deal with multi-archs by installing a different Java version (we hope).
+#
+
+# The base image
 FROM ubuntu:20.04
 
+# Set the environment variables that determine the version we'll want to use
 ENV VERSION="3.0.2"
 ENV RELEASE="xenon-grpc-shadow-$VERSION"
 
+# Install the dependencies (i.e., java)
 RUN apt-get update && apt-get install -y \
     openjdk-11-jre-headless \
+    wget \
  && rm -rf /var/lib/apt/lists/*
 
-ADD "https://github.com/xenon-middleware/xenon-grpc/releases/download/v$VERSION/$RELEASE.tar" .
+# Download the tar with releases
+RUN wget -O "/$RELEASE.tar" "https://github.com/xenon-middleware/xenon-grpc/releases/download/v$VERSION/$RELEASE.tar" \
+ && tar -xvf "/$RELEASE.tar" \
+ && mv "/$RELEASE" "/xenon" \
+ && rm "/$RELEASE.tar"
 
-RUN tar -xf "$RELEASE.tar" \
- && mv "$RELEASE" "xenon" \
- && rm "$RELEASE.tar"
-
+# Prepare the volume directory(?)
 RUN mkdir /keys
 
+# Define the container runtime
 EXPOSE 50051
 ENTRYPOINT ["/xenon/bin/xenon-grpc"]

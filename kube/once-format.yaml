@@ -32,8 +32,8 @@ spec:
             - --storage
             - minio
             - --bucket
-            - http://aux-minio:9000/data
-            - aux-redis
+            - http://aux-minio.brane-control.svc.%BRANE_CLUSTER_DOMAIN%:9000/data
+            - aux-redis.brane-control.svc.%BRANE_CLUSTER_DOMAIN%
             - brane
           image: 127.0.0.1:50050/brane-format:latest
           name: once-format

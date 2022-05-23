@@ -1,0 +1,58 @@
+# GITHUB.yml
+#   by Tim Müller & Onno Valkering
+#
+# This file implements the fourth tutorial in the Brane: The User Guide book.
+# Check: https://wiki.enablingpersonalizedinterventions.nl/user-guide/software-
+#        engineers/github.html
+#
+# Specifically, it defines an API call to the Github API to get the contents of
+# a README.md file of a given repository.
+#
+
+
+# Because this document follows the OpenAPI specification, check: https://spec.openapis.org/oas/v3.0.0
+
+# We set some metadata: the version of OpenAPI and the name & version (which will be directly translated to the Brane package name & version)
+openapi: 3.0.0
+info:
+  title: GitHub
+  version: 1.0.0
+
+# Defines the server(s) to perform the API calls to
+servers:
+- url: https://api.github.com
+
+# Defines the API & HTTP methods pairs that define functions
+paths:
+  '/repos/{owner}/{repo}/readme':
+    get:
+      # The operation ID will be the function name
+      operationId: getreadme
+      # Very similar to Brane function definitions!
+      parameters:
+      - name: owner
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: repo
+        in: path
+        required: true
+        schema:
+          type: string
+      # This time, we define how the server should respond
+      responses:
+        '200':
+          description: Information about the README
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - name
+                - content
+                properties:
+                  name:
+                    type: string
+                  content:
+                    type: string
