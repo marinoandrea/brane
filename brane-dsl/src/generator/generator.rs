@@ -203,6 +203,9 @@ pub fn stmt_to_opcodes(
             chunk.code[plh_pos + 1] = second;
 
             chunk.write(Opcode::POP);
+
+            // TIM: Add an _additional_ POP, to pop the local for-loop variable
+            chunk.write(Opcode::POP);
         }
         Stmt::While { condition, consequent } => {
             let loop_start = chunk.code.len();
@@ -419,7 +422,7 @@ pub fn expr_to_opcodes(
             match operator {
                 // Arithmetic
                 BinOp::Add => chunk.write(Opcode::ADD),
-                BinOp::Sub => chunk.write(Opcode::SUBSTRACT),
+                BinOp::Sub => chunk.write(Opcode::SUBTRACT),
                 BinOp::Mul => chunk.write(Opcode::MULTIPLY),
                 BinOp::Div => chunk.write(Opcode::DIVIDE),
                 // Equality / Comparison

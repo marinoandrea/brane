@@ -2,6 +2,16 @@
 
 All notable changes to the Brane framework will be documented in this file.
 
+## [0.6.3] - 2022-05-24
+### Added
+- Tests for various opcodes in the VM. More will follow in due time.
+
+### Fixed
+- Comparisons being the other way around (i.e., `1 < 2` returned `false` and `1 > 2` returned `true`).
+- Comparing two strings with the same value (but different strings) still returning false.
+- Running any for-loop causing the next statement to fail with 'VM not in a state to accept main function.'
+- Any erronous statement causing the next statement to fail with 'VM not in a state to accept main function.'
+
 ## [0.6.2] - 2022-05-23
 ### Added
 - Better documentation to the `hello_world` example.

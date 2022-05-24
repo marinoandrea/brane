@@ -36,7 +36,7 @@ impl Error for ObjectError {}
 /// **Edited: working with errors, new Heap + docstring.**
 /// 
 /// Implements a Heap-side Object in the brane-vm.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Object {
     /// An array.
     Array(Array),
@@ -123,7 +123,7 @@ impl Display for Object {
 
 
 /// Represents a heap-allocated Array object.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Array {
     /// The type of this Array
     pub element_type: String,
@@ -185,7 +185,7 @@ impl Display for Array {
 
 
 /// Defines a custom type in the brane-vm.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Class {
     /// The typename
     pub name: String,
@@ -236,7 +236,7 @@ impl Display for Class {
 
 
 /// Defines a (local) Function in the brane-vm.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Function {
     /// The arity (=number of arguments) of this function.
     pub arity: u8,
@@ -286,7 +286,7 @@ impl Display for Function {
 
 
 /// Defines an instantiated Class in the brane-bvm.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Instance {
     /// The parent class that this Instance is an instance of.
     pub class: Handle<Object>,
