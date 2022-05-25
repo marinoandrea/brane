@@ -2,6 +2,7 @@ use crate::{docker::DockerExecutor, packages};
 use anyhow::Result;
 use brane_bvm::vm::Vm;
 use brane_dsl::{Compiler, CompilerOptions, Lang};
+use std::io::Read;
 use std::fs;
 use std::path::PathBuf;
 
@@ -12,7 +13,14 @@ pub async fn handle(
     file: PathBuf,
     data: Option<PathBuf>,
 ) -> Result<()> {
-    let source_code = fs::read_to_string(&file)?;
+    // Either read the file or read stdin
+    let source_code: String = if file == PathBuf::from("-") {
+        let mut result: String = String::new();
+        std::io::stdin().read_to_string(&mut result)?;
+        result
+    } else {
+        fs::read_to_string(&file)?
+    };
 
     let compiler_options = CompilerOptions::new(Lang::BraneScript);
     let package_index = packages::get_package_index()?;

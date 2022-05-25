@@ -144,11 +144,12 @@ impl Array {
         // Try to deduce the type from the elements
         let element_type = {
             // Iterate through the slots to find the subtype
+            let mut first = true;
             let mut subtype = String::from("unit");
             for elem in &elements {
                 let elemval = elem.clone().into_value();
                 let elemtype = elemval.data_type();
-                if subtype.is_empty() { subtype = elemtype; }
+                if first { subtype = elemtype; first = false; }
                 else if !elemtype.eq(&subtype) {
                     return Err(ObjectError::ArrayError{
                         array: elements,
