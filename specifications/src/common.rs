@@ -23,7 +23,7 @@ type Map<T> = std::collections::HashMap<String, T>;
 /***** DSL AST STRUCTS *****/
 /// Defines a function parameter in the DSL's AST.
 #[skip_serializing_none]
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Parameter {
     #[serde(rename = "type")]
@@ -521,7 +521,7 @@ impl PartialOrd for Value {
 
 /// Defines an (external) function in the DSL's AST.
 #[skip_serializing_none]
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FunctionExt {
     pub detached: bool,

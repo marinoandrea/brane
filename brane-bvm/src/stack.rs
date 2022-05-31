@@ -369,7 +369,7 @@ impl PartialEq for Slot {
             (Slot::Real(lhs), Slot::Real(rhs)) => lhs == rhs,
             (Slot::True, Slot::True) => true,
             (Slot::Unit, Slot::Unit) => true,
-            (Slot::Object(lhs), Slot::Object(rhs)) => lhs == rhs,
+            (Slot::Object(lhs), Slot::Object(rhs)) => lhs.get() == rhs.get(),
             _ => false,
         }
     }

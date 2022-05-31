@@ -5,7 +5,7 @@
 # Created:
 #   03 Mar 2022, 17:03:04
 # Last edited:
-#   23 May 2022, 21:26:40
+#   31 May 2022, 17:00:29
 # Auto updated?
 #   Yes
 #
@@ -609,6 +609,8 @@ elif [[ "$target" == "branelet" ]]; then
         # We let cargo sort out dependencies
         exec_step rustup target add "$arch-unknown-linux-musl"
         exec_step cargo build $rls_flag --package brane-let --target "$arch-unknown-linux-musl"
+        # exec_step cargo install cross
+        # exec_step cross build $rls_flag --package brane-let --target "$arch-unknown-linux-musl"
 
         # Done
         echo "Compiled package initialization binary \"branelet\" ($arch) to './target/$arch-unknown-linux-musl/$rls_dir/branelet'"
@@ -667,7 +669,7 @@ elif [[ "$target" == "format-image" ]]; then
 
     # Call upon Docker to build it (it tackles caches)
     # This image downloads a binary, so we'll have to compile from source instead
-    exec_step docker build --build-arg "ARCH=$juicefs_arch" --load --platform "linux/$arch" -t brane-format -f ./contrib/images/Dockerfile.juicefs ./contrib/images
+    exec_step docker build --build-arg "JUICEFS_ARCH=$juicefs_arch" --load --platform "linux/$arch" -t brane-format -f ./contrib/images/Dockerfile.juicefs ./contrib/images
 
     # Done
     echo "Built Brane JuiceFS format image ($arch/$juicefs_arch) to Docker Image 'brane-format'"
@@ -709,13 +711,20 @@ elif [[ "$target" =~ -image-bin$ ]]; then
 
     # Based on the source, download it or make sure it exists
     exec_step mkdir -p "./.container-bins/$arch"
-    if [[ -z "$precompiled_source" ]]; then
-        # Try to download using wget (more generally available)
+    if [[ -z "$precompiled_source" && ! -f "./.container-bins/$arch/$image_name" ]]; then
+        # Try to download the multi-service archive using wget (more generally available)
         if [[ -z "$version" ]]; then
-            exec_step wget -O "./.container-bins/$arch/$image_name" "https://github.com/epi-project/brane/releases/latest/download/$image_name-$arch"
+            exec_step wget -O "./.container-bins/brane-instance-$arch.tar.gz" "https://github.com/epi-project/brane/releases/latest/download/brane-instance-$arch.tar.gz"
         else
-            exec_step wget -O "./.container-bins/$arch/$image_name" "https://github.com/epi-project/brane/releases/download/v$version/$image_name-$arch"
+            exec_step wget -O "./.container-bins/brane-instance-$arch.tar.gz" "https://github.com/epi-project/brane/releases/download/v$version/brane-instance-$arch.tar.gz"
         fi
+
+        # Unpack the file
+        exec_step cd "./.container-bins"
+        exec_step tar -xvzf "brane-instance-$arch.tar.gz"
+        exec_step cd "../"
+
+        # Use this folder as the precompiled source now
         precompiled_source="./.container-bins/$arch"
 
     elif [[ ! -f "$precompiled_source/$image_name" ]]; then

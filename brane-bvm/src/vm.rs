@@ -285,12 +285,12 @@ where
     executor: E,
     frames: SmallVec<[CallFrame; 64]>,
     // frames: Vec<CallFrame>,
-    globals: FnvHashMap<String, Slot>,
-    heap: Heap<Object>,
+    pub(crate) globals: FnvHashMap<String, Slot>,
+    pub(crate) heap: Heap<Object>,
     locations: Vec<Handle<Object>>,
     package_index: PackageIndex,
     options: VmOptions,
-    stack: Stack,
+    pub(crate) stack: Stack,
 }
 
 impl<E> Default for Vm<E>
@@ -480,8 +480,9 @@ where
 
         // For REPLs
         if self.options.clear_after_main {
-            self.frames.pop();
-            self.stack.pop().unwrap();
+            // Always clear both since we don't want to run into "not in a state" errors
+            self.frames.clear();
+            self.stack.clear();
         }
 
         // We were successfull
@@ -635,7 +636,7 @@ where
                 }
                 Opcode::SET_GLOBAL => self.op_set_global(false)?,
                 Opcode::SET_LOCAL => self.op_set_local()?,
-                Opcode::SUBSTRACT => self.op_substract()?,
+                Opcode::SUBTRACT => self.op_substract()?,
                 Opcode::TRUE => self.op_true(),
                 Opcode::UNIT => self.op_unit(),
             }
@@ -1358,12 +1359,12 @@ where
         let lhs = lhs.unwrap();
 
         // Run the comparison
-        let value = match (rhs, lhs) {
-            (Slot::Integer(rhs), Slot::Integer(lhs)) => rhs > lhs,
-            (Slot::Integer(rhs), Slot::Real(lhs)   ) => (rhs as f64) > lhs,
-            (Slot::Real(rhs),    Slot::Integer(lhs)) => rhs > (lhs as f64),
-            (Slot::Real(rhs),    Slot::Real(lhs)   ) => rhs > lhs,
-            (rhs, lhs)                               => { return Err(VmError::NotComparable{ rhs: rhs.data_type(), lhs: lhs.data_type() }); }
+        let value = match (lhs, rhs) {
+            (Slot::Integer(lhs), Slot::Integer(rhs)) => lhs > rhs,
+            (Slot::Integer(lhs), Slot::Real(rhs)   ) => (lhs as f64) > rhs,
+            (Slot::Real(lhs),    Slot::Integer(rhs)) => lhs > (rhs as f64),
+            (Slot::Real(lhs),    Slot::Real(rhs)   ) => lhs > rhs,
+            (lhs, rhs)                               => { return Err(VmError::NotComparable{ lhs: lhs.data_type(), rhs: rhs.data_type() }); }
         };
 
         // Push the result on the stack
@@ -1608,12 +1609,12 @@ where
         let lhs = lhs.unwrap();
 
         // Run the comparison
-        let value = match (rhs, lhs) {
-            (Slot::Integer(rhs), Slot::Integer(lhs)) => rhs < lhs,
-            (Slot::Integer(rhs), Slot::Real(lhs)   ) => (rhs as f64) < lhs,
-            (Slot::Real(rhs),    Slot::Integer(lhs)) => rhs < (lhs as f64),
-            (Slot::Real(rhs),    Slot::Real(lhs)   ) => rhs < lhs,
-            (rhs, lhs)                               => { return Err(VmError::NotComparable{ rhs: rhs.data_type(), lhs: lhs.data_type() }); }
+        let value = match (lhs, rhs) {
+            (Slot::Integer(lhs), Slot::Integer(rhs)) => lhs < rhs,
+            (Slot::Integer(lhs), Slot::Real(rhs)   ) => (lhs as f64) < rhs,
+            (Slot::Real(lhs),    Slot::Integer(rhs)) => lhs < (rhs as f64),
+            (Slot::Real(lhs),    Slot::Real(rhs)   ) => lhs < rhs,
+            (lhs, rhs)                               => { return Err(VmError::NotComparable{ lhs: lhs.data_type(), rhs: rhs.data_type() }); }
         };
 
         // Push the result of the comparison on the stack

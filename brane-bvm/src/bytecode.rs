@@ -424,7 +424,7 @@ pub enum Opcode {
     /// 
     /// **Results**
     ///  * The result of the calculation on top of the stack, carrying the same type as the input arguments.
-    SUBSTRACT = 0x22,
+    SUBTRACT = 0x22,
 
     /// Pushes a simple True boolean onto the stack.
     /// 
@@ -692,7 +692,7 @@ impl From<FunctionMut> for SpecFunction {
 
 
 /// A list of bytecode.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Chunk {
     /// The bytecode, in, well, Bytes.
     pub code      : Bytes,
@@ -746,7 +746,7 @@ impl Chunk {
                 Opcode::OR        |
                 Opcode::POP       |
                 Opcode::RETURN    |
-                Opcode::SUBSTRACT |
+                Opcode::SUBTRACT |
                 Opcode::TRUE      |
                 Opcode::UNIT      => {
                     writeln!(result, "{}", &format!("{}", instruction))?;

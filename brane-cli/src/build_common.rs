@@ -4,7 +4,7 @@
  * Created:
  *   21 Feb 2022, 12:32:28
  * Last edited:
- *   23 May 2022, 13:05:36
+ *   31 May 2022, 17:02:57
  * Auto updated?
  *   Yes
  *
@@ -172,9 +172,9 @@ pub fn build_docker_image<P: AsRef<Path>>(
     command.arg("--platform");
     command.arg(format!("linux/{}", arch.to_docker()));
     command.arg("--build-arg");
-    command.arg(format!("GO_ARCH={}", arch.to_go()));
-    command.arg("--build-arg");
     command.arg(format!("BRANELET_ARCH={}", arch));
+    command.arg("--build-arg");
+    command.arg(format!("JUICEFS_ARCH={}", arch.to_juicefs()));
     command.arg(".");
     command.current_dir(package_dir);
     let output = match command.status() {

@@ -142,7 +142,7 @@ enum SubCommand {
 
     #[clap(name = "run", about = "Run a DSL script locally")]
     Run {
-        #[clap(name = "FILE", help = "Path to the file to run")]
+        #[clap(name = "FILE", help = "Path to the file to run. Use '-' to run from stdin instead.")]
         file: PathBuf,
         #[clap(short, long, help = "The directory to mount as /data")]
         data: Option<PathBuf>,

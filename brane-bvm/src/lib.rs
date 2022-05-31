@@ -14,5 +14,7 @@ pub mod objects;
 mod stack;
 pub mod values;
 pub mod vm;
+#[cfg(test)]
+mod tests;
 
 pub use objects::Function;
