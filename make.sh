@@ -5,7 +5,7 @@
 # Created:
 #   03 Mar 2022, 17:03:04
 # Last edited:
-#   31 May 2022, 17:00:29
+#   31 May 2022, 21:27:41
 # Auto updated?
 #   Yes
 #
@@ -711,18 +711,21 @@ elif [[ "$target" =~ -image-bin$ ]]; then
 
     # Based on the source, download it or make sure it exists
     exec_step mkdir -p "./.container-bins/$arch"
-    if [[ -z "$precompiled_source" && ! -f "./.container-bins/$arch/$image_name" ]]; then
-        # Try to download the multi-service archive using wget (more generally available)
-        if [[ -z "$version" ]]; then
-            exec_step wget -O "./.container-bins/brane-instance-$arch.tar.gz" "https://github.com/epi-project/brane/releases/latest/download/brane-instance-$arch.tar.gz"
-        else
-            exec_step wget -O "./.container-bins/brane-instance-$arch.tar.gz" "https://github.com/epi-project/brane/releases/download/v$version/brane-instance-$arch.tar.gz"
-        fi
+    if [[ -z "$precompiled_source" ]]; then
+        # Only download if the files are not present
+        if [[ ! -f "./.container-bins/$arch/$image_name" ]]; then
+            # Try to download the multi-service archive using wget (more generally available)
+            if [[ -z "$version" ]]; then
+                exec_step wget -O "./.container-bins/brane-instance-$arch.tar.gz" "https://github.com/epi-project/brane/releases/latest/download/brane-instance-$arch.tar.gz"
+            else
+                exec_step wget -O "./.container-bins/brane-instance-$arch.tar.gz" "https://github.com/epi-project/brane/releases/download/v$version/brane-instance-$arch.tar.gz"
+            fi
 
-        # Unpack the file
-        exec_step cd "./.container-bins"
-        exec_step tar -xvzf "brane-instance-$arch.tar.gz"
-        exec_step cd "../"
+            # Unpack the file
+            exec_step cd "./.container-bins"
+            exec_step tar -xvzf "brane-instance-$arch.tar.gz"
+            exec_step cd "../"
+        fi
 
         # Use this folder as the precompiled source now
         precompiled_source="./.container-bins/$arch"
