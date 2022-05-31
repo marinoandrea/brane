@@ -7,6 +7,10 @@ All notable changes to the Brane framework will be documented in this file.
 - Tests for various opcodes in the VM. More will follow in due time.
 - `brane run` can now run from stdin by passing `-` as filename.
 
+### Changed
+- JuiceFS is now downloaded again instead of being compiled for packages & `once-format`.
+- `make.sh` now expects releases to put `brane` instance services into an archive.
+
 ### Fixed
 - Comparisons being the other way around (i.e., `1 < 2` returned `false` and `1 > 2` returned `true`).
 - Comparing two strings with the same value (but different strings) still returning false.

@@ -4,7 +4,7 @@
  * Created:
  *   22 May 2022, 17:35:56
  * Last edited:
- *   23 May 2022, 10:34:41
+ *   31 May 2022, 17:01:04
  * Auto updated?
  *   Yes
  *
@@ -84,9 +84,9 @@ impl Arch {
         }
     }
 
-    /// Serializes the Arch in a Go-source-compatible way.
+    /// Serializes the Arch in a JuiceFS-binary-compatible way.
     #[inline]
-    pub fn to_go(&self) -> &'static str {
+    pub fn to_juicefs(&self) -> &'static str {
         match self {
             Arch::x86_64  => "amd64",
             Arch::aarch64 => "arm64",

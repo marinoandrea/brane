@@ -1,155 +1,217 @@
 name: Release
 
+# The workflow will be triggered on any tag starting with a 'v' (any, with our scheme)
 on:
   create:
     tags:
       - 'v*'
 
+# Define the jobs
 jobs:
-  build-darwin-binaries:
-    runs-on: macos-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v2
-
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
-        with:
-            toolchain: 1.54.0
-            override: true
-
-      - name: Build (optimized) binaries
-        run: |
-          cargo build -v --release --package brane-cli
-          mv target/release/brane target/release/brane-darwin
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v2
-        with:
-          name: darwin
-          path: |
-            target/release/brane-darwin
-
-  build-linux-binaries:
+  # Build the CLI for linux
+  build-linux-amd64:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v2
+    # Download the repo
+    - name: Checkout repository
+      uses: actions/checkout@v2
 
-      - name: Install musl
-        run: |
-          sudo apt update
-          sudo apt-get install -y musl-tools
-          sudo ln -s /bin/g++ /bin/musl-g++
+    # Install CMake
+    - name: Install CMake
+      run: |
+        sudo apt update
+        sudo apt-get install -y cmake
 
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
-        with:
-            toolchain: 1.54.0
-            target: x86_64-unknown-linux-musl
-            override: true
+    # Install Rust
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        target: x86_64-unknown-linux-musl
+        override: true
 
-      - name: Build (optimized) binaries
-        run: |
-          cargo build -v --release --package brane-cli
-          mv target/release/brane target/release/brane-linux
+    # Install cross
+    - name: Install Cargo Cross
+      run: |
+        CROSS_DOCKER_IN_DOCKER=true cargo install cross
 
-          cargo build -v --release --package brane-let --target x86_64-unknown-linux-musl
+    # Build the CLI binary
+    - name: Build (optimized) CLI binary
+      uses: actions-rs/cargo@v1
+      with:
+        command: build
+        args: --release --package brane-cli
 
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v2
-        with:
-          name: linux
-          path: |
-            target/release/brane-linux
-            target/x86_64-unknown-linux-musl/release/branelet
+    # Build branelet
+    - name: Build (optimized) branelet binary
+      uses: actions-rs/cargo@v1
+      with:
+        command: build
+        args: --target x86_64-unknown-linux-musl --release --package brane-cli
+
+    # Rename them
+    - name: Rename resulting binaries
+      run: |
+        mv ./target/release/brane ./target/release/brane-linux-amd64 \
+        && mv ./target/x86_64-unknown-linux-musl/release/branelet ./target/release/branelet-amd64
+
+    # Finally, upload the binaries
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v2
+      with:
+        name: linux-amd64
+        path: |
+          target/release/brane-linux-amd64
+          target/release/branelet-amd64
+
+  # # Building the macOS x86_64 binary
+  # build-darwin-amd64:
+  #   runs-on: macos-latest
+  #   steps:
+  #   - name: Checkout repository
+  #     uses: actions/checkout@v2
+
+  #   - name: Install Rust
+  #     uses: actions-rs/toolchain@v1
+  #     with:
+  #       toolchain: stable
+  #       target: x86_64-unknown-linux-musl
+  #       override: true
+
+  #   - name: Build (optimized) CLI binary
+  #     uses: actions-rs/cargo@v1
+  #     with:
+  #       use-cross: true
+  #       command: build
+  #       args: --target x86_64-unknown-linux-musl --release --package brane-cli
+
+  #   - name: Rename CLI binary
+  #     with:
+  #       run: mkdir -p ./target/release && mv target/x86_64-unknown-linux-musl/release/brane target/release/brane-darwin-amd64
+
+  #   - name: Upload artifact
+  #     uses: actions/upload-artifact@v2
+  #     with:
+  #       name: brane-darwin-amd64
+  #       path: target/release/brane-darwin-amd64
+
+  # # Building the macOS aarch64 binary
+  # build-darwin-arm64:
+  #   runs-on: macos-latest
+  #   steps:
+  #   - name: Checkout repository
+  #     uses: actions/checkout@v2
+
+  #   - name: Install Rust
+  #     uses: actions-rs/toolchain@v1
+  #     with:
+  #       toolchain: stable
+  #       target: aarch64-unknown-linux-musl
+  #       override: true
+
+  #   - name: Build (optimized) CLI binary
+  #     uses: actions-rs/cargo@v1
+  #     with:
+  #       use-cross: true
+  #       command: build
+  #       args: --target aarch64-unknown-linux-musl --release --package brane-cli
+
+  #   - name: Rename CLI binary
+  #     with:
+  #       run: mkdir -p ./target/release && mv target/aarch64-unknown-linux-musl/release/brane target/release/brane-darwin-arm64
+
+  #   - name: Upload artifact
+  #     uses: actions/upload-artifact@v2
+  #     with:
+  #       name: brane-darwin-arm64
+  #       path: target/release/brane-darwin-arm64
   
-  build-services:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Get Github tag
-        id: meta
-        run: |
-          echo "::set-output name=tag::${GITHUB_REF#'refs/tags/v'}"
+  # build-services:
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Get Github tag
+  #       id: meta
+  #       run: |
+  #         echo "::set-output name=tag::${GITHUB_REF#'refs/tags/v'}"
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v1
+  #     - name: Set up QEMU
+  #       uses: docker/setup-qemu-action@v1
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v1
+  #     - name: Set up Docker Buildx
+  #       uses: docker/setup-buildx-action@v1
    
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@v1
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+  #     - name: Login to GitHub Container Registry
+  #       uses: docker/login-action@v1
+  #       with:
+  #         registry: ghcr.io
+  #         username: ${{ github.actor }}
+  #         password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push 'brane-api'
-        uses: docker/build-push-action@v2
-        with:
-          file: Dockerfile.api
-          push: true
-          tags: ghcr.io/onnovalkering/brane/brane-api:${{ steps.meta.outputs.tag }}
+  #     - name: Build and push 'brane-api'
+  #       uses: docker/build-push-action@v2
+  #       with:
+  #         file: Dockerfile.api
+  #         push: true
+  #         tags: ghcr.io/onnovalkering/brane/brane-api:${{ steps.meta.outputs.tag }}
 
-      - name: Build and push 'brane-clb'
-        uses: docker/build-push-action@v2
-        with:
-          file: Dockerfile.clb
-          push: true
-          tags: ghcr.io/onnovalkering/brane/brane-clb:${{ steps.meta.outputs.tag }}
+  #     - name: Build and push 'brane-clb'
+  #       uses: docker/build-push-action@v2
+  #       with:
+  #         file: Dockerfile.clb
+  #         push: true
+  #         tags: ghcr.io/onnovalkering/brane/brane-clb:${{ steps.meta.outputs.tag }}
 
-      - name: Build and push 'brane-drv'
-        uses: docker/build-push-action@v2
-        with:
-          file: Dockerfile.drv
-          push: true
-          tags: ghcr.io/onnovalkering/brane/brane-drv:${{ steps.meta.outputs.tag }}
+  #     - name: Build and push 'brane-drv'
+  #       uses: docker/build-push-action@v2
+  #       with:
+  #         file: Dockerfile.drv
+  #         push: true
+  #         tags: ghcr.io/onnovalkering/brane/brane-drv:${{ steps.meta.outputs.tag }}
 
-      - name: Build and push 'brane-job'
-        uses: docker/build-push-action@v2
-        with:
-          file: Dockerfile.job
-          push: true
-          tags: ghcr.io/onnovalkering/brane/brane-job:${{ steps.meta.outputs.tag }}
+  #     - name: Build and push 'brane-job'
+  #       uses: docker/build-push-action@v2
+  #       with:
+  #         file: Dockerfile.job
+  #         push: true
+  #         tags: ghcr.io/onnovalkering/brane/brane-job:${{ steps.meta.outputs.tag }}
 
-      - name: Build and push 'brane-log'
-        uses: docker/build-push-action@v2
-        with:
-          file: Dockerfile.log
-          push: true
-          tags: ghcr.io/onnovalkering/brane/brane-log:${{ steps.meta.outputs.tag }}
+  #     - name: Build and push 'brane-log'
+  #       uses: docker/build-push-action@v2
+  #       with:
+  #         file: Dockerfile.log
+  #         push: true
+  #         tags: ghcr.io/onnovalkering/brane/brane-log:${{ steps.meta.outputs.tag }}
 
-      - name: Build and push 'brane-plr'
-        uses: docker/build-push-action@v2
-        with:
-          file: Dockerfile.plr
-          push: true
-          tags: ghcr.io/onnovalkering/brane/brane-plr:${{ steps.meta.outputs.tag }}                                             
+  #     - name: Build and push 'brane-plr'
+  #       uses: docker/build-push-action@v2
+  #       with:
+  #         file: Dockerfile.plr
+  #         push: true
+  #         tags: ghcr.io/onnovalkering/brane/brane-plr:${{ steps.meta.outputs.tag }}                                             
 
-  create-release:
-    runs-on: ubuntu-latest
-    needs:
-      - build-darwin-binaries
-      - build-linux-binaries
-      - build-services
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v2
+  # create-release:
+  #   runs-on: ubuntu-latest
+  #   needs:
+  #     - build-darwin-binaries
+  #     - build-linux-binaries
+  #     - build-services
+  #   steps:
+  #     - name: Checkout repository
+  #       uses: actions/checkout@v2
         
-      - name: Download artifacts
-        uses: actions/download-artifact@v2
-        with:
-          path: artifacts
+  #     - name: Download artifacts
+  #       uses: actions/download-artifact@v2
+  #       with:
+  #         path: artifacts
 
-      - name: Create release
-        uses: anton-yurchenko/git-release@v3
-        env:
-          ALLOW_TAG_PREFIX: "true"
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          args: |
-            artifacts/darwin/brane-darwin
-            artifacts/linux/release/brane-linux
-            artifacts/linux/x86_64-unknown-linux-musl/release/branelet
+  #     - name: Create release
+  #       uses: anton-yurchenko/git-release@v3
+  #       env:
+  #         ALLOW_TAG_PREFIX: "true"
+  #         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  #       with:
+  #         args: |
+  #           artifacts/darwin/brane-darwin
+  #           artifacts/linux/release/brane-linux
+  #           artifacts/linux/x86_64-unknown-linux-musl/release/branelet
 

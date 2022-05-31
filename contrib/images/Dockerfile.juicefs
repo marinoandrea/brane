@@ -8,52 +8,16 @@
 #
 
 
-### BUILD STAGE ###
-# The base image (for the build phase)
-FROM ubuntu:20.04 AS build
-
-# Define the arch build argument
-ARG ARCH
-
-# Determine the JuiceFS version
-ARG VERSION="0.12.1"
-
-# Determine the Go version & architecture and junk (it _does_ have arm64 available)
-ARG GO_VERSION="1.18.2"
-ARG GO_RELEASE="go$GO_VERSION.linux-$ARCH"
-
-# Install compile-time dependencies
-RUN apt-get update && apt-get install -y \
-    gcc \
-    make \
-    wget \
- && rm -rf /var/lib/apt/lists/*
-
-# Download go
-RUN wget -O "/$GO_RELEASE.tar.gz" "https://go.dev/dl/$GO_RELEASE.tar.gz" \
- && tar -xvzf "/$GO_RELEASE.tar.gz" \
- && rm "/$GO_RELEASE.tar.gz"
-
-# Download the JuiceFS source
-RUN wget -O "/juicefs-0.12.1.tar.gz" "https://github.com/juicedata/juicefs/archive/refs/tags/v$VERSION.tar.gz" \
- && tar -xvzf "/juicefs-0.12.1.tar.gz" \
- && mv "/juicefs-0.12.1" "/juicefs" \
- && rm "/juicefs-0.12.1.tar.gz"
-
-# Compile it
-RUN cd juicefs && PATH="/go/bin:$PATH" make
-
-# In case anyone ever runs this image, just give 'em a terminal for exploring
-ENTRYPOINT [ "/bin/bash" ]
-
-
-
-### DEPLOYMENT STAGE ###
-# Now, for the run phase, copy the exec
+# We base on Ubuntu (for ease)
 FROM ubuntu:20.04
 
-# Copy the exe
-COPY --from=build /juicefs/juicefs /juicefs
+# Define the architecture argument
+ARG JUICEFS_ARCH
+
+# Download the file & extract it
+ADD https://github.com/juicedata/juicefs/releases/download/v0.12.1/juicefs-0.12.1-linux-$JUICEFS_ARCH.tar.gz /juicefs-0.12.1-linux-$JUICEFS_ARCH.tar.gz
+RUN tar -xzvf /juicefs-0.12.1-linux-$JUICEFS_ARCH.tar.gz \
+ && rm /LICENSE /README.md /README_CN.md /juicefs-0.12.1-linux-$JUICEFS_ARCH.tar.gz
 
 # Set it as entrypoint and done!
 ENTRYPOINT ["/juicefs"]
