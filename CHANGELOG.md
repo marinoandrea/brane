@@ -2,7 +2,7 @@
 
 All notable changes to the Brane framework will be documented in this file.
 
-## [0.6.3] - 2022-05-24
+## [0.6.3] - 2022-05-31
 ### Added
 - Tests for various opcodes in the VM. More will follow in due time.
 - `brane run` can now run from stdin by passing `-` as filename.
