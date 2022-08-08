@@ -5,7 +5,7 @@
 # Created:
 #   03 Mar 2022, 17:03:04
 # Last edited:
-#   31 May 2022, 21:27:41
+#   10 Jun 2022, 16:59:31
 # Auto updated?
 #   Yes
 #
@@ -17,30 +17,29 @@
 
 
 ##### CONSTANTS #####
-# Determines the location of the file state cache
-CACHE_DIR=./target/make_cache
-
-# The crates part of the Brane instance source code
-BRANE_INSTANCE_SRC=(./brane-api ./brane-bvm ./brane-cfg ./brane-clb ./brane-drv ./brane-dsl ./brane-job ./brane-plr ./brane-shr ./specifications)
-# The images part of the Brane instance
-BRANE_INSTANCE_IMAGES=(brane-xenon brane-format brane-api brane-clb brane-drv brane-job brane-log brane-plr)
-# The services part of the Brane instance
-BRANE_INSTANCE_SERVICES=(aux-scylla aux-registry aux-zookeeper aux-kafka brane-xenon aux-minio aux-redis once-format brane-api brane-clb brane-drv brane-job brane-log brane-plr)
-
-# The timeout (in seconds) before we consider a spawned service a failure
-BRANE_INSTANCE_SERVICE_TIMEOUT=60
-
-# The to-be-replaced string for the cluster domain name
-K8S_DOMAIN_REPLACE="%BRANE_CLUSTER_DOMAIN%"
-# The to-be-replaced string for the data volume name
-K8S_DATA_SC_REPLACE="%BRANE_DATA_STORAGE%"
-# The to-be-replaced string for the config volume name
-K8S_CONFIG_SC_REPLACE="%BRANE_CONFIG_STORAGE%"
-
 # The host arch
 HOST_ARCH=$(uname -m)
 if [[ "$HOST_ARCH" == "amd64" ]]; then HOST_ARCH="x86_64"; fi
 if [[ "$HOST_ARCH" == "arm64" ]]; then HOST_ARCH="aarch64"; fi
+
+# Determines the location of the file state cache
+CACHE_DIR=./target/make_cache
+
+# Lists the source file(s) for the Xenon image
+XENON_SRC=./contrib/images/Dockerfile.xenon
+# Lists the source file(s) for the JuiceFS format image
+FORMAT_SRC=./contrib/images/Dockerfile.juicefs
+# Lists the source file(s) for the build format image
+BUILD_SRC=./contrib/images/Dockerfile.build
+# The source files for various instance images
+declare -A INSTANCE_SRC=(
+    ["brane-api"] = $(cat ./brane-api/Cargo.toml | grep -i "{ path =" | awk '{ print $1 }' | sed -r 's/[^ ]+/.\/&/')
+    ["brane-clb"] = $(cat ./brane-clb/Cargo.toml | grep -i "{ path =" | awk '{ print $1 }' | sed -r 's/[^ ]+/.\/&/')
+    ["brane-drv"] = $(cat ./brane-drv/Cargo.toml | grep -i "{ path =" | awk '{ print $1 }' | sed -r 's/[^ ]+/.\/&/')
+    ["brane-job"] = $(cat ./brane-job/Cargo.toml | grep -i "{ path =" | awk '{ print $1 }' | sed -r 's/[^ ]+/.\/&/')
+    ["brane-log"] = $(cat ./brane-log/Cargo.toml | grep -i "{ path =" | awk '{ print $1 }' | sed -r 's/[^ ]+/.\/&/')
+    ["brane-plr"] = $(cat ./brane-plr/Cargo.toml | grep -i "{ path =" | awk '{ print $1 }' | sed -r 's/[^ ]+/.\/&/')
+)
 
 # Lists the generated targets of OpenSSL
 OPENSSL_DIR="$(pwd)/target/openssl/$HOST_ARCH"
@@ -82,6 +81,23 @@ OPENSSL_TARGETS=("$OPENSSL_DIR/lib/libcrypto.a" "$OPENSSL_DIR/lib/libssl.a" \
                 "$OPENSSL_DIR/include/openssl/x509err.h" "$OPENSSL_DIR/include/openssl/x509.h" "$OPENSSL_DIR/include/openssl/x509v3err.h"
                 "$OPENSSL_DIR/include/openssl/x509v3.h" "$OPENSSL_DIR/include/openssl/x509_vfy.h")
 
+# The crates part of the Brane instance source code
+BRANE_INSTANCE_SRC=(./brane-api ./brane-bvm ./brane-cfg ./brane-clb ./brane-drv ./brane-dsl ./brane-job ./brane-plr ./brane-shr ./specifications)
+# The images part of the Brane instance
+BRANE_INSTANCE_IMAGES=(brane-xenon brane-format brane-api brane-clb brane-drv brane-job brane-log brane-plr)
+# The services part of the Brane instance
+BRANE_INSTANCE_SERVICES=(aux-scylla aux-registry aux-zookeeper aux-kafka brane-xenon aux-minio aux-redis once-format brane-api brane-clb brane-drv brane-job brane-log brane-plr)
+
+# The timeout (in seconds) before we consider a spawned service a failure
+BRANE_INSTANCE_SERVICE_TIMEOUT=60
+
+# The to-be-replaced string for the cluster domain name
+K8S_DOMAIN_REPLACE="%BRANE_CLUSTER_DOMAIN%"
+# The to-be-replaced string for the data volume name
+K8S_DATA_SC_REPLACE="%BRANE_DATA_STORAGE%"
+# The to-be-replaced string for the config volume name
+K8S_CONFIG_SC_REPLACE="%BRANE_CONFIG_STORAGE%"
+
 # Capture the command line arguments as a separate variable (so we can call the script recursively from within functions)
 cli_args=($@)
 
@@ -121,73 +137,119 @@ exec_step() {
 
 # Helper function that checks if we need to generate a particular file
 should_regen() {
-    # Make sure we're called with only one argument
-    if [[ "$#" -ne 1 ]]; then
-        echo "Usage: should_regen <file>"
+    # Make sure we're called with at least one argument
+    if [[ "$#" -lt 1 ]]; then
+        echo "Usage: should_regen <file...>"
         exit 1
     fi
-    file="$1"
+    files="$@"
 
-    # Use recursive calls for all files in a folder if it's a folder
-    if [[ -d "$file" ]]; then
-        # Return that we should regenerate if any of the sub-files need to
-        for target in "$file"/*; do
-            if should_regen "$target"; then return 0; fi
-        done
-        return 1
-    fi
+    # We can skip if either '--force' or '--nocompile' has been given
+    if [[ "$force" -eq 1 ]]; then return 0; fi
+    if [[ "$nocompile" -eq 1 ]]; then return 1; fi
 
-    # Resolve the cache file location
-    if [[ ! "$file" =~ ^\./ ]]; then
-        echo "should_regen() only works for relative paths (i.e., beginning with './')"
-        exit 1
-    fi
-    cache_file=${file//\.\//$CACHE_DIR\/}
+    # Iterate through all the files
+    for $file in $files; do
+        # Use recursive calls for all files in a folder if it's a folder
+        if [[ -d "$file" ]]; then
+            # Return that we should regenerate if any of the sub-files need to
+            for target in "$file"/*; do
+                if should_regen "$target"; then return 0; fi
+            done
+            continue
+        fi
 
-    # We always regen if the file or cache file does not exist
-    if [[ ! -f "$file" || ! -f "$cache_file" ]]; then return 0; fi
+        # Resolve the hasher to use
+        hasher="sha256sum"
+        if !"$hasher" --help; then hasher="openssl sha256"; fi
+
+        # Resolve the cache file location
+        if [[ ! "$file" =~ ^\./ ]]; then
+            echo "should_regen() only works for relative paths (i.e., beginning with './')"
+            exit 1
+        fi
+        cache_file=${file//\.\//$CACHE_DIR\/$arch\/}
+
+        # We always regen if the file or cache file does not exist
+        if [[ ! -f "$file" || ! -f "$cache_file" ]]; then return 0; fi
     
-    # If it does, load and compare with the actual file hash
-    file_hash=$(sha256sum "$file" | cut -d " " -f1)
-    cache_hash=$(cat "$cache_file")
-    if [[ "$file_hash" == "$cache_hash" ]]; then
-        return 1
-    else
-        return 0
+        # If it does, load and compare with the actual file hash
+        file_hash=$($hasher "$file")
+        cache_hash=$(cat "$cache_file")
+        if [[ "$file_hash" != "$cache_hash" ]]; then
+            return 0
+        fi
+    done
+
+    # Only if nothing needs to be regenerated do we signify it so
+    return 1
+}
+
+# Helper function that checks is we need to generate a particular image with associated source files
+should_regen_image() {
+    # Make sure there is at least one image
+    if [[ "$#" -lt 1 ]]; then
+        echo "Usage: should_regen_image <image> [<files...>]"
+        exit 1
     fi
+    image="$1"
+    files="${@:1}"
+
+    # We can skip if either '--force' or '--nocompile' has been given
+    if [[ "$force" -eq 1 ]]; then return 0; fi
+    if [[ "$nocompile" -eq 1 ]]; then return 1; fi
+
+    # If the Docker image is missing, always recompile
+    if [[ -z $(docker image list | grep -i \"$image\") ]]; then return 0; fi
+
+    # If the Docker image is compiled but for the wrong arch, recompile it too
+    image_arch="$(docker image inspect brane-api | grep -i "Architecture" | awk '{print $2}' | sed 's/[",]//g')"
+    if [[ "$image_arch" == "amd64" ]]; then image_arch="x86_64"; fi
+    if [[ "$image_arch" == "arm64" ]]; then image_arch="aarch64"; fi
+    if [[ "$image_arch" != "$arch" ]]; then return 0; fi
+
+    # Return the cache status of the files to see if it should be regenerate
+    return should_regen $files
 }
 
 # Helper function that caches the hash of the given file so we may check if we need to regenerate it
 cache_regen() {
-    # Make sure we're called with only one argument
+    # Make sure we're called with at least one argument
     if [[ "$#" -ne 1 ]]; then
-        echo "Usage: cache_regen <file>"
+        echo "Usage: cache_regen <files...>"
         exit 1
     fi
-    file="$1"
+    files="$@"
 
-    # Use recursive calls for all files in a folder if it's a folder
-    if [[ -d "$file" ]]; then
-        # Return that we should regenerate if any of the sub-files need to
-        for target in "$file"/*; do
-            cache_regen "$target"
-        done
-        return
-    fi
+    # Iterate over the files
+    for $file in $files; do
+        # Use recursive calls for all files in a folder if it's a folder
+        if [[ -d "$file" ]]; then
+            # Return that we should regenerate if any of the sub-files need to
+            for target in "$file"/*; do
+                cache_regen "$target"
+            done
+            return
+        fi
 
-    # Resolve the cache file location
-    if [[ ! "$file" =~ ^\./ ]]; then
-        echo "cache_regen() only works for relative paths (i.e., beginning with './')"
-        exit 1
-    fi
-    cache_file=${file//\.\//$CACHE_DIR\/}
+        # Resolve the hasher to use
+        hasher="sha256sum"
+        if !"$hasher" --help; then hasher="openssl sha256"; fi
 
-    # Create the cache dir if it does not yet exist
-    mkdir -p "$(dirname "$cache_file")"
+        # Resolve the cache file location
+        if [[ ! "$file" =~ ^\./ ]]; then
+            echo "cache_regen() only works for relative paths (i.e., beginning with './')"
+            exit 1
+        fi
+        cache_file=${file//\.\//$CACHE_DIR\/$arch\/}
 
-    # Compute the file hash and store it
-    file_hash=$(sha256sum "$file" | cut -d " " -f1)
-    echo "$file_hash" > "$cache_file"
+        # Create the cache dir if it does not yet exist
+        mkdir -p "$(dirname "$cache_file")"
+
+        # Compute the file hash and store it
+        file_hash=$($hasher "$file")
+        echo "$file_hash" > "$cache_file"
+    done
 }
 
 # Blocks until a given service is 'ready' according to kubectl
@@ -234,6 +296,8 @@ host_arch() {
 
 ##### CLI PARSING #####
 target="local"
+force=0
+nocompile=0
 precompiled=0
 precompiled_source=""
 version=""
@@ -258,7 +322,17 @@ while [[ "$i" -lt "$#" ]]; do
         # Switch between option or not
         if [[ "$allow_opts" -eq 1 && "$arg" =~ ^- ]]; then
             # Match the specific option
-            if [[ "$arg" == "-a" || "$arg" == "--arch" ]]; then
+            if [[ "$arg" == "-f" || "$arg" == "--force" ]]; then
+                # Set the force flag, unset any nocompile flags
+                force=1
+                nocompile=0
+
+            elif [[ "$arg" == "-n" || "$arg" == "--nocompile" ]]; then
+                # Set the nocompile flag, unset any force flags
+                nocompile=1
+                force=0
+
+            elif [[ "$arg" == "-a" || "$arg" == "--arch" ]]; then
                 # Move to the arch state to parse its value
                 state="arch"
 
@@ -312,6 +386,12 @@ while [[ "$i" -lt "$#" ]]; do
                 echo "                         omitted, defaults to 'local'."
                 echo ""
                 echo "Options:"
+                echo "  -f,--force             Forces recompilation of all the targets (i.e., ignoring any cache"
+                echo "                         information about which targets have been compiled already). Giving this"
+                echo "                         flag implies unsetting any previously encountered '--nocompile' flags."
+                echo "  -n,--nocompile         Skips all compilation of all the targets (i.e., pretends all cache"
+                echo "                         information about which targets have been compiled are up-to-date). Giving"
+                echo "                         this flag implies unsetting any previously encountered '--force' flags."
                 echo "  -a,--arch <arch>       The architecture for which to compile. Options are: 'x86_64' and 'aarch64'."
                 echo "                         Default: 'x86_64'"
                 echo "  --dev,--development    If given, compiles the Brane instance (and other executables) in"
@@ -538,6 +618,8 @@ elif [[ "$target" == "clean" ]]; then
 ### BINARIES ###
 # Build the command-line interface 
 elif [[ "$target" == "cli" ]]; then
+    # We don't check caches because we let cargo handle this
+
     # Decide the release flags and dir based on the development flag
     rls_flags="--release"
     rls_dir="release"
@@ -596,6 +678,8 @@ elif [[ "$target" == "cli" ]]; then
 
 # Build the branelet executable by cross-compiling
 elif [[ "$target" == "branelet" ]]; then
+    # We let cargo handle any branelet-specific caching
+
     # Split on how to compile
     if [[ "$containerized" -eq 0 ]]; then
         # Prepare flags to build in development mode or not
@@ -609,8 +693,6 @@ elif [[ "$target" == "branelet" ]]; then
         # We let cargo sort out dependencies
         exec_step rustup target add "$arch-unknown-linux-musl"
         exec_step cargo build $rls_flag --package brane-let --target "$arch-unknown-linux-musl"
-        # exec_step cargo install cross
-        # exec_step cross build $rls_flag --package brane-let --target "$arch-unknown-linux-musl"
 
         # Done
         echo "Compiled package initialization binary \"branelet\" ($arch) to './target/$arch-unknown-linux-musl/$rls_dir/branelet'"
@@ -647,15 +729,21 @@ elif [[ "$target" == "branelet" ]]; then
 ### IMAGES ###
 # Build the xenon image
 elif [[ "$target" == "xenon-image" ]]; then
-    # Call upon Docker to build it (it tackles caches)
+    # Only compile it if necessary
+    if !should_regen_image "brane-xenon" $XENON_SRC; then exit 0; fi
+
     # The Xenon image specifically is build on Java, so doing it cross-arch should be relatively straightforward
     exec_step docker build --load --platform "linux/$arch" -t brane-xenon -f ./contrib/images/Dockerfile.xenon ./contrib/images
 
     # Done
+    cache_regen $XENON_SRC
     echo "Built xenon image ($arch) to Docker Image 'brane-xenon'"
 
 # Build the format image
 elif [[ "$target" == "format-image" ]]; then
+    # Only compile it if necessary
+    if !should_regen_image "brane-format" $FORMAT_SRC; then exit 0; fi
+
     # Translate the architecture names to proper ones
     if [[ "$arch" == "x86_64" ]]; then
         juicefs_arch="amd64"
@@ -667,19 +755,23 @@ elif [[ "$target" == "format-image" ]]; then
         exit 1
     fi
 
-    # Call upon Docker to build it (it tackles caches)
-    # This image downloads a binary, so we'll have to compile from source instead
+    # Build the image in Docker with the appropriate architecture set
     exec_step docker build --build-arg "JUICEFS_ARCH=$juicefs_arch" --load --platform "linux/$arch" -t brane-format -f ./contrib/images/Dockerfile.juicefs ./contrib/images
 
     # Done
+    cache_regen $FORMAT_SRC
     echo "Built Brane JuiceFS format image ($arch/$juicefs_arch) to Docker Image 'brane-format'"
 
 # Build musl stuff in a Docker container
 elif [[ "$target" == "bld-image-dev" ]]; then
+    # Only compile it if necessary
+    if !should_regen_image "brane-bld" $BUILD_SRC; then exit 0; fi
+
     # Call upon Docker to build it (it tackles caches)
     exec_step docker build --load --platform "linux/$arch" -t brane-bld -f ./contrib/images/Dockerfile.build .
 
     # Done
+    cache_regen $BUILD_SRC
     echo "Built Brane build image to Docker Image 'brane-bld'"
 
 # Build the regular images
@@ -687,14 +779,21 @@ elif [[ "$target" =~ -image$ ]]; then
     # Get the name of the image
     image_name="${target%-image}"
 
+    # Check if it needs regeneration
+    if !should_regen_image "$image_name" INSTANCE_SRC["$image_name"]; then exit 0; fi
+
     # Call upon Docker to build it (building in release as normal does not use any caching other than the caching of the image itself, sadly)
     exec_step docker build --load --platform "linux/$arch" -t "brane-$image_name" --target "brane-$image_name" -f Dockerfile.rls .
 
     # Done
+    cache_regen INSTANCE_SRC["$image_name"]
     echo "Built $image_name image to Docker Image 'brane-$image_name'"
 
 # Build the dev version of the images
 elif [[ "$target" =~ -image-dev$ ]]; then
+    # Check if it needs regeneration
+    if !should_regen_image "$image_name" INSTANCE_SRC["$image_name"]; then exit 0; fi
+
     # Get the name of the image
     image_name="${target%-image-dev}"
 
@@ -702,6 +801,7 @@ elif [[ "$target" =~ -image-dev$ ]]; then
     exec_step docker build --load --platform "linux/$arch" -t "brane-$image_name" --target "brane-$image_name" --build-arg "ARCH=$arch" -f Dockerfile.dev .
 
     # Done
+    cache_regen INSTANCE_SRC["$image_name"]
     echo "Built $image_name development image to Docker Image 'brane-$image_name'"
 
 # Build the version of the images that uses precompiled binaries
@@ -782,6 +882,16 @@ elif [[ "$target" == "images-bin" ]]; then
 ### OPENSSL ###
 # Build OpenSSL
 elif [[ "$target" == "openssl" ]]; then
+    # Only regen if any of the OpenSSL targets are missing
+    regen=0
+    for $target in $OPENSSL_TARGETS; do
+        if [[ ! -f "$target" ]]; then
+            regen=1
+            break
+        fi
+    fi
+    if [[ "$regen" -eq 0 ]]; exit 0; fi
+
     # Prepare the build image for the SSL
     make_target bld-image-dev
 
@@ -824,13 +934,8 @@ elif [[ "$target" == "instance" ]]; then
             exit 1
         fi
 
-        # Build openssl only if any of the files is not cached
-        for target in "${OPENSSL_TARGETS[@]}"; do
-            if [[ ! -f "$target" ]]; then
-                make_target openssl
-                break
-            fi
-        done
+        # Build openssl
+        make_target openssl
 
         # Prepare the cross-compilation target
         exec_step rustup target add "$arch-unknown-linux-musl"
@@ -874,6 +979,7 @@ elif [[ "$target" == "instance" ]]; then
         make_target images-dev
 
         # Done!
+        cache_regen 
         echo "Compiled Brane instance as Docker images"
     fi
 
