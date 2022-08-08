@@ -5,7 +5,7 @@
 # Created:
 #   18 May 2022, 11:20:02
 # Last edited:
-#   22 May 2022, 15:57:41
+#   03 Aug 2022, 15:49:06
 # Auto updated?
 #   Yes
 #
@@ -68,7 +68,7 @@ for arg in "${cli_args[@]}"; do
                 echo "Usage: $0 [opts] <target>"
                 echo ""
                 echo "Positionals:"
-                echo "  <target>               The target to build. Can be 'branelet'."
+                echo "  <target>               The target to build. Can be 'branelet' or 'openssl'."
                 echo ""
                 echo "Options:"
                 echo "  -a,--arch <arch>       The architecture for which to compile. Can either be 'x86_64' or 'aarch64'."

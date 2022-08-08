@@ -4,7 +4,7 @@
  * Created:
  *   17 Feb 2022, 10:27:28
  * Last edited:
- *   23 May 2022, 10:40:28
+ *   05 Jul 2022, 12:02:42
  * Auto updated?
  *   Yes
  *
@@ -21,8 +21,6 @@ use brane_bvm::vm::VmError;
 use specifications::package::{PackageInfoError, PackageKindError};
 use specifications::container::{ContainerInfoError, LocalContainerInfoError};
 use specifications::version::{ParseError as VersionParseError, Version};
-
-use crate::packages::PackageError;
 
 
 /***** GLOBALS *****/
@@ -41,6 +39,10 @@ pub enum CliError {
     BuildError{ err: BuildError },
     /// Errors that occur during the import command
     ImportError{ err: ImportError },
+    /// Errors that occur during some package command
+    PackageError{ err: PackageError },
+    /// Errors that occur during some registry command
+    RegistryError{ err: RegistryError },
     /// Errors that occur during the repl command
     ReplError{ err: ReplError },
     /// Errors that occur in the version command
@@ -57,21 +59,27 @@ pub enum CliError {
     WorkdirCanonicalizeError{ path: PathBuf, err: std::io::Error },
     /// Could not resolve a string to a package kind
     IllegalPackageKind{ kind: String, err: PackageKindError },
+    /// Could not parse a NAME:VERSION pair
+    PackagePairParseError{ raw: String, err: specifications::version::ParseError },
 }
 
 impl Display for CliError {
     fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
+        use CliError::*;
         match self {
-            CliError::BuildError{ err }   => write!(f, "{}", err),
-            CliError::ImportError{ err }  => write!(f, "{}", err),
-            CliError::ReplError{ err }    => write!(f, "{}", err),
-            CliError::UtilError{ err }    => write!(f, "{}", err),
-            CliError::VersionError{ err } => write!(f, "{}", err),
-            CliError::OtherError{ err }   => write!(f, "{}", err),
+            BuildError{ err }    => write!(f, "{}", err),
+            ImportError{ err }   => write!(f, "{}", err),
+            PackageError{ err }  => write!(f, "{}", err),
+            RegistryError{ err } => write!(f, "{}", err),
+            ReplError{ err }     => write!(f, "{}", err),
+            UtilError{ err }     => write!(f, "{}", err),
+            VersionError{ err }  => write!(f, "{}", err),
+            OtherError{ err }    => write!(f, "{}", err),
 
-            CliError::PackageFileCanonicalizeError{ path, err } => write!(f, "Could not resolve package file path '{}': {}", path.display(), err),
-            CliError::WorkdirCanonicalizeError{ path, err }     => write!(f, "Could not resolve working directory '{}': {}", path.display(), err),
-            CliError::IllegalPackageKind{ kind, err }           => write!(f, "Illegal package kind '{}': {}", kind, err),
+            PackageFileCanonicalizeError{ path, err } => write!(f, "Could not resolve package file path '{}': {}", path.display(), err),
+            WorkdirCanonicalizeError{ path, err }     => write!(f, "Could not resolve working directory '{}': {}", path.display(), err),
+            IllegalPackageKind{ kind, err }           => write!(f, "Illegal package kind '{}': {}", kind, err),
+            PackagePairParseError{ raw, err }         => write!(f, "Could not parse '{}': {}", raw, err),
         }
     }
 }
@@ -310,6 +318,166 @@ impl Display for ImportError {
 }
 
 impl Error for ImportError {}
+
+
+
+/// Lists the errors that can occur when trying to do stuff with packages
+#[derive(Debug)]
+pub enum PackageError {
+    /// Something went wrong while calling utilities
+    UtilError{ err: UtilError },
+
+    /// There was an error reading entries from the packages directory
+    PackagesDirReadError{ path: PathBuf, err: std::io::Error },
+    /// We tried to load a package YML but failed
+    InvalidPackageYml{ package: String, path: PathBuf, err: specifications::package::PackageInfoError },
+    /// We tried to load a Package Index from a JSON value with PackageInfos but we failed
+    PackageIndexError{ err: specifications::package::PackageIndexError },
+
+    /// Failed to resolve a specific package/version pair
+    PackageVersionError{ name: String, version: Version, err: UtilError },
+    /// Failed to resolve a specific package
+    PackageError{ name: String, err: UtilError },
+    /// Failed to ask for the user's consent
+    ConsentError{ err: std::io::Error },
+    /// Failed to remove a package directory
+    PackageRemoveError{ name: String, version: Version, dir: PathBuf, err: std::io::Error },
+    /// Failed to get the versions of a package
+    VersionsError{ name: String, dir: PathBuf, err: std::io::Error },
+    /// Failed to parse the version of a package
+    VersionParseError{ name: String, raw: String, err: specifications::version::ParseError },
+    /// Failed to load the PackageInfo of the given package
+    PackageInfoError{ path: PathBuf, err: specifications::package::PackageInfoError },
+    /// The given PackageInfo has no digest set
+    PackageInfoNoDigest{ path: PathBuf },
+    /// Could not remove the given image from the Docker daemon
+    DockerRemoveError{ image: String, err: brane_bvm::executor::ExecutorError },
+}
+
+impl std::fmt::Display for PackageError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use self::PackageError::*;
+        match self {
+            UtilError{ err } => write!(f, "{}", err),
+
+            PackagesDirReadError{ path, err }        => write!(f, "Could not read from Brane packages directory '{}': {}", path.display(), err),
+            InvalidPackageYml{ package, path, err }  => write!(f, "Could not read '{}' for package '{}': {}", path.display(), package, err),
+            PackageIndexError{ err }                 => write!(f, "Could not create PackageIndex: {}", err),
+
+            PackageVersionError{ name, version, err }     => write!(f, "Package '{}' does not exist or has no version {} ({})", name, version, err),
+            PackageError{ name, err }                     => write!(f, "Package '{}' does not exist ({})", name, err),
+            ConsentError{ err }                           => write!(f, "Failed to ask for your consent: {}", err),
+            PackageRemoveError{ name, version, dir, err } => write!(f, "Failed to remove package '{}' (version {}) at '{}': {}", name, version, dir.display(), err),
+            VersionsError{ name, dir, err }               => write!(f, "Failed to get versions of package '{}' (at '{}'): {}", name, dir.display(), err),
+            VersionParseError{ name, raw, err }           => write!(f, "Could not parse '{}' as a version for package '{}': {}", raw, name, err),
+            PackageInfoError{ path, err }                 => write!(f, "Could not load package info file '{}': {}", path.display(), err),
+            PackageInfoNoDigest{ path }                   => write!(f, "Package info file '{}' has no digest set", path.display()),
+            DockerRemoveError{ image, err }               => write!(f, "Failed to remove image '{}' from the local Docker daemon: {}", image, err),
+        }
+    }
+}
+
+impl std::error::Error for PackageError {}
+
+
+
+/// Collects errors during the registry subcommands
+#[derive(Debug)]
+pub enum RegistryError {
+    /// Could not get the registry login info
+    ConfigFileError{ err: specifications::registry::RegistryConfigError },
+
+    /// Failed to successfully send the package pull request
+    PullRequestError{ url: String, err: reqwest::Error },
+    /// The request was sent successfully, but the server replied with a non-200 access code
+    PullRequestFailure{ url: String, status: reqwest::StatusCode },
+    /// The request did not have a content length specified
+    MissingContentLength{ url: String },
+    /// Failed to convert the content length from raw bytes to string
+    ContentLengthStrError{ url: String, err: reqwest::header::ToStrError },
+    /// Failed to parse the content length as a number
+    ContentLengthParseError{ url: String, raw: String, err: std::num::ParseIntError },
+    /// Failed to download the actual package
+    PackageDownloadError{ url: String, err: reqwest::Error },
+    /// Failed to write the downloaded package to the given file
+    PackageWriteError{ url: String, path: PathBuf, err: std::io::Error },
+    /// Failed to create the package directory
+    PackageDirCreateError{ path: PathBuf, err: std::io::Error },
+    /// Failed to copy the downloaded package over
+    PackageCopyError{ source: PathBuf, target: PathBuf, err: std::io::Error },
+    /// Failed to send GraphQL request for package info
+    GraphQLRequestError{ url: String, err: reqwest::Error },
+    /// Failed to receive GraphQL response with package info
+    GraphQLResponseError{ url: String, err: reqwest::Error },
+    /// Could not parse the kind as a proper PackageInfo kind
+    KindParseError{ url: String, raw: String, err: specifications::package::PackageKindError },
+    /// Could not parse the version as a proper PackageInfo version
+    VersionParseError{ url: String, raw: String, err: specifications::version::ParseError },
+    /// Could not parse the functions as proper PackageInfo functions
+    FunctionsParseError{ url: String, raw: String, err: serde_json::Error },
+    /// Could not parse the types as proper PackageInfo types
+    TypesParseError{ url: String, raw: String, err: serde_json::Error },
+    /// Could not create a file for the PackageInfo
+    PackageInfoCreateError{ path: PathBuf, err: std::io::Error },
+    /// Could not write the PackageInfo
+    PackageInfoWriteError{ path: PathBuf, err: serde_yaml::Error },
+    /// Failed to retrieve the PackageInfo
+    NoPackageInfo{ url: String },
+
+    /// Failed to resolve the packages directory
+    PackagesDirError{ err: UtilError },
+    /// Failed to get all versions for the given package
+    VersionsError{ name: String, err: UtilError },
+    /// Failed to resolve the directory of a specific package
+    PackageDirError{ name: String, version: Version, err: UtilError },
+    /// Could not create a new temporary file
+    TempFileError{ err: std::io::Error },
+    /// Could not compress the package file
+    CompressionError{ name: String, version: Version, path: PathBuf, err: std::io::Error },
+    /// Failed to re-open the compressed package file
+    PackageArchiveOpenError{ path: PathBuf, err: std::io::Error },
+    /// Failed to upload the compressed file to the instance
+    UploadError{ path: PathBuf, endpoint: String, err: reqwest::Error },
+}
+
+impl Display for RegistryError {
+    #[inline]
+    fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
+        use RegistryError::*;
+        match self {
+            ConfigFileError{ err } => write!(f, "Could not get the registry login information: {}", err),
+
+            PullRequestError{ url, err }             => write!(f, "Could not send the request to pull pacakge to '{}': {}", url, err),
+            PullRequestFailure{ url, status }        => write!(f, "Request to pull package from '{}' was met with status code {} ({})", url, status.as_u16(), status.canonical_reason().unwrap_or("???")),
+            MissingContentLength{ url }              => write!(f, "Response from '{}' did not have 'Content-Length' header set", url),
+            ContentLengthStrError{ url, err }        => write!(f, "Could not convert content length received from '{}' to string: {}", url, err),
+            ContentLengthParseError{ url, raw, err } => write!(f, "Could not parse '{}' as a number (the content-length received from '{}'): {}", raw, url, err),
+            PackageDownloadError{ url, err }         => write!(f, "Could not download package from '{}': {}", url, err),
+            PackageWriteError{ url, path, err }      => write!(f, "Could not write package downloaded from '{}' to '{}': {}", url, path.display(), err),
+            PackageDirCreateError{ path, err }       => write!(f, "Could not create package directory '{}': {}", path.display(), err),
+            PackageCopyError{ source, target, err }  => write!(f, "Could not copy package from '{}' to '{}': {}", source.display(), target.display(), err),
+            GraphQLRequestError{ url, err }          => write!(f, "Could not send a GraphQL request to '{}': {}", url, err),
+            GraphQLResponseError{ url, err }         => write!(f, "Could not get the GraphQL respones from '{}': {}", url, err),
+            KindParseError{ url, raw, err }          => write!(f, "Could not parse '{}' (received from '{}') as package kind: {}", raw, url, err),
+            VersionParseError{ url, raw, err }       => write!(f, "Could not parse '{}' (received from '{}') as package version: {}", raw, url, err),
+            FunctionsParseError{ url, raw, err }     => write!(f, "Could not parse '{}' (received from '{}') as package functions: {}", raw, url, err),
+            TypesParseError{ url, raw, err }         => write!(f, "Could not parse '{}' (received from '{}') as package types: {}", raw, url, err),
+            PackageInfoCreateError{ path, err }      => write!(f, "Could not create PackageInfo file '{}': {}", path.display(), err),
+            PackageInfoWriteError{ path, err }       => write!(f, "Could not write to PackageInfo file '{}': {}", path.display(), err),
+            NoPackageInfo{ url }                     => write!(f, "Server '{}' responded with empty response (is your name/version correct?)", url),
+
+            PackagesDirError{ err }                      => write!(f, "Could not resolve the packages directory: {}", err),
+            VersionsError{ name, err }                   => write!(f, "Could not get version list for package '{}': {}", name, err),
+            PackageDirError{ name, version, err }        => write!(f, "Could not resolve package directory of package '{}' (version {}): {}", name, version, err),
+            TempFileError{ err }                         => write!(f, "Could not create a new temporary file: {}", err),
+            CompressionError{ name, version, path, err } => write!(f, "Could not compress package '{}' (version {}) to '{}': {}", name, version, path.display(), err),
+            PackageArchiveOpenError{ path, err }         => write!(f, "Could not re-open compressed package archive '{}': {}", path.display(), err),
+            UploadError{ path, endpoint, err }           => write!(f, "Could not upload compressed package archive '{}' to '{}': {}", path.display(), endpoint, err),
+        }
+    }
+}
+
+impl Error for RegistryError {}
 
 
 

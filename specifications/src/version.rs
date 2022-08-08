@@ -4,7 +4,7 @@
  * Created:
  *   23 Mar 2022, 15:15:12
  * Last edited:
- *   08 May 2022, 22:47:44
+ *   20 Jun 2022, 12:05:26
  * Auto updated?
  *   Yes
  *
@@ -221,15 +221,24 @@ pub enum ParseError {
     MinorParseError{ raw: String, err: std::num::ParseIntError },
     /// Could not parse the patch version number
     PatchParseError{ raw: String, err: std::num::ParseIntError },
+
+    /// Got a NAME:VERSION pair with too many colons
+    TooManyColons{ raw: String, got: usize },
+    /// Could not parse the Version in a given NAME:VERSION pair.
+    IllegalVersion{ raw: String, raw_version: String, err: Box<Self> },
 }
 
 impl Display for ParseError {
     fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
+        use ParseError::*;
         match self {
-            ParseError::AccidentalLatest => write!(f, "A version with all numbers to {} (64-bit, unsigned integer max) cannot be created; use 'latest' instead", u64::MAX),
-            ParseError::MajorParseError{ raw, err } => write!(f, "Could not parse major version number '{}': {}", raw, err),
-            ParseError::MinorParseError{ raw, err } => write!(f, "Could not parse minor version number '{}': {}", raw, err),
-            ParseError::PatchParseError{ raw, err } => write!(f, "Could not parse patch version number '{}': {}", raw, err),
+            AccidentalLatest => write!(f, "A version with all numbers to {} (64-bit, unsigned integer max) cannot be created; use 'latest' instead", u64::MAX),
+            MajorParseError{ raw, err } => write!(f, "Could not parse major version number '{}': {}", raw, err),
+            MinorParseError{ raw, err } => write!(f, "Could not parse minor version number '{}': {}", raw, err),
+            PatchParseError{ raw, err } => write!(f, "Could not parse patch version number '{}': {}", raw, err),
+
+            TooManyColons{ raw, got }               => write!(f, "Given 'NAME[:VERSION]' pair '{}' has too many colons (got {}, expected at most 1)", raw, got),
+            IllegalVersion{ raw, raw_version, err } => write!(f, "Could not parse version '{}' in '{}': {}", raw_version, raw, err),
         }
     }
 }
@@ -304,6 +313,44 @@ impl Version {
             major : u64::MAX,
             minor : u64::MAX,
             patch : u64::MAX,
+        }
+    }
+
+    /// Special factory method that creates a package name and a version from a `NAME[:VERSION]` pair.
+    /// 
+    /// If the `VERSION` is omitted, returns `Version::latest()`.
+    /// 
+    /// # Arguments
+    /// - `package`: The package `NAME[:VERSION]` pair to parse.
+    /// 
+    /// # Errors
+    /// This function may error if parsing failed, somehow.
+    pub fn from_package_pair(package: &str) -> Result<(String, Self), ParseError> {
+        // Get the number of colons in the string
+        let colons: usize = package.matches(":").count();
+
+        // Switch on version present or not
+        if colons == 0 {
+            // Simply return the name with the latest version
+            Ok((package.into(), Self::latest()))
+
+        } else if colons == 1 {
+            // Split on the colon
+            let colon_pos     = package.find(':').unwrap();
+            let name: &str    = &package[..colon_pos];
+            let version: &str = &package[colon_pos + 1..];
+
+            // Attempt to parse the Version
+            let version: Self = match Self::from_str(version) {
+                Ok(version) => version,
+                Err(err)    => { return Err(ParseError::IllegalVersion{ raw: package.into(), raw_version: version.into(), err: Box::new(err) }); },
+            };
+
+            // Return them as a pair
+            Ok((name.to_string(), version))
+
+        } else {
+            Err(ParseError::TooManyColons{ raw: package.into(), got: colons })
         }
     }
 

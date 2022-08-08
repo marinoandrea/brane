@@ -2,6 +2,19 @@
 
 All notable changes to the Brane framework will be documented in this file.
 
+## [0.6.4] - 2022-07-05
+### Added
+- Extra example code that implements more advanced filesystem features, which may be used to inspect the shared `/data` partition at runtime.
+
+### Changed
+- `make.sh` into `make.py`, which is completely re-designed to be more managable and complex (especially w.r.t. deciding if recompilation is necessary or not).
+- `brane push`, `brane pull` and `brane remove` to accept multiple commands.
+- `specifications::version::Version` to be able to parse a given `<name>:<version>` pair (which will likely be the default way of entering versions from now on).
+
+### Fixed
+- `brane-api` not accepting 'latest' when pulling packages
+- the `brane` CLI failing to run a pulled package.
+
 ## [0.6.3] - 2022-05-31
 ### Added
 - Tests for various opcodes in the VM. More will follow in due time.

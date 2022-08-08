@@ -16,7 +16,7 @@ use brane_cli::{build_ecu, build_oas, packages, registry, repl, run, test, versi
 use brane_cli::errors::{CliError, BuildError, ImportError};
 use specifications::arch::Arch;
 use specifications::package::PackageKind;
-use specifications::version::Version;
+use specifications::version::Version as SemVersion;
 
 
 #[derive(Parser)]
@@ -69,7 +69,7 @@ enum SubCommand {
         #[clap(name = "NAME", help = "Name of the package")]
         name: String,
         #[clap(name = "VERSION", default_value = "latest", help = "Version of the package")]
-        version: Version,
+        version: SemVersion,
     },
 
     #[clap(name = "list", about = "List packages")]
@@ -83,7 +83,7 @@ enum SubCommand {
         #[clap(name = "NAME", help = "Name of the package")]
         name: String,
         #[clap(short, long, default_value = "latest", help = "Version of the package")]
-        version: Version,
+        version: SemVersion,
     },
 
     #[clap(name = "login", about = "Log in to a registry")]
@@ -99,31 +99,22 @@ enum SubCommand {
 
     #[clap(name = "pull", about = "Pull a package from a registry")]
     Pull {
-        #[clap(name = "NAME", help = "Name of the package")]
-        name: String,
-        #[clap(name = "VERSION", default_value = "latest", help = "Version of the package")]
-        version: Version,
+        #[clap(name = "PACKAGES", help = "Specify one or more packages to pull from a remote. You can either give a package as 'NAME' or 'NAME:VERSION', where VERSION is assumed to be 'latest' if omitted.")]
+        packages: Vec<String>,
     },
 
     #[clap(name = "push", about = "Push a package to a registry")]
     Push {
-        #[clap(name = "NAME", help = "Name of the package")]
-        name: String,
-        #[clap(name = "VERSION", default_value = "latest", help = "Version of the package")]
-        version: Version,
+        #[clap(name = "PACKAGES", help = "Specify one or more packages to push to a remote. You can either give a package as 'NAME' or 'NAME:VERSION', where VERSION is assumed to be 'latest' if omitted.")]
+        packages: Vec<String>,
     },
 
     #[clap(name = "remove", about = "Remove a local package.")]
     Remove {
-        #[clap(name = "NAME", help = "Name of the package.")]
-        name: String,
-        /* TIM */
-        // #[clap(short, long, help = "Version of the package")]
-        #[clap(name = "VERSION", help = "Version of the package. If omitted, removes ALL versions of this package.")]
-        /*******/
-        version: Option<Version>,
-        #[clap(short, long, help = "Don't ask for confirmation.")]
+        #[clap(short, long, help = "Don't ask for confirmation before removal.")]
         force: bool,
+        #[clap(name = "PACKAGES", help = "Specify one or more packages to remove to a remote. You can either give a package as 'NAME' or 'NAME:VERSION', where ALL versions of the packages will be removed if VERSION is omitted..")]
+        packages: Vec<String>,
     },
 
     #[clap(name = "repl", about = "Start an interactive DSL session")]
@@ -153,7 +144,7 @@ enum SubCommand {
         #[clap(name = "NAME", help = "Name of the package")]
         name: String,
         #[clap(short, long, default_value = "latest", help = "Version of the package")]
-        version: Version,
+        version: SemVersion,
         #[clap(short, long, help = "The directory to mount as /data")]
         data: Option<PathBuf>,
     },
@@ -169,7 +160,7 @@ enum SubCommand {
         #[clap(name = "NAME", help = "Name of the package")]
         name: String,
         #[clap(name = "VERSION", help = "Version of the package")]
-        version: Version,
+        version: SemVersion,
         #[clap(short, long, help = "Don't ask for confirmation")]
         force: bool,
     },
@@ -374,14 +365,47 @@ async fn run(options: Cli) -> Result<(), CliError> {
         Logout {} => {
             if let Err(err) = registry::logout() { return Err(CliError::OtherError{ err }); };
         }
-        Pull { name, version } => {
-            if let Err(err) = registry::pull(name, version).await { return Err(CliError::OtherError{ err }); };
+        Pull { packages } => {
+            // Parse the NAME:VERSION pairs into a name and a version
+            if packages.is_empty() { println!("Nothing to do."); return Ok(()); }
+            let mut parsed: Vec<(String, SemVersion)> = Vec::with_capacity(packages.len());
+            for package in &packages {
+                parsed.push(match SemVersion::from_package_pair(&package) {
+                    Ok(pair) => pair,
+                    Err(err) => { return Err(CliError::PackagePairParseError{ raw: package.into(), err }); }
+                })
+            }
+
+            // Now delegate the parsed pairs to the actual pull() function
+            if let Err(err) = registry::pull(parsed).await { return Err(CliError::RegistryError{ err }); };
         }
-        Push { name, version } => {
-            if let Err(err) = registry::push(name, version).await { return Err(CliError::OtherError{ err }); };
+        Push{ packages } => {
+            // Parse the NAME:VERSION pairs into a name and a version
+            if packages.is_empty() { println!("Nothing to do."); return Ok(()); }
+            let mut parsed: Vec<(String, SemVersion)> = Vec::with_capacity(packages.len());
+            for package in packages {
+                parsed.push(match SemVersion::from_package_pair(&package) {
+                    Ok(pair) => pair,
+                    Err(err) => { return Err(CliError::PackagePairParseError{ raw: package, err }); }
+                })
+            }
+
+            // Now delegate the parsed pairs to the actual push() function
+            if let Err(err) = registry::push(parsed).await { return Err(CliError::RegistryError{ err }); };
         }
-        Remove { name, version, force } => {
-            if let Err(err) = packages::remove(name, version, force).await { return Err(CliError::OtherError{ err }); };
+        Remove { force, packages } => {
+            // Parse the NAME:VERSION pairs into a name and a version
+            if packages.is_empty() { println!("Nothing to do."); return Ok(()); }
+            let mut parsed: Vec<(String, SemVersion)> = Vec::with_capacity(packages.len());
+            for package in packages {
+                parsed.push(match SemVersion::from_package_pair(&package) {
+                    Ok(pair) => pair,
+                    Err(err) => { return Err(CliError::PackagePairParseError{ raw: package, err }); }
+                })
+            }
+
+            // Now delegate the parsed pairs to the actual remove() function
+            if let Err(err) = packages::remove(force, parsed).await { return Err(CliError::PackageError{ err }); };
         }
         Repl {
             bakery,
