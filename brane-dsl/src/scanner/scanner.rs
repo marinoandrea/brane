@@ -9,6 +9,15 @@ pub use tokens::{Token, Tokens};
 
 pub type Span<'a> = nom_locate::LocatedSpan<&'a str>;
 
+
+/***** CONSTANTS *****/
+/// Define characters that separate tokens
+const SEPARATORS: &'static str = " \n\t\r{}[]()-=+;:'\"\\|/?>.<,`~*&^%$#@!";
+
+
+
+
+
 ///
 ///
 ///
@@ -43,21 +52,21 @@ fn scan_token<'a, E: ParseError<Span<'a>> + ContextError<Span<'a>>>(input: Span<
 ///
 fn keyword<'a, E: ParseError<Span<'a>> + ContextError<Span<'a>>>(input: Span<'a>) -> IResult<Span<'a>, Token, E> {
     ws0(branch::alt((
-        comb::map(bc::tag("break"), Token::Break),
-        comb::map(bc::tag("class"), Token::Class),
-        comb::map(bc::tag("continue"), Token::Continue),
-        comb::map(bc::tag("else"), Token::Else),
-        comb::map(bc::tag("for"), Token::For),
-        comb::map(bc::tag("func"), Token::Function),
-        comb::map(bc::tag("if"), Token::If),
-        comb::map(bc::tag("import"), Token::Import),
-        comb::map(bc::tag("let"), Token::Let),
-        comb::map(bc::tag("new"), Token::New),
-        comb::map(bc::tag("on"), Token::On),
-        comb::map(bc::tag("parallel"), Token::Parallel),
-        comb::map(bc::tag("return"), Token::Return),
-        comb::map(bc::tag("unit"), Token::Unit),
-        comb::map(bc::tag("while"), Token::While),
+        comb::map(seq::terminated(bc::tag("break"), separator), Token::Break),
+        comb::map(seq::terminated(bc::tag("class"), separator), Token::Class),
+        comb::map(seq::terminated(bc::tag("continue"), separator), Token::Continue),
+        comb::map(seq::terminated(bc::tag("else"), separator), Token::Else),
+        comb::map(seq::terminated(bc::tag("for"), separator), Token::For),
+        comb::map(seq::terminated(bc::tag("func"), separator), Token::Function),
+        comb::map(seq::terminated(bc::tag("if"), separator), Token::If),
+        comb::map(seq::terminated(bc::tag("import"), separator), Token::Import),
+        comb::map(seq::terminated(bc::tag("let"), separator), Token::Let),
+        comb::map(seq::terminated(bc::tag("new"), separator), Token::New),
+        comb::map(seq::terminated(bc::tag("on"), separator), Token::On),
+        comb::map(seq::terminated(bc::tag("parallel"), separator), Token::Parallel),
+        comb::map(seq::terminated(bc::tag("return"), separator), Token::Return),
+        comb::map(seq::terminated(bc::tag("unit"), separator), Token::Unit),
+        comb::map(seq::terminated(bc::tag("while"), separator), Token::While),
     )))
     .parse(input)
 }
@@ -125,4 +134,24 @@ fn identifier<'a, E: ParseError<Span<'a>> + ContextError<Span<'a>>>(input: Span<
 ///
 pub fn ws0<'a, O, E: ParseError<Span<'a>>, F: Parser<Span<'a>, O, E>>(f: F) -> impl Parser<Span<'a>, O, E> {
     seq::delimited(cc::multispace0, f, cc::multispace0)
+}
+
+/// Parses a separator token from the input. This is either a punctuation token or an EOF.
+/// 
+/// # Generic arguments
+/// - `T`: The type of the input / output.
+/// 
+/// # Arguments
+/// - `input`: The input span that this function will attempt to parse a separator off.
+/// 
+/// # Returns
+/// An `IResult` with the remainder and the parsed Token.
+/// 
+/// # Errors
+/// This function may error if it failed to parse a separator.
+pub fn separator<'a, E: ParseError<Span<'a>> + ContextError<Span<'a>>>(input: Span<'a>) -> IResult<Span<'a>, char, E> {
+    branch::alt((
+        cc::one_of(SEPARATORS),
+        comb::map(comb::eof, |_| '\0'),
+    ))(input)
 }

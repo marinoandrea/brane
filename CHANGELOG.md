@@ -14,6 +14,7 @@ All notable changes to the Brane framework will be documented in this file.
 ### Fixed
 - `brane-api` not accepting 'latest' when pulling packages
 - the `brane` CLI failing to run a pulled package.
+- keywords in BraneScript being parsed as such when part of an identifier (i.e., 'new_a' would error because of 'new').
 
 ## [0.6.3] - 2022-05-31
 ### Added
