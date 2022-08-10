@@ -52,21 +52,21 @@ fn scan_token<'a, E: ParseError<Span<'a>> + ContextError<Span<'a>>>(input: Span<
 ///
 fn keyword<'a, E: ParseError<Span<'a>> + ContextError<Span<'a>>>(input: Span<'a>) -> IResult<Span<'a>, Token, E> {
     ws0(branch::alt((
-        comb::map(seq::terminated(bc::tag("break"), separator), Token::Break),
-        comb::map(seq::terminated(bc::tag("class"), separator), Token::Class),
-        comb::map(seq::terminated(bc::tag("continue"), separator), Token::Continue),
-        comb::map(seq::terminated(bc::tag("else"), separator), Token::Else),
-        comb::map(seq::terminated(bc::tag("for"), separator), Token::For),
-        comb::map(seq::terminated(bc::tag("func"), separator), Token::Function),
-        comb::map(seq::terminated(bc::tag("if"), separator), Token::If),
-        comb::map(seq::terminated(bc::tag("import"), separator), Token::Import),
-        comb::map(seq::terminated(bc::tag("let"), separator), Token::Let),
-        comb::map(seq::terminated(bc::tag("new"), separator), Token::New),
-        comb::map(seq::terminated(bc::tag("on"), separator), Token::On),
-        comb::map(seq::terminated(bc::tag("parallel"), separator), Token::Parallel),
-        comb::map(seq::terminated(bc::tag("return"), separator), Token::Return),
-        comb::map(seq::terminated(bc::tag("unit"), separator), Token::Unit),
-        comb::map(seq::terminated(bc::tag("while"), separator), Token::While),
+        comb::map(seq::terminated(bc::tag("break"), comb::peek(separator)), Token::Break),
+        comb::map(seq::terminated(bc::tag("class"), comb::peek(separator)), Token::Class),
+        comb::map(seq::terminated(bc::tag("continue"), comb::peek(separator)), Token::Continue),
+        comb::map(seq::terminated(bc::tag("else"), comb::peek(separator)), Token::Else),
+        comb::map(seq::terminated(bc::tag("for"), comb::peek(separator)), Token::For),
+        comb::map(seq::terminated(bc::tag("func"), comb::peek(separator)), Token::Function),
+        comb::map(seq::terminated(bc::tag("if"), comb::peek(separator)), Token::If),
+        comb::map(seq::terminated(bc::tag("import"), comb::peek(separator)), Token::Import),
+        comb::map(seq::terminated(bc::tag("let"), comb::peek(separator)), Token::Let),
+        comb::map(seq::terminated(bc::tag("new"), comb::peek(separator)), Token::New),
+        comb::map(seq::terminated(bc::tag("on"), comb::peek(separator)), Token::On),
+        comb::map(seq::terminated(bc::tag("parallel"), comb::peek(separator)), Token::Parallel),
+        comb::map(seq::terminated(bc::tag("return"), comb::peek(separator)), Token::Return),
+        comb::map(seq::terminated(bc::tag("unit"), comb::peek(separator)), Token::Unit),
+        comb::map(seq::terminated(bc::tag("while"), comb::peek(separator)), Token::While),
     )))
     .parse(input)
 }
