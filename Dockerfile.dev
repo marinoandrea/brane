@@ -19,8 +19,11 @@
 # This image defines the base image for all Brane service images.
 # Note: we don't do 20.04 because the skopeo alternative link has died
 # Note: we'd like to go to 22.04, but for now this is in conflict with OpenSSL
-FROM ubuntu:21.10 AS brane-base
-LABEL org.opencontainers.image.source https://github.com/epi-project/brane
+FROM ubuntu:22.04 AS brane-base
+LABEL org.opencontainers.image.source https://github.com/epi-project/Brane
+
+# Add an ubuntu 21.10 source for libssl1.1 (insecure, but it's the dev image anyway)
+RUN echo "deb http://old-releases.ubuntu.com/ubuntu impish-security main" >> /etc/apt/sources.list
 
 # Install libssl (the Rust crate depends on it)
 RUN apt-get update && apt-get install -y \
@@ -95,6 +98,24 @@ ENTRYPOINT [ "./brane-drv", "--debug" ]
 
 
 
+##### BRANE-PLR #####
+# This image contains the Brane planner service.
+FROM brane-base AS brane-plr
+
+# Define the architecture argument
+ARG ARCH
+
+# Copy `brane-plr` from build stage
+COPY ./.container-bins/$ARCH/brane-plr /brane-plr
+RUN chmod +x /brane-plr
+
+# Run the compiled executable as base
+ENTRYPOINT [ "./brane-plr", "--debug" ]
+
+
+
+
+
 ##### BRANE-JOB #####
 # This image contains the Brane job service.
 FROM brane-base AS brane-job
@@ -113,34 +134,16 @@ ENTRYPOINT [ "./brane-job", "--debug" ]
 
 
 
-##### BRANE-LOG #####
-# This image contains the Brane log service.
-FROM brane-base AS brane-log
+##### BRANE-REG #####
+# This image contains the Brane registry service.
+FROM brane-base AS brane-reg
 
 # Define the architecture argument
 ARG ARCH
 
-# Copy `brane-log from the build stage
-COPY ./.container-bins/$ARCH/brane-log /brane-log
-RUN chmod +x /brane-log
+# Copy `brane-job` from build stage
+COPY ./.container-bins/$ARCH/brane-reg /brane-reg
+RUN chmod +x /brane-reg
 
 # Run the compiled executable as base
-ENTRYPOINT [ "./brane-log", "--debug" ]
-
-
-
-
-
-##### BRANE-PLR #####
-# This image contains the Brane planner service.
-FROM brane-base AS brane-plr
-
-# Define the architecture argument
-ARG ARCH
-
-# Copy `brane-plr` from build stage
-COPY ./.container-bins/$ARCH/brane-plr /brane-plr
-RUN chmod +x /brane-plr
-
-# Run the compiled executable as base
-ENTRYPOINT [ "./brane-plr", "--debug" ]
+ENTRYPOINT [ "./brane-reg", "--debug" ]

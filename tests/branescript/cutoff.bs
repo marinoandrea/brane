@@ -1,0 +1,53 @@
+// Script to test pruning
+for (let i := 0; i < 10; i := i + 1) {
+    println("This should be a while loop");
+}
+
+
+func hello() {
+    print("H");
+    print("e");
+    print("l");
+    print("l");
+    print("o");
+    return;
+    print(",");
+    print(" ");
+    print("W");
+    print("o");
+    print("r");
+    print("l");
+    print("d");
+    print("!");
+}
+
+func hel(a) {
+    print("H");
+    if (a == true) {
+        print("e");
+    } else {
+        return;
+    }
+    print("l");
+    if (a == true) {
+        return;
+    } else {
+        return;
+    }
+    print("l");
+    print("o");
+}
+
+func insert(a) {
+    if (a == true) {
+        return;
+    } else {
+        print("A return statement should be inserted below this one");
+    }
+}
+
+return;
+
+class Test {
+    used : bool;
+}

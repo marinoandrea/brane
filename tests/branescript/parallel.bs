@@ -1,0 +1,30 @@
+// Test some parallel statements
+parallel [{
+    println("Running in parallel...");
+}, {
+    println("...so we can...");
+}, {
+    println("...finish each other's sentences!");
+}];
+
+let test := parallel [all] [{
+    return "No parallelism at all, gnagnagnagna";
+}];
+println(test);
+
+let sum := parallel [sum] [{
+    return 1;
+}, {
+    return 2;
+}, {
+    return 3;
+},{
+    return 4;
+}];
+println(sum);
+
+parallel [{
+    println("Running somewhere randomly!");
+}, on "specific_location" {
+    println("Running somewhere specific but in parallel!");
+}];

@@ -1,9 +1,24 @@
-use crate::packages::PackageUdt;
-use crate::Context;
+//  SCHEMA.rs
+//    by Lut99
+// 
+//  Created:
+//    17 Oct 2022, 15:17:39
+//  Last edited:
+//    17 Oct 2022, 15:18:15
+//  Auto updated?
+//    Yes
+// 
+//  Description:
+//!   Defines things that we need when accessing the API with GraphQL.
+// 
+
 use chrono::{DateTime, TimeZone, Utc};
-use juniper::{EmptySubscription, FieldResult, GraphQLObject, RootNode};
+use juniper::{graphql_object, EmptySubscription, FieldResult, GraphQLObject, RootNode};
 use scylla::IntoTypedRows;
 use uuid::Uuid;
+
+use crate::spec::Context;
+use crate::packages::PackageUdt;
 
 pub type Schema = RootNode<'static, Query, Mutations, EmptySubscription<Context>>;
 impl juniper::Context for Context {}

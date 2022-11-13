@@ -21,6 +21,27 @@ type Map<T> = std::collections::HashMap<String, T>;
 
 
 /***** ERRORS *****/
+/// Defines error(s) for the VolumeBind struct.
+#[derive(Debug)]
+pub enum VolumeBindError {
+    /// The given path is not an absolute path.
+    PathNotAbsolute{ path: PathBuf },
+}
+
+impl Display for VolumeBindError {
+    #[inline]
+    fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
+        use VolumeBindError::*;
+        match self {
+            PathNotAbsolute{ path } => write!(f, "Given path '{}' is not absolute", path.display()),
+        }
+    }
+}
+
+impl std::error::Error for VolumeBindError {}
+
+
+
 /// Collect errors relating to the LocalContainer specification.
 #[derive(Debug)]
 pub enum LocalContainerInfoError {
@@ -84,6 +105,239 @@ impl Error for ContainerInfoError {}
 
 
 /***** SPECIFICATIONS *****/
+/// A special struct that prints a given VolumeBindOption as a Docker-compatible string.
+#[derive(Debug)]
+pub struct VolumeBindOptionDockerDisplay<'a> {
+    /// The VolumeBindOption to show.
+    option : &'a VolumeBindOption,
+}
+
+impl<'a> Display for VolumeBindOptionDockerDisplay<'a> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
+        use VolumeBindOption::*;
+        match self.option {
+            ReadOnly => write!(f, "ro"),
+        }
+    }
+}
+
+
+/// Defines possible options for a Docker volume binding.
+#[derive(Clone, Debug)]
+pub enum VolumeBindOption {
+    /// The volume is read-only.
+    ReadOnly,
+}
+
+impl VolumeBindOption {
+    /// Returns a formatter that writes a Docker-compatible version of this VolumeBindOption.
+    #[inline]
+    pub fn docker<'a>(&'a self) -> VolumeBindOptionDockerDisplay<'a> {
+        VolumeBindOptionDockerDisplay {
+            option : self,
+        }
+    }
+}
+
+
+
+/// A special struct that prints a given VolumeBind as a Docker-compatible string.
+#[derive(Debug)]
+pub struct VolumeBindDockerDisplay<'a> {
+    /// The VolumeBind to show.
+    bind : &'a VolumeBind,
+}
+
+impl<'a> Display for VolumeBindDockerDisplay<'a> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
+        write!(f, "{}:{}{}", self.bind.host.display(), self.bind.container.display(), if !self.bind.options.is_empty() { format!(":{}", self.bind.options.iter().map(|o| o.docker().to_string()).collect::<Vec<String>>().join(",")) } else { String::new() })
+    }
+}
+
+
+/// Defines a single Docker volume binding.
+#[derive(Clone, Debug)]
+pub struct VolumeBind {
+    /// The source location, on the host.
+    pub host      : PathBuf,
+    /// The target location, on the container.
+    pub container : PathBuf,
+    /// Any options for the bind.
+    pub options   : Vec<VolumeBindOption>,
+}
+
+impl VolumeBind {
+    /// Constructor for VolumeBind that does not initialize it with special options.
+    /// 
+    /// # Arguments
+    /// - `host`: The path to the host folder. Note that this path must be absolute.
+    /// - `container`: The path to the container folder. Note that this path must be absolute.
+    /// - `options`: The VolumeBindOptions that further customize the bind(s).
+    /// 
+    /// # Returns
+    /// A new VolumeBind instance.
+    /// 
+    /// # Errors
+    /// This function may error if either of the given paths is not actually absolute.
+    pub fn new(host: impl Into<PathBuf>, container: impl Into<PathBuf>, options: Vec<VolumeBindOption>) -> Result<Self, VolumeBindError> {
+        let host      : PathBuf = host.into();
+        let container : PathBuf = container.into();
+
+        // Sanity check both paths are absolute
+        if !host.is_absolute() { return Err(VolumeBindError::PathNotAbsolute { path: host }); }
+        if !container.is_absolute() { return Err(VolumeBindError::PathNotAbsolute { path: container }); }
+
+        // Add them
+        Ok(Self {
+            host,
+            container,
+            options,
+        })
+    }
+
+    /// Constructor for VolumeBind that initializes it as a read-only bind.
+    /// 
+    /// # Arguments
+    /// - `host`: The path to the host folder. Note that this path must be absolute.
+    /// - `container`: The path to the container folder. Note that this path must be absolute.
+    /// 
+    /// # Returns
+    /// A new VolumeBind instance.
+    /// 
+    /// # Errors
+    /// This function may error if either of the given paths is not actually absolute.
+    #[inline]
+    pub fn new_readonly(host: impl Into<PathBuf>, container: impl Into<PathBuf>) -> Result<Self, VolumeBindError> {
+        Self::new(host, container, vec![ VolumeBindOption::ReadOnly ])
+    }
+
+    /// Constructor for VolumeBind that initializes it as a read/write bind.
+    /// 
+    /// # Arguments
+    /// - `host`: The path to the host folder. Note that this path must be absolute.
+    /// - `container`: The path to the container folder. Note that this path must be absolute.
+    /// 
+    /// # Returns
+    /// A new VolumeBind instance.
+    /// 
+    /// # Errors
+    /// This function may error if either of the given paths is not actually absolute.
+    #[inline]
+    pub fn new_readwrite(host: impl Into<PathBuf>, container: impl Into<PathBuf>) -> Result<Self, VolumeBindError> {
+        Self::new(host, container, vec![])
+    }
+
+
+
+    /// Returns a formatter that writes a Docker-compatible version of this VolumeBindOption.
+    #[inline]
+    pub fn docker<'a>(&'a self) -> VolumeBindDockerDisplay<'a> {
+        VolumeBindDockerDisplay {
+            bind : self,
+        }
+    }
+}
+
+
+
+/// Specifies the name of an Image, possibly with digest.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Image {
+    /// The name/label of the image.
+    pub name    : String,
+    /// The version/label of the image, if any.
+    pub version : Option<String>,
+    /// If we know a digest of the image, this field tells us it.
+    pub digest  : Option<String>,
+}
+
+impl Image {
+    /// Constructor for the Image that instantiates it with the given name.
+    /// 
+    /// # Arguments
+    /// - `name`: The name/label of the image.
+    /// - `digest`: The digest of the image if this is already known.
+    /// 
+    /// # Returns
+    /// A new Image instance.
+    #[inline]
+    pub fn new(name: impl Into<String>, version: Option<impl Into<String>>, digest: Option<impl Into<String>>) -> Self {
+        Self {
+            name    : name.into(),
+            version : version.map(|v| v.into()),
+            digest  : digest.map(|d| d.into()),
+        }
+    }
+
+
+
+    /// Returns the name-part of the Image.
+    #[inline]
+    pub fn name(&self) -> String { format!("{}{}", self.name, if let Some(version) = &self.version { format!(":{}", version) } else { String::new() }) }
+
+    /// Returns the digest-part of the Image.
+    #[inline]
+    pub fn digest(&self) -> Option<&str> { self.digest.as_ref().map(|s| s.as_str()) }
+}
+
+impl Display for Image {
+    #[inline]
+    fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
+        write!(f, "{}{}{}", self.name, if let Some(version) = &self.version { format!(":{}", version) } else { String::new() }, if let Some(digest) = &self.digest { format!("@{}", digest) } else { String::new() })
+    }
+}
+
+impl From<Image> for String {
+    #[inline]
+    fn from(value: Image) -> Self {
+        format!("{}", value)
+    }
+}
+impl From<&Image> for String {
+    #[inline]
+    fn from(value: &Image) -> Self {
+        format!("{}", value)
+    }
+}
+
+impl From<String> for Image {
+    fn from(s: String) -> Self {
+        Self::from(s.as_str())
+    }
+}
+impl From<&String> for Image {
+    fn from(s: &String) -> Self {
+        Self::from(s.as_str())
+    }
+}
+impl From<&str> for Image {
+    fn from(s: &str) -> Self {
+        // First, split between digest and rest, if any '@' is present
+        let (rest, digest): (&str, Option<&str>) = if let Some(idx) = s.rfind('@') {
+            (&s[..idx], Some(&s[idx + 1..]))
+        } else {
+            (s, None)
+        };
+
+        // Next, search if there is a version or something
+        let (name, version): (&str, Option<&str>) = if let Some(idx) = s.rfind(":") {
+            (&rest[..idx], Some(&rest[idx + 1..]))
+        } else {
+            (rest, None)
+        };
+
+        // We can combine those in an Image
+        Image {
+            name    : name.into(),
+            version : version.map(|s| s.into()),
+            digest  : digest.map(|s| s.into()),
+        }
+    }
+}
+
+
+
 /// Specifies the contents of a contaienr info YAML file that is inside the container itself.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -199,7 +453,6 @@ impl From<ContainerInfo> for LocalContainerInfo {
         }
     }
 }
-
 impl From<&ContainerInfo> for LocalContainerInfo {
     fn from(container_info: &ContainerInfo) -> Self {
         Self {
@@ -247,8 +500,10 @@ pub struct ContainerInfo {
     pub files        : Option<Vec<String>>,
     /// An extra script to run to initialize the working directory
     pub initialize   : Option<Vec<String>>,
-    /// An extra script to run to install the image(?)
+    /// An extra set of commands that will be run _before_ the workspace is copied over. Useful for non-standard general dependencies.
     pub install      : Option<Vec<String>>,
+    /// An extra set of commands that will be run _after_ the workspace is copied over. Useful for preprocessing or unpacking things.
+    pub unpack       : Option<Vec<String>>,
 }
 
 #[allow(unused)]

@@ -1,0 +1,6 @@
+// Alright no more mr nice guy
+// The parser completely goes nuts if it finds two comments in a row without any other tokens in between, so it's time to tackle this once and for allowed
+// (I know I really shouldn't because I have about a million other things to do but let's give it an hour, eh?)
+// In short, if this doesn't give an EOF error I'll be happy - and probably throw my laptop out of the window if it does >:(
+
+// It should even work with this random enter in between :P

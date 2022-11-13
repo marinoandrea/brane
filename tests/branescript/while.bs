@@ -1,0 +1,6 @@
+// Test a while-loop
+let condition := true;
+while (condition) {
+    condition := false;
+}
+println("That was one iteration :)");

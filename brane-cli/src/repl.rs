@@ -1,11 +1,21 @@
+//  REPL.rs
+//    by Lut99
+// 
+//  Created:
+//    12 Sep 2022, 16:42:47
+//  Last edited:
+//    06 Nov 2022, 16:51:33
+//  Auto updated?
+//    Yes
+// 
+//  Description:
+//!   Implements the interactive Read-Eval-Print Loop.
+// 
+
 use std::borrow::Cow::{self, Borrowed, Owned};
 use std::fs;
-use std::path::PathBuf;
+use std::path::Path;
 
-use anyhow::Result;
-use brane_bvm::vm::{Vm, VmOptions};
-use brane_drv::grpc::{CreateSessionRequest, DriverServiceClient, ExecuteRequest};
-use brane_dsl::{Compiler, CompilerOptions, Lang};
 use log::warn;
 use rustyline::completion::{Completer, FilenameCompleter, Pair};
 use rustyline::config::OutputStreamType;
@@ -16,10 +26,50 @@ use rustyline::validate::{self, MatchingBracketValidator, Validator};
 use rustyline::{CompletionType, Config, Context, EditMode, Editor};
 use rustyline_derive::Helper;
 
-use crate::docker::DockerExecutor;
-use crate::errors::ReplError;
-use crate::packages;
+use brane_ast::ParserOptions;
+use brane_dsl::Language;
+use brane_exe::FullValue;
+use brane_tsk::spec::AppId;
+
+pub use crate::errors::ReplError as Error;
 use crate::utils::{ensure_config_dir, get_history_file};
+use crate::run::{initialize_instance_vm, initialize_offline_vm, process_instance_result, process_offline_result, run_instance_vm, run_offline_vm, InstanceVmState, OfflineVmState};
+
+
+/***** HELPER FUNCTIONS *****/
+/// Handles magicks in the REPL.
+/// 
+/// # Arguments
+/// - `line`: The line given by the user.
+/// 
+/// # Returns
+/// If a magics was triggered, returns if that trigger should break the REPL (i.e., returns `Some(true)` if so or `Some(false)` if the REPL can continue but not with this line). If the line was not a REPL magick, then `None` is returned.
+fn repl_magicks(line: impl AsRef<str>) -> Option<bool> {
+    let line: &str = line.as_ref();
+
+    // Switch on the command given
+    if line == "exit" || line == "quit" || line == "q" {
+        Some(true)
+
+    } else if line == "help" {
+        println!("You found the secret REPL-commands!");
+        println!("These commands are not part of BraneScript (or whatever language you're using this REPL with), but instead provide convienience functions for the REPL itself.");
+        println!();
+        println!("Supported commands:");
+        println!("  `exit`, `quit` or `q`   Exits the REPL. The same can be achieved by hitting `Ctrl+C` or `Ctrl+D`.");
+        println!("  `help`                  Prints this overview.");
+        println!();
+        println!("Any other statement that is not one of the commands above is interpreted as the language you're REPLing.");
+        println!();
+        Some(false)
+
+    } else {
+        None
+    }
+}
+
+
+
 
 
 /***** REPL HELPER *****/
@@ -123,22 +173,17 @@ impl Validator for ReplHelper {
 /***** SUBCOMMANDS *****/
 /// Entrypoint to the REPL, which performs the required initialization.
 /// 
-/// **Arguments**
-///  * `bakery`: Whether to use BraneScript (false) or Bakery (true).
-///  * `clear`: Whether or not to clear the history of the REPL before beginning.
-///  * `remote`: Whether or not to connect to a remote Brane Instance (address is given if Some).
-///  * `attach`: If not None, defines the session ID of an existing session to connect to.
-///  * `data`: Whether or not to mount a particular folder for the data directory.
+/// # Arguments
+/// - `certs_dir`: The directory with certificates proving our identity.
+/// - `proxy_addr`: The address to proxy any data transfers through if they occur.
+/// - `remote`: Whether to (and what) remote Brane instance to run the file on instead.
+/// - `attach`: If not None, defines the session ID of an existing session to connect to.
+/// - `language`: The language with which to compile the file.
+/// - `clear`: Whether or not to clear the history of the REPL before beginning.
 /// 
-/// **Returns**  
-/// Nothing on success, or else a ReplError.
-pub async fn start(
-    bakery: bool,
-    clear: bool,
-    remote: Option<String>,
-    attach: Option<String>,
-    data: Option<PathBuf>,
-) -> Result<(), ReplError> {
+/// # Errors
+/// This function errors if we could not properly read from/write to the terminal. Additionally, it may error if any of the given statements fails for whatever reason.
+pub async fn start(certs_dir: impl AsRef<Path>, proxy_addr: Option<String>, remote: Option<String>, attach: Option<AppId>, language: Language, clear: bool) -> Result<(), Error> {
     // Build the config for the rustyline REPL.
     let config = Config::builder()
         .history_ignore_space(true)
@@ -157,10 +202,10 @@ pub async fn start(
     };
 
     // Get the history file, clearing it if necessary
-    if let Err(err) = ensure_config_dir(true) { return Err(ReplError::ConfigDirCreateError{ err }); };
+    if let Err(err) = ensure_config_dir(true) { return Err(Error::ConfigDirCreateError{ err }); };
     let history_file = match get_history_file() {
         Ok(file) => file,
-        Err(err) => { return Err(ReplError::HistoryFileError{ err }); }
+        Err(err) => { return Err(Error::HistoryFileError{ err }); }
     };
     if clear && history_file.exists() {
         if let Err(err) = fs::remove_file(&history_file) {
@@ -173,12 +218,15 @@ pub async fn start(
     rl.set_helper(Some(repl_helper));
     if let Err(err) = rl.load_history(&history_file) { warn!("Could not load REPL history from '{}': {}", history_file.display(), err); }
 
+    // Prepare the parser options
+    let options: ParserOptions = ParserOptions::new(language);
+
     // Initialization done; run the REPL
     println!("Welcome to the Brane REPL, press Ctrl+D to exit.\n");
     if let Some(remote) = remote {
-        remote_repl(&mut rl, bakery, remote, attach).await?;
+        remote_repl(&mut rl, certs_dir, proxy_addr, remote, attach, options).await?;
     } else {
-        local_repl(&mut rl, bakery, data).await?;
+        local_repl(&mut rl, options).await?;
     }
 
     // Try to save the history if we exited cleanly
@@ -192,44 +240,29 @@ pub async fn start(
 
 
 
-/// Implements a REPL that connects to a remote host.
+/// Runs the given file on the remote instance.
 /// 
-/// **Arguments**
-///  * `rl`: The RustyLine editor that we use to get user input.
-///  * `bakery`: Whether to use BraneScript (false) or Bakery (true).
-///  * `remote`: The remote address to connect to.
-///  * `attach`: If not None, defines the session ID of an existing session to connect to.
+/// # Arguments
+/// - `rl`: The REPL interface we use to do the R-part of a REPL.
+/// - `certs_dir`: The directory with certificates proving our identity.
+/// - `proxy_addr`: The address to proxy any data transfers through if they occur.
+/// - `endpoint`: The `brane-drv` endpoint to connect to.
+/// - `attach`: If given, uses the given ID to attach to an existing session instead of creating a new one.
+/// - `options`: The ParseOptions that specify how to parse the incoming source.
 /// 
-/// **Returns**  
-/// Nothing on success, or else a ReplError.
-async fn remote_repl(
-    rl: &mut Editor<ReplHelper>,
-    _bakery: bool,
-    remote: String,
-    attach: Option<String>,
-) -> Result<(), ReplError> {
-    // Connect to the server with gRPC
-    let mut client = match DriverServiceClient::connect(remote.clone()).await {
-        Ok(client) => client,
-        Err(err)   => { return Err(ReplError::ClientConnectError{ address: remote, err }); }
+/// # Returns
+/// Nothing, but does print results and such to stdout. Might also produce new datasets.
+async fn remote_repl(rl: &mut Editor<ReplHelper>, certs_dir: impl AsRef<Path>, proxy_addr: Option<String>, endpoint: impl AsRef<str>, attach: Option<AppId>, options: ParserOptions) -> Result<(), Error> {
+    let certs_dir : &Path = certs_dir.as_ref();
+    let endpoint  : &str  = endpoint.as_ref();
+
+    // First we initialize the remote thing
+    let mut state: InstanceVmState = match initialize_instance_vm(endpoint, attach, options).await {
+        Ok(state) => state,
+        Err(err)  => { return Err(Error::InitializeError{ what: "remote instance client", err }); },
     };
 
-    // Either use the given Session UUID or create a new one (with matching session)
-    let session = if let Some(attach) = attach {
-        attach.clone()
-    } else {
-        // Setup a new session
-        let request = CreateSessionRequest {};
-        let reply = match client.create_session(request).await {
-            Ok(reply) => reply,
-            Err(err)  => { return Err(ReplError::SessionCreateError{ address: remote, err }); }
-        };
-
-        // Return the UUID of this session
-        reply.into_inner().uuid.clone()
-    };
-
-    // With the status setup, enter the L in the REPL
+    // Next, enter the L in REPL
     let mut count: u32 = 1;
     loop {
         // Prepare the prompt with the current iteration number
@@ -238,128 +271,64 @@ async fn remote_repl(
         // Write the prompt in a coloured way
         rl.helper_mut().expect("No helper").colored_prompt = format!("\x1b[1;32m{}\x1b[0m", p);
 
-        // Wait until the user provided us with some command
-        let readline = rl.readline(&p);
-        match readline {
+        // Find a line to read
+        match rl.readline(&p) {
             Ok(line) => {
                 // The command checked out, so add it to the history
-                rl.add_history_entry(line.as_str());
+                rl.add_history_entry(&line.replace("\n", " "));
 
-                // Prepare the request to execute this command
-                let request = ExecuteRequest {
-                    uuid: session.clone(),
-                    input: line.clone(),
+                // Fetch REPL magicks
+                if let Some(quit) = repl_magicks(&line) { if quit { break; } else { continue; } }
+
+                // Next, we run the VM (one snippet only ayway)
+                let res: FullValue = match run_instance_vm(endpoint, &mut state, "<stdin>", &line).await {
+                    Ok(res) => res,
+                    Err(_)  => { continue; },
                 };
 
-                // Run it
-                let response = match client.execute(request).await {
-                    Ok(response) => response,
-                    Err(err)     => { return Err(ReplError::CommandRequestError{ address: remote, err }); }
-                };
-                let mut stream = response.into_inner();
-
-                // Switch on the type of message that the remote returned
-                #[allow(irrefutable_let_patterns)]
-                while let message = stream.message().await {
-                    match message {
-                        // The message itself went alright
-                        Ok(Some(reply)) => {
-                            // The remote send us some debug message
-                            if let Some(debug) = reply.debug {
-                                debug!("Remote: {}", debug);
-                            }
-
-                            // The remote send us a normal text message
-                            if let Some(stdout) = reply.stdout {
-                                debug!("Remote returned stdout");
-                                println!("{}", stdout);
-                            }
-
-                            // The remote send us an error
-                            if let Some(stderr) = reply.stderr {
-                                debug!("Remote returned error");
-                                eprintln!("{}", stderr);
-                            }
-
-                            // The remote is done with this
-                            if reply.close {
-                                break;
-                            }
-                        }
-                        Err(status) => {
-                            // Did not receive the message properly
-                            eprintln!("\nStatus error: {}", status.message());
-                            break;
-                        }
-                        Ok(None) => {
-                            // Stream closed(?)
-                            break;
-                        }
-                    }
+                // Then, we collect and process the result
+                if let Err(err) = process_instance_result(certs_dir, &proxy_addr, res).await {
+                    error!("{}", Error::ProcessError { what: "remote instance VM", err });
+                    continue;
                 }
-            }
+
+                // Go to the next iteration
+                count += 1;
+                state.state.offset += 1 + line.chars().filter(|c| *c == '\n').count();
+            },
             Err(ReadlineError::Interrupted) => {
-                println!("Keyboard interrupt not supported. Press Ctrl+D to exit.");
+                println!("Keyboard interrupt received, exiting...");
+                break;
             }
             Err(ReadlineError::Eof) => {
                 break;
-            }
+            },
             Err(err) => {
-                // Something went wrong getting user input
-                println!("Error: {:?}", err);
+                error!("Failed to get new line: {}", err);
                 break;
-            }
+            },
         }
-
-        // Increment the count and try the next iteration of the REPL
-        count += 1;
     }
 
-    // Exit cleanly
+    // Done
     Ok(())
 }
 
 
 
-/// Implements a REPL that runs stuff on the local Docker daemon.
+/// Runs the given file on the local machine.
 /// 
-/// *Arguments**
-///  * `rl`: The RustyLine editor that we use to get user input.
-///  * `bakery`: Whether to use BraneScript (false) or Bakery (true).
-///  * `data`: Whether or not to mount a particular folder for the data directory.
+/// # Arguments
+/// - `rl`: The REPL interface we use to do the R-part of a REPL.
+/// - `options`: The ParseOptions that specify how to parse the incoming source.
 /// 
-/// **Returns**  
-/// Nothing on success, or else a ReplError.
-async fn local_repl(
-    rl: &mut Editor<ReplHelper>,
-    bakery: bool,
-    data: Option<PathBuf>,
-) -> Result<(), ReplError> {
-    // Setup the compiler options for the appropriate language
-    let compiler_options = if bakery {
-        CompilerOptions::new(Lang::Bakery)
-    } else {
-        CompilerOptions::new(Lang::BraneScript)
-    };
-
-    // Get the package index for the local repository
-    let package_index = match packages::get_package_index() {
-        Ok(index) => index,
-        Err(err)  => { return Err(ReplError::PackageIndexError{ err }); }
-    };
-
-    // Create the compiler for the appropriate language and knowing of the local packages
-    let mut compiler = Compiler::new(compiler_options, package_index.clone());
-
-    // Initialize the local executor
-    let executor = DockerExecutor::new(data);
-    let options = VmOptions {
-        clear_after_main: true,
-        ..Default::default()
-    };
-    let mut vm = match Vm::new_with(executor, Some(package_index), Some(options)) {
-        Ok(vm)   => vm,
-        Err(err) => { return Err(ReplError::VmCreateError{ err }); }
+/// # Returns
+/// Nothing, but does print results and such to stdout. Might also produce new datasets.
+async fn local_repl(rl: &mut Editor<ReplHelper>, options: ParserOptions) -> Result<(), Error> {
+    // First we initialize the remote thing
+    let mut state: OfflineVmState = match initialize_offline_vm(options) {
+        Ok(state) => state,
+        Err(err)  => { return Err(Error::InitializeError{ what: "offline VM", err }); },
     };
 
     // With the VM setup, enter the L in the REPL
@@ -371,42 +340,45 @@ async fn local_repl(
         // Write the prompt in a coloured way
         rl.helper_mut().expect("No helper").colored_prompt = format!("\x1b[1;32m{}\x1b[0m", p);
 
-        // Wait until the user provided us with some command
-        let readline = rl.readline(&p);
-        match readline {
+        // Find a line to read
+        match rl.readline(&p) {
             Ok(line) => {
                 // The command checked out, so add it to the history
-                rl.add_history_entry(line.as_str());
+                rl.add_history_entry(&line.replace("\n", " "));
 
-                // Compile it
-                match compiler.compile(line) {
-                    Ok(function) => {
-                        // Call the virtual machine to execute the instructions
-                        if let Err(reason) = vm.main(function).await {
-                            // Do not throw an error, but simply write what went wrong and allow the user to try again
-                            eprintln!("{}", reason);
-                        }
-                    },
-                    Err(error) => eprintln!("{:?}", error),
+                // Fetch REPL magicks
+                if let Some(quit) = repl_magicks(&line) { if quit { break; } else { continue; } }
+
+                // Next, we run the VM (one snippet only ayway)
+                let res: FullValue = match run_offline_vm(&mut state, "<stdin>", &line).await {
+                    Ok(res)  => res,
+                    Err(err) => { return Err(Error::RunError{ what: "offline VM", err }); },
+                };
+
+                // Then, we collect and process the result
+                if let Err(err) = process_offline_result(res) {
+                    error!("{}", Error::ProcessError { what: "offline VM", err });
+                    continue;
                 }
-            }
+
+                // Go to the next iteration
+                count += 1;
+                state.state.offset += 1 + line.chars().filter(|c| *c == '\n').count();
+            },
             Err(ReadlineError::Interrupted) => {
-                println!("Keyboard interrupt not supported. Press Ctrl+D to exit.");
+                println!("Keyboard interrupt received, exiting...");
+                break;
             }
             Err(ReadlineError::Eof) => {
                 break;
-            }
+            },
             Err(err) => {
-                // Something went wrong getting user input
-                println!("Error: {:?}", err);
+                error!("Failed to get new line: {}", err);
                 break;
-            }
+            },
         }
-
-        // Increment the count and try the next iteration of the REPL
-        count += 1;
     }
 
-    // Exit cleanly
+    // Done
     Ok(())
 }

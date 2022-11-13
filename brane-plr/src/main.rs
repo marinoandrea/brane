@@ -1,316 +1,99 @@
-use anyhow::{bail, Context, Result};
-use brane_cfg::infrastructure::Location;
-use brane_cfg::Infrastructure;
-use brane_job::interface::{Command, CommandKind};
-use bytes::{Bytes, BytesMut};
-// use clap::Parser;
-use structopt::StructOpt;
+//  MAIN.rs
+//    by Lut99
+// 
+//  Created:
+//    17 Oct 2022, 17:27:16
+//  Last edited:
+//    09 Nov 2022, 12:24:14
+//  Auto updated?
+//    Yes
+// 
+//  Description:
+//!   Entrypoint to the `brane-plr` service.
+// 
+
+//  MAIN.rs
+//    by Lut99
+// 
+//  Created:
+//    30 Sep 2022, 16:10:59
+//  Last edited:
+//    17 Oct 2022, 17:27:08
+//  Auto updated?
+//    Yes
+// 
+//  Description:
+//!   Entrypoint to the `brane-plr` service.
+// 
+
+use std::path::PathBuf;
+
+use clap::Parser;
 use dotenv::dotenv;
-use futures::stream::FuturesUnordered;
-use futures::{StreamExt, TryStreamExt};
 use log::LevelFilter;
-use log::{error, info, warn};
-use prost::Message;
-use rdkafka::{
-    admin::{AdminClient, AdminOptions, NewTopic, TopicReplication},
-    config::ClientConfig,
-    consumer::{stream_consumer::StreamConsumer, CommitMode, Consumer},
-    error::RDKafkaErrorCode,
-    message::ToBytes,
-    producer::{FutureProducer, FutureRecord},
-    util::Timeout,
-    Message as KafkaMesage, Offset, TopicPartitionList,
-};
-use tokio::task::JoinHandle;
+use log::error;
+use brane_cfg::InfraPath;
+use brane_tsk::instance::InstancePlanner;
 
-// #[derive(Parser)]
-// #[clap(version = env!("CARGO_PKG_VERSION"))]
-// struct Opts {
-//     /// Topic to receive commands from
-//     #[clap(
-//         short = 'o',
-//         long = "cmd-from-topic",
-//         default_value = "drv-cmd",
-//         env = "COMMAND_FROM_TOPIC"
-//     )]
-//     command_from_topic: String,
-//     /// Kafka brokers
-//     #[clap(short, long, default_value = "127.0.0.1:9092", env = "BROKERS")]
-//     brokers: String,
-//     /// Print debug info
-//     #[clap(short, long, env = "DEBUG", takes_value = false)]
-//     debug: bool,
-//     /// Topic to send commands to
-//     #[clap(short, long = "cmd-to-topic", default_value = "plr-cmd", env = "COMMAND_TO_TOPIC")]
-//     command_to_topic: String,
-//     /// Consumer group id
-//     #[clap(short, long, default_value = "brane-job", env = "GROUP_ID")]
-//     group_id: String,
-//     /// Infra metadata store
-//     #[clap(short, long, default_value = "./infra.yml", env = "INFRA")]
-//     infra: String,
-//     /// Number of workers
-//     #[clap(short = 'w', long, default_value = "1", env = "NUM_WORKERS")]
-//     num_workers: u8,
-// }
 
-#[derive(StructOpt)]
+/***** ARGUMENTS *****/
+#[derive(Parser)]
+#[clap(version = env!("CARGO_PKG_VERSION"))]
 struct Opts {
-    /// Topic to receive commands from
-    #[structopt(
-        short = "o",
-        long = "cmd-from-topic",
-        default_value = "drv-cmd",
-        env = "COMMAND_FROM_TOPIC"
-    )]
-    command_from_topic: String,
-    /// Kafka brokers
-    #[structopt(short, long, default_value = "127.0.0.1:9092", env = "BROKERS")]
-    brokers: String,
     /// Print debug info
-    #[structopt(short, long, env = "DEBUG", takes_value = false)]
-    debug: bool,
-    /// Topic to send commands to
-    #[structopt(short, long = "cmd-to-topic", default_value = "plr-cmd", env = "COMMAND_TO_TOPIC")]
-    command_to_topic: String,
+    #[clap(short, long, env = "DEBUG", takes_value = false)]
+    debug : bool,
+
+    /// Kafka brokers
+    #[clap(short, long, default_value = "localhost:9092", help = "A list of Kafka brokers to connect to.", env = "BROKERS")]
+    brokers       : String,
+    /// Topic to receive planning commands on
+    #[clap(short, long = "cmd-topic", default_value = "plr-cmd", help = "The Kafka topic on which we receive commands for the planner.", env = "COMMAND_TOPIC")]
+    command_topic : String,
+    /// Topic to send planning results to.
+    #[clap(short, long = "res-topic", default_value = "plr-res", help = "The Kafka topic on which we send planning results.", env = "RESULT_TOPIC")]
+    result_topic  : String,
     /// Consumer group id
-    #[structopt(short, long, default_value = "brane-job", env = "GROUP_ID")]
-    group_id: String,
+    #[clap(short, long, default_value = "brane-drv", help = "The group ID of this service's consumer")]
+    group_id      : String,
+
+    /// The location of the `brane-api` service.,
+    #[clap(short, long, default_value = "http://127.0.0.1:50051", help = "The address of this instance's `brane-api` service that we use to query information about datasets and where they live.", env = "API_ADDRESS")]
+    api_address : String,
     /// Infra metadata store
-    #[structopt(short, long, default_value = "/config/infra.yml", env = "INFRA")]
-    infra: String,
-    /// Number of workers
-    #[structopt(short = "w", long, default_value = "1", env = "NUM_WORKERS")]
-    num_workers: u8,
+    #[clap(short, long, default_value = "/config/infra.yml", help = "Infrastructure metadata store", env = "INFRA")]
+    infra       : PathBuf,
+    /// Secrets metadata store
+    #[clap(short, long, default_value = "/config/secrets.yml", help = "Secrets file for the infrastructure metadata store", env = "SECRETS")]
+    secrets     : PathBuf,
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
-    dotenv().ok();
-    // let opts = Opts::parse();
-    let opts = Opts::from_args();
 
-    // Configure logger.
+
+
+
+/***** ENTRYPOINT *****/
+#[tokio::main]
+async fn main() {
+    // Load arguments & environment stuff
+    dotenv().ok();
+    let opts = Opts::parse();
+
+    // Configure the logger.
     let mut logger = env_logger::builder();
     logger.format_module_path(false);
-
     if opts.debug {
         logger.filter_level(LevelFilter::Debug).init();
     } else {
         logger.filter_level(LevelFilter::Info).init();
     }
 
-    // Ensure that the input/output topics exists.
-    ensure_topics(vec![&opts.command_from_topic, &opts.command_to_topic], &opts.brokers).await?;
+    // Collect the infra & secret into the InfraPath struct
+    let infra: InfraPath = InfraPath::new(opts.infra, opts.secrets);
 
-    let infra = Infrastructure::new(opts.infra.clone())?;
-    infra.validate()?;
-
-    // Spawn workers, using Tokio tasks and thread pool.
-    let workers = (0..opts.num_workers)
-        .map(|i| {
-            let handle = tokio::spawn(start_worker(
-                opts.brokers.clone(),
-                opts.group_id.clone(),
-                opts.command_from_topic.clone(),
-                opts.command_to_topic.clone(),
-                infra.clone(),
-            ));
-
-            info!("Spawned asynchronous worker #{}.", i + 1);
-            handle
-        })
-        .collect::<FuturesUnordered<JoinHandle<_>>>();
-
-    // Wait for workers to finish, print any errors.
-    workers
-        .map(|r| r.unwrap())
-        .for_each(|r| async {
-            if let Err(error) = r {
-                error!("{:?}", error);
-            };
-        })
-        .await;
-
-    Ok(())
-}
-
-///
-///
-///
-async fn ensure_topics(
-    topics: Vec<&str>,
-    brokers: &str,
-) -> Result<()> {
-    let admin_client: AdminClient<_> = ClientConfig::new()
-        .set("bootstrap.servers", brokers)
-        .create()
-        .context("Failed to create Kafka admin client.")?;
-
-    let topics: Vec<NewTopic> = topics
-        .iter()
-        .map(|t| NewTopic::new(t, 1, TopicReplication::Fixed(1)))
-        .collect();
-
-    let results = admin_client.create_topics(topics.iter(), &AdminOptions::new()).await?;
-
-    // Report on the results. Don't consider 'TopicAlreadyExists' an error.
-    for result in results {
-        match result {
-            Ok(topic) => info!("Kafka topic '{}' created.", topic),
-            Err((topic, error)) => match error {
-                RDKafkaErrorCode::TopicAlreadyExists => {
-                    info!("Kafka topic '{}' already exists", topic);
-                }
-                _ => {
-                    bail!("Kafka topic '{}' not created: {:?}", topic, error);
-                }
-            },
-        }
+    // We simply start a new planner
+    if let Err(err) = InstancePlanner::planner_server(opts.brokers, opts.group_id, opts.command_topic, opts.result_topic, opts.api_address, infra).await {
+        error!("Failed to run InstancePlanner server: {}", err);
+        std::process::exit(1);
     }
-
-    Ok(())
-}
-
-///
-///
-///
-async fn start_worker(
-    brokers: String,
-    group_id: String,
-    cmd_from_topic: String,
-    cmd_to_topic: String,
-    infra: Infrastructure,
-) -> Result<()> {
-    let producer: FutureProducer = ClientConfig::new()
-        .set("bootstrap.servers", &brokers)
-        .set("message.timeout.ms", "5000")
-        .create()
-        .context("Failed to create Kafka producer.")?;
-
-    let consumer: StreamConsumer = ClientConfig::new()
-        .set("group.id", &group_id)
-        .set("bootstrap.servers", &brokers)
-        .set("enable.partition.eof", "false")
-        .set("session.timeout.ms", "6000")
-        .set("enable.auto.commit", "false")
-        .create()
-        .context("Failed to create Kafka consumer.")?;
-
-    // Restore previous topic/partition offset.
-    let mut tpl = TopicPartitionList::new();
-    tpl.add_partition(&cmd_from_topic, 0);
-
-    let committed_offsets = consumer.committed_offsets(tpl.clone(), Timeout::Never)?;
-    let committed_offsets = committed_offsets.to_topic_map();
-    if let Some(offset) = committed_offsets.get(&(cmd_from_topic.clone(), 0)) {
-        match offset {
-            Offset::Invalid => tpl.set_partition_offset(&cmd_from_topic, 0, Offset::Beginning)?,
-            offset => tpl.set_partition_offset(&cmd_from_topic, 0, *offset)?,
-        };
-    }
-
-    info!("Restoring commited offsets: {:?}", &tpl);
-    consumer
-        .assign(&tpl)
-        .context("Failed to manually assign topic, partition, and/or offset to consumer.")?;
-
-    // Create the outer pipeline on the message stream.
-    let stream_processor = consumer.stream().try_for_each(|borrowed_message| {
-        consumer.commit_message(&borrowed_message, CommitMode::Sync).unwrap();
-
-        // Shadow with owned clones.
-        let owned_message = borrowed_message.detach();
-        let producer = producer.clone();
-        let infra = infra.clone();
-        let cmd_to_topic = cmd_to_topic.clone();
-
-        async move {
-            let msg_key = owned_message
-                .key()
-                .map(String::from_utf8_lossy)
-                .map(String::from)
-                .unwrap_or_default();
-
-            if msg_key.is_empty() {
-                warn!("Received message without a key. Ignoring it.");
-                return Ok(());
-            }
-
-            let msg_payload = owned_message.payload().unwrap_or_default();
-            if msg_payload.is_empty() {
-                warn!("Received message without a payload (key: {}). Ignoring it.", msg_key);
-                return Ok(());
-            }
-
-            let processing = process_cmd_message(msg_payload, infra).await;
-            match processing {
-                Ok(payload) => {
-                    // Send event on output topic
-                    let message = FutureRecord::to(&cmd_to_topic)
-                        .key(&msg_key)
-                        .payload(payload.to_bytes());
-
-                    if let Err(error) = producer.send(message, Timeout::Never).await {
-                        error!("Failed to send command (key: {}): {:?}", msg_key, error);
-                    }
-                }
-                Err(error) => error!("{:?}", error),
-            };
-
-            Ok(())
-        }
-    });
-
-    stream_processor
-        .await
-        .context("Stream processor did not run until completion.")
-}
-
-///
-///
-///
-async fn process_cmd_message(
-    payload: &[u8],
-    infra: Infrastructure,
-) -> Result<Bytes> {
-    use rand::seq::SliceRandom;
-
-    // Decode payload into a command message.
-    let mut command = Command::decode(payload).unwrap();
-    let kind = CommandKind::from_i32(command.kind).unwrap();
-
-    // Returns an empty string if location is None.
-    if command.location() == "" && kind == CommandKind::Create {
-        let locations = infra.get_locations()?;
-
-        // Choose a random location
-        let location = locations.choose(&mut rand::thread_rng());
-        let location = location.unwrap().clone();
-
-        info!(
-            "Assigned command '{}' to location '{}'.",
-            command.identifier(),
-            location
-        );
-
-        let metadata = infra.get_location_metadata(&location)?;
-        command.location = Some(location);
-
-        match metadata {
-            Location::Kube { registry, .. }
-            | Location::Slurm { registry, .. }
-            | Location::Vm { registry, .. }
-            | Location::Local { registry, .. } => {
-                let image = command.image.unwrap();
-                command.image = Some(format!("{}/library/{}", registry, image));
-            }
-        }
-    }
-
-    // Encode command message into a payload.
-    let mut payload = BytesMut::with_capacity(64);
-    command.encode(&mut payload).unwrap();
-
-    Ok(Bytes::from(payload))
 }

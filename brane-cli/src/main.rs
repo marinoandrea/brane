@@ -1,3 +1,17 @@
+//  MAIN.rs
+//    by Lut99
+// 
+//  Created:
+//    21 Sep 2022, 14:34:28
+//  Last edited:
+//    11 Nov 2022, 11:34:50
+//  Auto updated?
+//    Yes
+// 
+//  Description:
+//!   Entrypoint to the CLI binary.
+// 
+
 #[macro_use]
 extern crate human_panic;
 
@@ -7,18 +21,23 @@ use std::str::FromStr;
 
 use anyhow::Result;
 use clap::Parser;
+use console::style;
 use dotenv::dotenv;
 use git2::Repository;
 use log::LevelFilter;
 use tempfile::tempdir;
 
-use brane_cli::{build_ecu, build_oas, packages, registry, repl, run, test, version};
-use brane_cli::errors::{CliError, BuildError, ImportError};
+use brane_dsl::Language;
+use brane_tsk::spec::AppId;
 use specifications::arch::Arch;
 use specifications::package::PackageKind;
-use specifications::version::Version;
+use specifications::version::Version as SemVersion;
+
+use brane_cli::{build_ecu, build_oas, data, packages, registry, repl, run, test, verify, version};
+use brane_cli::errors::{CliError, BuildError, ImportError};
 
 
+/***** ARGUMENTS *****/
 #[derive(Parser)]
 #[clap(name = "brane", about = "The Brane command-line interface.")]
 struct Cli {
@@ -48,6 +67,13 @@ enum SubCommand {
         keep_files: bool,
     },
 
+    #[clap(name = "data", about = "Data-related commands.")]
+    Data {
+        // We subcommand further
+        #[clap(subcommand)]
+        subcommand : DataSubcommand,
+    },
+
     #[clap(name = "import", about = "Import a package")]
     Import {
         #[clap(short, long, help = "The architecture for which to compile the image.")]
@@ -67,9 +93,13 @@ enum SubCommand {
     #[clap(name = "inspect", about = "Inspect a package")]
     Inspect {
         #[clap(name = "NAME", help = "Name of the package")]
-        name: String,
+        name    : String,
         #[clap(name = "VERSION", default_value = "latest", help = "Version of the package")]
-        version: Version,
+        version : SemVersion,
+
+        // Alternative syntax to use.
+        #[clap(short, long, default_value = "custom", help = "Any alternative syntax to use for printed classes and functions. Can be 'bscript', 'bakery' or 'custom'.")]
+        syntax : String,
     },
 
     #[clap(name = "list", about = "List packages")]
@@ -83,7 +113,7 @@ enum SubCommand {
         #[clap(name = "NAME", help = "Name of the package")]
         name: String,
         #[clap(short, long, default_value = "latest", help = "Version of the package")]
-        version: Version,
+        version: SemVersion,
     },
 
     #[clap(name = "login", about = "Log in to a registry")]
@@ -99,63 +129,66 @@ enum SubCommand {
 
     #[clap(name = "pull", about = "Pull a package from a registry")]
     Pull {
-        #[clap(name = "NAME", help = "Name of the package")]
-        name: String,
-        #[clap(name = "VERSION", default_value = "latest", help = "Version of the package")]
-        version: Version,
+        #[clap(name = "PACKAGES", help = "Specify one or more packages to pull from a remote. You can either give a package as 'NAME' or 'NAME:VERSION', where VERSION is assumed to be 'latest' if omitted.")]
+        packages: Vec<String>,
     },
 
     #[clap(name = "push", about = "Push a package to a registry")]
     Push {
-        #[clap(name = "NAME", help = "Name of the package")]
-        name: String,
-        #[clap(name = "VERSION", default_value = "latest", help = "Version of the package")]
-        version: Version,
+        #[clap(name = "PACKAGES", help = "Specify one or more packages to push to a remote. You can either give a package as 'NAME' or 'NAME:VERSION', where VERSION is assumed to be 'latest' if omitted.")]
+        packages: Vec<String>,
     },
 
     #[clap(name = "remove", about = "Remove a local package.")]
     Remove {
-        #[clap(name = "NAME", help = "Name of the package.")]
-        name: String,
-        /* TIM */
-        // #[clap(short, long, help = "Version of the package")]
-        #[clap(name = "VERSION", help = "Version of the package. If omitted, removes ALL versions of this package.")]
-        /*******/
-        version: Option<Version>,
-        #[clap(short, long, help = "Don't ask for confirmation.")]
+        #[clap(short, long, help = "Don't ask for confirmation before removal.")]
         force: bool,
+        #[clap(name = "PACKAGES", help = "Specify one or more packages to remove to a remote. You can either give a package as 'NAME' or 'NAME:VERSION', where ALL versions of the packages will be removed if VERSION is omitted..")]
+        packages: Vec<String>,
     },
 
     #[clap(name = "repl", about = "Start an interactive DSL session")]
     Repl {
+        #[clap(long, default_value = "./config/certs", value_names = &["path"], help = "Path to the directory with certificates that can help us prove who we are and who registries are. Specifically, the path must point to a directory with nested directories, each of which with the name of a location for which we have certificates. Then, each entry in that directory must contain `client-id.pem` (the issued client identity certificate/key) and `ca.pem` files (root certificate so we know how to trust the registry). Irrelevant if not running remotely.")]
+        certs_dir  : PathBuf,
+        #[clap(short, long, value_names = &["address[:port]"], help = "If given, proxies any data transfers to this machine through the proxy at the given address. Irrelevant if not running remotely.")]
+        proxy_addr : Option<String>,
+
+        #[clap(short, long, value_names = &["address[:port]"], help = "Create a remote REPL session")]
+        remote: Option<String>,
+        #[clap(short, long, value_names = &["uid"], help = "Attach to an existing remote session")]
+        attach: Option<AppId>,
+
         #[clap(short, long, help = "Use Bakery instead of BraneScript")]
         bakery: bool,
         #[clap(short, long, help = "Clear history before session")]
         clear: bool,
-        #[clap(short, long, value_names = &["address[:port]"], help = "Create a remote REPL session")]
-        remote: Option<String>,
-        #[clap(short, long, value_names = &["uid"], help = "Attach to an existing remote session")]
-        attach: Option<String>,
-        #[clap(short, long, help = "The directory to mount as /data")]
-        data: Option<PathBuf>,
     },
 
     #[clap(name = "run", about = "Run a DSL script locally")]
     Run {
+        #[clap(long, default_value = "./config/certs", value_names = &["path"], help = "Path to the directory with certificates that can help us prove who we are and who registries are. Specifically, the path must point to a directory with nested directories, each of which with the name of a location for which we have certificates. Then, each entry in that directory must contain `client-id.pem` (the issued client identity certificate/key) and `ca.pem` files (root certificate so we know how to trust the registry). Irrelevant if not running remotely.")]
+        certs_dir  : PathBuf,
+        #[clap(short, long, value_names = &["address[:port]"], help = "If given, proxies any data transfers to this machine through the proxy at the given address. Irrelevant if not running remotely.")]
+        proxy_addr : Option<String>,
+
+        #[clap(short, long, help = "Use Bakery instead of BraneScript")]
+        bakery: bool,
+
         #[clap(name = "FILE", help = "Path to the file to run. Use '-' to run from stdin instead.")]
         file: PathBuf,
-        #[clap(short, long, help = "The directory to mount as /data")]
-        data: Option<PathBuf>,
+        #[clap(short, long, value_names = &["address[:port]"], help = "Create a remote REPL session")]
+        remote: Option<String>,
     },
 
     #[clap(name = "test", about = "Test a package locally")]
     Test {
         #[clap(name = "NAME", help = "Name of the package")]
-        name: String,
+        name        : String,
         #[clap(short, long, default_value = "latest", help = "Version of the package")]
-        version: Version,
-        #[clap(short, long, help = "The directory to mount as /data")]
-        data: Option<PathBuf>,
+        version     : SemVersion,
+        #[clap(short, long, help = "If given, prints the intermediate result returned by the tested function (if any). The given path should be relative to the 'result' folder.")]
+        show_result : Option<PathBuf>,
     },
 
     #[clap(name = "search", about = "Search a registry for packages")]
@@ -169,9 +202,16 @@ enum SubCommand {
         #[clap(name = "NAME", help = "Name of the package")]
         name: String,
         #[clap(name = "VERSION", help = "Version of the package")]
-        version: Version,
+        version: SemVersion,
         #[clap(short, long, help = "Don't ask for confirmation")]
         force: bool,
+    },
+
+    #[clap(name = "verify", about = "Verifies parts of Brane's configuration (useful mostly if you are in charge of an instance.")]
+    Verify {
+        // We subcommand further
+        #[clap(subcommand)]
+        subcommand : VerifySubcommand,
     },
 
     #[clap(name = "version", about = "Shows the version number for this Brane CLI tool and (if logged in) the remote Driver.")]
@@ -182,9 +222,82 @@ enum SubCommand {
         local: bool,
         #[clap(short, long, help = "If given, shows the remote Driver version in an easy-to-be-parsed format. Note that, if given in combination with '--local', this one is always reported second.")]
         remote: bool,
-    }
+    },
 }
 
+/// Defines the subsubcommands for the data subcommand.
+#[derive(Parser)]
+enum DataSubcommand {
+    #[clap(name = "build", about = "Builds a locally available dataset from the given data.yml file and associated files (if any).")]
+    Build {
+        #[clap(name = "FILE", help = "Path to the file to build.")]
+        file       : PathBuf,
+        #[clap(short, long, help = "Path to the directory to use as the 'working directory' (defaults to the folder of the package file itself)")]
+        workdir    : Option<PathBuf>,
+        #[clap(long, help = "if given, doesn't delete intermediate build files when done.")]
+        keep_files : bool,
+        #[clap(long, help = "If given, copies the dataset to the Brane data folder. Otherwise, merely soft links it (until the dataset is pushed to a remote repository). This is much more space efficient, but requires you to leave the original dataset in place.")]
+        no_links   : bool,
+    },
+
+    #[clap(name = "download", about = "Attempts to download one (or more) dataset(s) from the remote instance.")]
+    Download {
+        /// The name of the datasets to download.
+        #[clap(name = "DATASETS", help = "The datasets to attempt to download.")]
+        names : Vec<String>,
+        /// The locations where to download each dataset. The user should make this list as long as the names, if any.
+        #[clap(short, long, help = "The location identifiers from which we download each dataset, as `name=location` pairs.")]
+        locs  : Vec<String>,
+
+        /// The folder with the certificates that we use to identify ourselves.
+        #[clap(short, long, default_value = "./config/certs", help = "Path to the certificates with which we identify ourselves to download the datasets. This should be a folder with nested folders, one for each location (and named as such) with in it 'ca.pem' and 'client-id.pem'.")]
+        certs_dir  : PathBuf,
+        /// The address to proxy the transfer through.
+        #[clap(short, long, help = "If given, proxies the transfer through the given proxy.")]
+        proxy_addr : Option<String>,
+        /// If given, forces the data transfer even if it's locally available.
+        #[clap(short, long, help = "If given, will always attempt to transfer data remotely, even if it's already available locally.")]
+        force      : bool,
+    },
+
+    #[clap(name = "list", about = "Shows the locally known datasets.")]
+    List {},
+
+    #[clap(name = "search", about = "Shows the datasets known in the remote instance.")]
+    Search {},
+
+    #[clap(name = "path", about = "Returns the path to the dataset of the given datasets (one returned per line), if it has a path. Returns '<none>' in that latter case.")]
+    Path {
+        #[clap(name = "DATASETS", help = "The name(s) of the dataset(s) to list the paths of.")]
+        names : Vec<String>,
+    },
+
+    #[clap(name = "remove", about = "Removes a locally known dataset.")]
+    Remove {
+        #[clap(name = "DATASETS", help = "The name(s) of the dataset(s) to remove.")]
+        names : Vec<String>,
+        #[clap(short, long, help = "If given, does not ask the user for confirmation but just removes the dataset (use at your own risk!)")]
+        force : bool,
+    },
+}
+
+/// Defines the subcommands for the verify subcommand.
+#[derive(Parser)]
+enum VerifySubcommand {
+    #[clap(name = "config", about = "Verifies the configuration, i.e., the `infra.yml` and `secrets.yml` files")]
+    Config {
+        #[clap(short, long, default_value = "./config/infra.yml", help = "The location of the infra.yml file to validate")]
+        infra   : PathBuf,
+        #[clap(short, long, default_value = "./config/secrets.yml", help = "The location of the secrets.yml file to validate")]
+        secrets : PathBuf,        
+    },
+}
+
+
+
+
+
+/***** ENTRYPOINT *****/
 #[tokio::main]
 async fn main() -> Result<()> {
     // Parse the CLI arguments
@@ -198,7 +311,7 @@ async fn main() -> Result<()> {
     if options.debug {
         logger.filter_module("brane", LevelFilter::Debug).init();
     } else {
-        logger.filter_module("brane", LevelFilter::Info).init();
+        logger.filter_module("brane", LevelFilter::Warn).init();
 
         setup_panic!(Metadata {
             name: "Brane CLI".into(),
@@ -221,7 +334,7 @@ async fn main() -> Result<()> {
     match run(options).await {
         Ok(_) => process::exit(0),
         Err(err) => {
-            eprintln!("{}", err);
+            eprintln!("{}: {}", style("error").bold().red(), err);
             process::exit(1);
         }
     }
@@ -239,14 +352,7 @@ async fn main() -> Result<()> {
 async fn run(options: Cli) -> Result<(), CliError> {
     use SubCommand::*;
     match options.sub_command {
-        Build {
-            arch,
-            workdir,
-            file,
-            kind,
-            init,
-            keep_files,
-        } => {
+        Build { arch, workdir, file, kind, init, keep_files } => {
             // Resolve the working directory
             let workdir = match workdir {
                 Some(workdir) => workdir,
@@ -286,14 +392,36 @@ async fn run(options: Cli) -> Result<(), CliError> {
                 _                => eprintln!("Unsupported package kind: {}", kind),
             }
         }
-        Import {
-            arch,
-            repo,
-            workdir,
-            file,
-            kind,
-            init,
-        } => {
+
+        Data { subcommand } => {
+            // Match again
+            use DataSubcommand::*;
+            match subcommand {
+                Build { file, workdir, keep_files, no_links } => {
+                    if let Err(err) = data::build(&file, workdir.unwrap_or(file.parent().map(|p| p.into()).unwrap_or(PathBuf::from("./"))), keep_files, no_links).await { return Err(CliError::DataError { err }); }
+                },
+                Download{ names, locs, certs_dir, proxy_addr, force } => {
+                    if let Err(err) = data::download(names, locs, certs_dir, &proxy_addr, force).await { return Err(CliError::DataError { err }); }
+                },
+
+                List {} => {
+                    if let Err(err) = data::list() { return Err(CliError::DataError { err }); }
+                },
+                Search{} => {
+                    eprintln!("search is not yet implemented.");
+                    std::process::exit(1);
+                },
+                Path{ names } => {
+                    if let Err(err) = data::path(names) { return Err(CliError::DataError { err }); }
+                },
+
+                Remove { names, force } => {
+                    if let Err(err) = data::remove(names, force) { return Err(CliError::DataError{ err }); }
+                },
+            }
+        },
+
+        Import { arch, repo, workdir, file, kind, init } => {
             // Prepare the input URL and output directory
             let url = format!("https://github.com/{}", repo);
             let dir = match tempdir() {
@@ -359,8 +487,8 @@ async fn run(options: Cli) -> Result<(), CliError> {
             }
         }
 
-        Inspect { name, version } => {
-            if let Err(err) = packages::inspect(name, version) { return Err(CliError::OtherError{ err }); };
+        Inspect { name, version, syntax } => {
+            if let Err(err) = packages::inspect(name, version, syntax) { return Err(CliError::OtherError{ err }); };
         }
         List { latest } => {
             if let Err(err) = packages::list(latest) { return Err(CliError::OtherError{ err: anyhow::anyhow!(err) }); };
@@ -374,35 +502,73 @@ async fn run(options: Cli) -> Result<(), CliError> {
         Logout {} => {
             if let Err(err) = registry::logout() { return Err(CliError::OtherError{ err }); };
         }
-        Pull { name, version } => {
-            if let Err(err) = registry::pull(name, version).await { return Err(CliError::OtherError{ err }); };
+        Pull { packages } => {
+            // Parse the NAME:VERSION pairs into a name and a version
+            if packages.is_empty() { println!("Nothing to do."); return Ok(()); }
+            let mut parsed: Vec<(String, SemVersion)> = Vec::with_capacity(packages.len());
+            for package in &packages {
+                parsed.push(match SemVersion::from_package_pair(&package) {
+                    Ok(pair) => pair,
+                    Err(err) => { return Err(CliError::PackagePairParseError{ raw: package.into(), err }); }
+                })
+            }
+
+            // Now delegate the parsed pairs to the actual pull() function
+            if let Err(err) = registry::pull(parsed).await { return Err(CliError::RegistryError{ err }); };
         }
-        Push { name, version } => {
-            if let Err(err) = registry::push(name, version).await { return Err(CliError::OtherError{ err }); };
+        Push{ packages } => {
+            // Parse the NAME:VERSION pairs into a name and a version
+            if packages.is_empty() { println!("Nothing to do."); return Ok(()); }
+            let mut parsed: Vec<(String, SemVersion)> = Vec::with_capacity(packages.len());
+            for package in packages {
+                parsed.push(match SemVersion::from_package_pair(&package) {
+                    Ok(pair) => pair,
+                    Err(err) => { return Err(CliError::PackagePairParseError{ raw: package, err }); }
+                })
+            }
+
+            // Now delegate the parsed pairs to the actual push() function
+            if let Err(err) = registry::push(parsed).await { return Err(CliError::RegistryError{ err }); };
         }
-        Remove { name, version, force } => {
-            if let Err(err) = packages::remove(name, version, force).await { return Err(CliError::OtherError{ err }); };
+        Remove { force, packages } => {
+            // Parse the NAME:VERSION pairs into a name and a version
+            if packages.is_empty() { println!("Nothing to do."); return Ok(()); }
+            let mut parsed: Vec<(String, SemVersion)> = Vec::with_capacity(packages.len());
+            for package in packages {
+                parsed.push(match SemVersion::from_package_pair(&package) {
+                    Ok(pair) => pair,
+                    Err(err) => { return Err(CliError::PackagePairParseError{ raw: package, err }); }
+                })
+            }
+
+            // Now delegate the parsed pairs to the actual remove() function
+            if let Err(err) = packages::remove(force, parsed).await { return Err(CliError::PackageError{ err }); };
         }
-        Repl {
-            bakery,
-            clear,
-            remote,
-            attach,
-            data,
-        } => {
-            if let Err(err) = repl::start(bakery, clear, remote, attach, data).await { return Err(CliError::ReplError{ err }); };
+        Repl { certs_dir, proxy_addr, bakery, clear, remote, attach } => {
+            if let Err(err) = repl::start(certs_dir, proxy_addr, remote, attach, if bakery { Language::Bakery } else { Language::BraneScript }, clear).await { return Err(CliError::ReplError{ err }); };
         }
-        Run { file, data } => {
-            if let Err(err) = run::handle(file, data).await { return Err(CliError::OtherError{ err }); };
+        Run { certs_dir, proxy_addr, bakery, file, remote } => {
+            if let Err(err) = run::handle(certs_dir, proxy_addr, if bakery { Language::Bakery } else { Language::BraneScript }, file, remote).await { return Err(CliError::RunError{ err }); };
         }
-        Test { name, version, data } => {
-            if let Err(err) = test::handle(name, version, data).await { return Err(CliError::OtherError{ err }); };
+        Test { name, version, show_result } => {
+            if let Err(err) = test::handle(name, version, show_result).await { return Err(CliError::TestError{ err }); };
         }
         Search { term } => {
             if let Err(err) = registry::search(term).await { return Err(CliError::OtherError{ err }); };
         }
         Unpublish { name, version, force } => {
             if let Err(err) = registry::unpublish(name, version, force).await { return Err(CliError::OtherError{ err }); };
+        }
+        Verify{ subcommand } => {
+            // Match the subcommand in question
+            use VerifySubcommand::*;
+            match subcommand {
+                Config { infra, secrets } => {
+                    // Verify the configuration
+                    if let Err(err) = verify::config(infra, secrets) { return Err(CliError::VerifyError{ err }); }
+                    println!("OK");
+                },
+            }
         }
         Version { arch, local, remote } => {
             if local || remote {

@@ -1,4 +1,17 @@
-use crate::Context;
+//  PACKAGES.rs
+//    by Lut99
+// 
+//  Created:
+//    17 Oct 2022, 15:18:32
+//  Last edited:
+//    17 Oct 2022, 15:19:08
+//  Auto updated?
+//    Yes
+// 
+//  Description:
+//!   Defines things that relate to packages.
+// 
+
 use anyhow::{Context as _, Result};
 use bytes::Bytes;
 use flate2::read::GzDecoder;
@@ -6,7 +19,9 @@ use scylla::cql_to_rust::FromCqlVal;
 use scylla::macros::{FromUserType, IntoUserType};
 use scylla::Session;
 use specifications::package::{PackageInfo, PackageKind};
+use specifications::version::Version;
 use std::convert::{TryFrom, TryInto};
+use std::str::FromStr;
 use std::sync::Arc;
 use tar::Archive;
 use tokio::fs::File as TokioFile;
@@ -17,6 +32,10 @@ use warp::http::HeaderValue;
 use warp::hyper::Body;
 use warp::reply::Response;
 use warp::{http::StatusCode, Rejection, Reply};
+
+use log::{debug, error};
+
+use crate::spec::Context;
 
 #[derive(Clone, IntoUserType, FromUserType)]
 pub struct PackageUdt {
@@ -129,6 +148,35 @@ pub async fn download(
     version: String,
     context: Context,
 ) -> Result<impl Reply, Rejection> {
+    // Attempt to resolve the version from the context
+    let version = if version.to_lowercase() == "latest" {
+        let packages = context.scylla.query("SELECT version FROM brane.packages WHERE name=?", vec![ &name ]).await.context("Failed to query database for latest version").expect("Failed to read database query result");
+        let mut latest: Option<Version> = None;
+        if let Some(rows) = packages.rows {
+            for row in rows {
+                // Get the string value
+                let version: &str = row.columns[0].as_ref().unwrap().as_text().unwrap();
+
+                // Attempt to parse
+                let version: Version = match Version::from_str(version) {
+                    Ok(version) => version,
+                    Err(err)    => { panic!("Could not parse database version '{}': {}", version, err); }
+                };
+
+                // Finally, find the most recent one
+                if latest.is_none() || version > *latest.as_ref().unwrap() { latest = Some(version); }
+            }
+        }
+
+        // Error if none was found
+        match latest {
+            Some(version) => version.to_string(),
+            None          => { panic!("No versions found for Brane package '{}'", &name); }
+        }
+    } else {
+        version
+    };
+
     let image_tar = tempfile::NamedTempFile::new().expect("Failed to create temporary file.");
     let image_tar_str = image_tar.path().to_string_lossy().to_string();
     let image_label = format!("{}:{}", name, version);

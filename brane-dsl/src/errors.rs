@@ -1,7 +1,29 @@
-use crate::scanner::{Span, Tokens};
+//  ERRORS.rs
+//    by Lut99
+// 
+//  Created:
+//    17 Aug 2022, 11:29:00
+//  Last edited:
+//    14 Sep 2022, 11:24:24
+//  Auto updated?
+//    Yes
+// 
+//  Description:
+//!   Defines errors that occur in the `brane-dsl` crate. Additionally,
+//!   provides some nice formatting options for parser errors.
+// 
+
+use std::error::Error;
+use std::fmt::{Display, Formatter, Result as FResult};
+
 use nom::error::{VerboseError, VerboseErrorKind};
 
-pub fn convert_parser_error(
+use crate::spec::{Language, TextRange};
+use crate::scanner::{Span, Tokens};
+
+
+/***** FORMATTING *****/
+pub(crate) fn convert_parser_error(
     input: Tokens,
     e: VerboseError<Tokens>,
 ) -> String {
@@ -103,7 +125,7 @@ pub fn convert_parser_error(
     result
 }
 
-pub fn convert_scanner_error(
+pub(crate) fn convert_scanner_error(
     input: Span,
     e: VerboseError<Span>,
 ) -> String {
@@ -211,3 +233,98 @@ pub fn convert_scanner_error(
 
     result
 }
+
+
+
+
+
+/***** ERRORS *****/
+/// Defines errors that relate to the SymbolTable.
+#[derive(Debug)]
+pub enum SymbolTableError {
+    /// A given function already existed in the SymbolTable and could not be easily shadowed.
+    DuplicateFunction{ name: String, existing: TextRange, got: TextRange },
+    /// A given class already existed in the SymbolTable and could not be easily shadowed.
+    DuplicateClass{ name: String, existing: TextRange, got: TextRange },
+    /// A given variable already existed in the SymbolTable and could not be easily shadowed.
+    DuplicateVariable{ name: String, existing: TextRange, got: TextRange },
+    /// A given field (property or method) already existing in the given class.
+    DuplicateField{ c_name: String, name: String, existing: TextRange, got: TextRange },
+}
+
+impl Display for SymbolTableError {
+    #[inline]
+    fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
+        use SymbolTableError::*;
+        match self {
+            DuplicateFunction{ name, .. }      => write!(f, "Duplicate definition of function '{}'", name),
+            DuplicateClass{ name, .. }         => write!(f, "Duplicate definition of class '{}'", name),
+            DuplicateVariable{ name, .. }      => write!(f, "Duplicate definition of variable '{}'", name),
+            DuplicateField{ c_name, name, .. } => write!(f, "Duplicate definition of field '{}' in class '{}'", name, c_name),
+        }
+    }
+}
+
+impl Error for SymbolTableError {}
+
+
+
+/// Defines errors that occur when converting patterns to calls.
+#[derive(Debug)]
+pub enum PatternError {
+    /// The given pattern was unknown
+    UnknownPattern{ raw: String, range: TextRange },
+}
+
+impl Display for PatternError {
+    #[inline]
+    fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
+        use PatternError::*;
+        match self {
+            UnknownPattern{ raw, .. } => write!(f, "Pattern '{}' is unknown (are you missing a package import?)", raw),
+        }
+    }
+}
+
+impl Error for PatternError {}
+
+
+
+/// Defines errors that occur in the topmost process of conveting raw readers into Programs.
+#[derive(Debug)]
+pub enum ParseError {
+    /// The scanner failed to scan.
+    ScanError{ err: String },
+    /// Some non-Nom error occurred while scanning.
+    ScannerError{ err: String },
+    /// Not all source was parsed (indicating a syntax error).
+    LeftoverSourceError,
+
+    /// The parser failed to parse.
+    ParseError{ lang: Language, err: String },
+    /// Some non-Nom error occurred while parsing.
+    ParserError{ lang: Language, err: String },
+    /// We did not have enough tokens to make an informed decision (i.e., an error occurred).
+    Eof{ lang: Language, err: String },
+    /// Not all tokens were parsed (indicating an error).
+    LeftoverTokensError{ lang: Language },
+}
+
+impl Display for ParseError {
+    #[inline]
+    fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
+        use self::ParseError::*;
+        match self {
+            ScanError { err }   => write!(f, "Syntax error: {}", err),
+            ScannerError{ err } => write!(f, "Syntax error: {}", err),
+            LeftoverSourceError => write!(f, "Syntax error: not all input could be parsed"),
+
+            ParseError { lang, err }    => write!(f, "{} parse error: {}", lang, err),
+            ParserError{ lang, err }    => write!(f, "{} parse error: {}", lang, err),
+            Eof{ lang, err }            => write!(f, "{} parse error: reached end-of-file unexpectedly ({})", lang, err),
+            LeftoverTokensError{ lang } => write!(f, "{} parse error: not all input could be parsed", lang),
+        }
+    }
+}
+
+impl Error for ParseError {}

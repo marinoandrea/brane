@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::PathBuf;
+use std::str::FromStr;
 use std::time::Duration;use anyhow::Result;
 
 use bollard::errors::Error;
@@ -7,8 +7,8 @@ use bollard::image::ImportImageOptions;
 use bollard::image::TagImageOptions;
 use bollard::models::BuildInfo;
 use bollard::Docker;
-use chrono::Utc;
-use console::{pad_str, Alignment};
+use chrono::{Local, Utc};
+use console::{pad_str, style, Alignment};
 use dialoguer::Confirm;
 use fs_extra::dir;
 use futures_util::stream::TryStreamExt;
@@ -21,46 +21,15 @@ use tokio::fs::File as TFile;
 use tokio_stream::StreamExt;
 use tokio_util::codec::{BytesCodec, FramedRead};
 
-use specifications::package::{PackageIndex, PackageInfo, PackageInfoError, PackageIndexError};
+use brane_dsl::DataType;
+use brane_shr::debug::PrettyListFormatter;
+use brane_tsk::docker;
+use specifications::container::Image;
+use specifications::package::{PackageIndex, PackageInfo};
 use specifications::version::Version;
 
-use crate::docker;
-use crate::errors::UtilError;
+use crate::errors::PackageError;
 use crate::utils::{ensure_packages_dir, ensure_package_dir, get_package_versions};
-
-
-/* TIM */
-/***** ERRORS *****/
-/// Lists the errors that can occur when trying to do stuff with packages
-#[derive(Debug)]
-pub enum PackageError {
-    /// Something went wrong while calling utilities
-    UtilError{ err: UtilError },
-
-    /// There was an error reading entries from the packages directory
-    PackagesDirReadError{ path: PathBuf, err: std::io::Error },
-    /// We tried to load a package YML but failed
-    InvalidPackageYml{ package: String, path: PathBuf, err: PackageInfoError },
-    /// We tried to load a Package Index from a JSON value with PackageInfos but we failed
-    PackageIndexError{ err: PackageIndexError },
-}
-
-impl std::fmt::Display for PackageError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            PackageError::UtilError{ err } => write!(f, "{}", err),
-
-            PackageError::PackagesDirReadError{ path, err }        => write!(f, "Could not read from Brane packages directory '{}': {}", path.display(), err),
-            PackageError::InvalidPackageYml{ package, path, err }  => write!(f, "Could not read '{}' for package '{}': {}", path.display(), package, err),
-            PackageError::PackageIndexError{ err }                 => write!(f, "Could not create PackageIndex: {}", err),
-        }
-    }
-}
-
-impl std::error::Error for PackageError {}
-
-
-
 
 
 /***** HELPER FUNCTIONS *****/
@@ -153,18 +122,97 @@ pub fn get_package_index() -> Result<PackageIndex, PackageError> {
 
 
 /***** SUBCOMMANDS *****/
-///
-///
-///
+/// Inspects the given package, pretty-printing its details.
+/// 
+/// # Arguments
+/// - `name`: The name of the package to inspect.
+/// - `version`: The version of the package to inspect.
+/// - `syntax`: The mode of syntax to use for classes & functions. Can be 'bscript', 'bakery' or 'custom'.
+/// 
+/// # Returns
+/// Nothing
 pub fn inspect(
     name: String,
     version: Version,
+    syntax: String,
 ) -> Result<()> {
     let package_dir = ensure_package_dir(&name, Some(&version), false)?;
     let package_file = package_dir.join("package.yml");
 
-    if let Ok(package_info) = PackageInfo::from_path(package_file) {
-        println!("{:#?}", package_info);
+    if let Ok(info) = PackageInfo::from_path(package_file) {
+        // _Neatly_ print it
+        println!();
+        println!("Package {} ({} package, version {})", style(&info.name).bold().cyan(), style(format!("{}", info.kind)).bold(), style(format!("{}", info.version)).bold());
+        println!("Created {} ({} ago)", style(format!("{}", info.created.with_timezone(&Local))).bold().cyan(), HumanDuration(Duration::from_secs((Local::now().time() - info.created.time()).num_seconds() as u64)));
+        println!();
+
+        // Print the description and owner(s)
+        println!("Owners: {}", if !info.owners.is_empty() { format!("{}", PrettyListFormatter::new(info.owners.iter().map(|o| format!("{}", style(&o).bold())), "and")) } else { "<unspecified>".into() });
+        println!("{}", if !info.description.trim().is_empty() { &info.description } else { "<no description>" });
+        println!();
+
+        // Now print the types
+        println!("Classes provided by this package:");
+        let mut types: Vec<&String> = info.types.keys().collect();
+        types.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
+        for name in types {
+            let info = info.types.get(name).unwrap();
+            match syntax.as_str() {
+                "bscript" => {
+                    println!("  - class {} {{", style(&name).bold().cyan());
+                    for p in &info.properties {
+                        println!("        {}: {};", style(&p.name).bold(), DataType::from(&p.data_type));
+                    }
+                    println!("    }}");
+                },
+
+                "bakery" => {
+                    return Err(anyhow!("Bakery syntax is not yet implemented"));
+                },
+
+                "custom" => {
+                    println!("  - Class {}", style(&name).bold().cyan());
+                    for p in &info.properties {
+                        println!("        {} {};", DataType::from(&p.data_type), style(&p.name).bold());
+                    }
+                },
+
+                _ => { return Err(anyhow!("Given syntax '{}' is unknown", syntax)); }
+            }
+        }
+        if info.types.is_empty() { println!("    <none>"); }
+        println!();
+
+        // Now print the list of functions
+        println!("Functions provided by this package:");
+        let mut funcs: Vec<&String> = info.functions.keys().collect();
+        funcs.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
+        for name in funcs {
+            let func = info.functions.get(name).unwrap();
+            match syntax.as_str() {
+                "bscript" => {
+                    println!("  - func {}({}) -> {}", style(&name).bold().cyan(), func.parameters.iter().map(|p| format!("{}: {}", style(&p.name).bold(), DataType::from(&p.data_type))).collect::<Vec<String>>().join(", "), DataType::from(&func.return_type));
+                },
+
+                "bakery" => {
+                    return Err(anyhow!("Bakery syntax is not yet implemented"));
+                },
+
+                "custom" => {
+                    println!("  - Function {}", style(&name).bold().cyan());
+                    println!("      - Arguments:");
+                    for p in &func.parameters {
+                        println!("          - {} {}", DataType::from(&p.data_type), style(&p.name).bold());
+                    }
+                    println!("      - Returns: {}", DataType::from(&func.return_type));
+                },
+
+                _ => { return Err(anyhow!("Given syntax '{}' is unknown", syntax)); }
+            }
+        }
+        if info.functions.is_empty() { println!("    <none>"); }
+        println!();
+
     } else {
         return Err(anyhow!("Failed to read package information."));
     }
@@ -178,7 +226,7 @@ pub fn inspect(
 /// **Edited: updated to deal with get_packages_dir() returning ExecutorErrors. Also added option to only show latest packages and also standard packages.**
 ///
 /// Lists the packages locally build and available.
-/// 
+/// use console::style;
 /// **Arguments**
 ///  * `latest`: If set to true, only shows latest version of each package.
 /// 
@@ -335,66 +383,161 @@ pub async fn load(
 
 /// **Edited: now working with new versions.**
 /// 
-/// Removes the given package from the local repository.
+/// Removes the given list of packages from the local repository.
 /// 
-/// **Arguments**
-///  * `name`: The name of the package to load.
-///  * `version`: The Version of the package to load. Might be an unresolved 'latest'. If left to None, tries to remove ALL versions of the package.
-///  * `force`: Whether or not to force removal (remove the image from the Docker daemon even if there are still containers using it).
+/// # Arguments
+///  - `force`: Whether or not to force removal (remove the image from the Docker daemon even if there are still containers using it).
+///  - `packages`: The list of (name, Version) pairs to remove.
 /// 
-/// **Returns**  
+/// # Returns  
 /// Nothing on success, or else an error.
 pub async fn remove(
-    name: String,
-    version: Option<Version>,
     force: bool,
-) -> Result<()> {
-    // Remove without confirmation if explicity stated package version.
-    if let Some(version) = version {
-        let package_dir = ensure_package_dir(&name, Some(&version), false)?;
-        if fs::remove_dir_all(&package_dir).is_err() {
-            println!("No package with name '{}' and version '{}' exists!", name, version);
-        }
+    packages: Vec<(String, Version)>,
+) -> Result<(), PackageError> {
+    // Iterate over the packages
+    for (name, version) in packages {
+        // Remove without confirmation if explicity stated package version.
+        if !version.is_latest() {
+            // Try to resolve the directory for this pair
+            let package_dir = match ensure_package_dir(&name, Some(&version), false) {
+                Ok(dir)  => dir,
+                Err(err) => { return Err(PackageError::PackageVersionError{ name, version, err }); }
+            };
 
-        return Ok(());
-    }
+            // Ask for permission if needed
+            if !force {
+                println!("Are you sure you want to remove package {} version {}?", style(&name).bold().cyan(), style(&version).bold().cyan());
+                println!();
+                let consent: bool = match Confirm::new().interact() {
+                    Ok(consent) => consent,
+                    Err(err)    => { return Err(PackageError::ConsentError{ err }); }
+                };
+                if !consent { return Ok(()); }
+            }
 
-    let package_dir = ensure_package_dir(&name, None, false)?;
-    if !package_dir.exists() {
-        println!("No package with name '{}' exists!", name);
-        return Ok(());
-    }
+            // If we got permission, get the digest of this version
+            let package_info_path = package_dir.join("package.yml");
+            let package_info = match PackageInfo::from_path(package_info_path.clone()) {
+                Ok(info) => info,
+                Err(err) => { return Err(PackageError::PackageInfoError{ path: package_info_path, err }); }
+            };
+            let digest = match package_info.digest {
+                Some(digest) => digest,
+                None         => { return Err(PackageError::PackageInfoNoDigest{ path: package_info_path }); }
+            };
 
-    // Look for packages.
-    let versions = fs::read_dir(&package_dir)?
-        .map(|v| v.unwrap().file_name())
-        .map(|v| String::from(v.to_string_lossy()))
-        .collect::<Vec<String>>();
+            // Remove that image from the Docker daemon
+            let image: Image = Image::new(&package_info.name, Some(format!("{}", package_info.version)), Some(digest));
+            if let Err(err) = docker::remove_image(&image).await {
+                return Err(PackageError::DockerRemoveError{ image, err });
+            }
 
-    // Ask for permission, if --force is not provided
-    if !force {
-        println!("Do you want to remove the following version(s)?");
-        for version in &versions {
-            println!("- {}", version);
-        }
-        println!();
+            // Also remove the package files
+            if let Err(err) = fs::remove_dir_all(&package_dir) {
+                return Err(PackageError::PackageRemoveError{ name, version, dir: package_dir, err });
+            }
 
-        // Abort, if not approved
-        if !Confirm::new().interact()? {
+            // If there are now no more packages left, remove the package directory itself as well
+            let package_dir = match ensure_package_dir(&name, None, false) {
+                Ok(dir)  => dir,
+                Err(err) => { return Err(PackageError::PackageError{ name, err }); }
+            };
+            match fs::read_dir(&package_dir) {
+                Ok(versions) => {
+                    if versions.count() == 0 {
+                        // Attempt to remove the main dir
+                        if let Err(err) = fs::remove_dir_all(&package_dir) {
+                            return Err(PackageError::PackageRemoveError{ name, version, dir: package_dir, err });
+                        }
+                    }
+                },
+                Err(err) => { return Err(PackageError::VersionsError{ name, dir: package_dir, err }); }
+            };
+
+            // Donelet versions = 
+            println!("Successfully removed version {} of package {}", style(&version).bold().cyan(), style(&name).bold().cyan());
             return Ok(());
         }
+
+        // Otherwise, resolve the package directory only
+        let package_dir = match ensure_package_dir(&name, None, false) {
+            Ok(dir)  => dir,
+            Err(err) => { return Err(PackageError::PackageError{ name, err }); }
+        };
+
+        // Look for packages.
+        let versions: Vec<Version> = match fs::read_dir(&package_dir) {
+            Ok(versions) => {
+                // Parse them all
+                let mut result = Vec::with_capacity(3);
+                for version in versions {
+                    // Resolve the entry
+                    let version = match version {
+                        Ok(version) => version,
+                        Err(err)    => { return Err(PackageError::VersionsError{ name, dir: package_dir, err }); }
+                    };
+
+                    // Parse the path as a Version
+                    let version = String::from(version.file_name().to_string_lossy());
+                    let version = match Version::from_str(&version) {
+                        Ok(version) => version,
+                        Err(err)    => { return Err(PackageError::VersionParseError{ name, raw: version, err }); }
+                    };
+
+                    // Add it to the list
+                    result.push(version);
+                }
+
+                // Done
+                result
+            },
+            Err(err) => { return Err(PackageError::VersionsError{ name, dir: package_dir, err }); }
+        };
+
+        // Ask for permission, if --force is not provided
+        if !force {
+            println!("Are you sure you want to remove the following version(s) of package {}?", style(&name).bold().cyan());
+            for version in &versions {
+                println!("- {}", style(&version).bold().cyan());
+            }
+            println!();
+            let consent: bool = match Confirm::new().interact() {
+                Ok(consent) => consent,
+                Err(err)    => { return Err(PackageError::ConsentError{ err }); }
+            };
+            if !consent { continue; }
+        }
+
+        // Check if image is locally loaded in Docker and if so, remove it there first
+        for version in &versions {
+            // Get the digest of this version
+            let package_info_path = package_dir.join(version.to_string()).join("package.yml");
+            let package_info = match PackageInfo::from_path(package_info_path.clone()) {
+                Ok(info) => info,
+                Err(err) => { return Err(PackageError::PackageInfoError{ path: package_info_path, err }); }
+            };
+            let digest = match package_info.digest {
+                Some(digest) => digest,
+                None         => { return Err(PackageError::PackageInfoNoDigest{ path: package_info_path }); }
+            };
+
+            // Remove that image from the Docker daemon
+            let image: Image = Image::new(&package_info.name, Some(format!("{}", package_info.version)), Some(digest));
+            if let Err(err) = docker::remove_image(&image).await {
+                return Err(PackageError::DockerRemoveError{ image, err });
+            }
+        }
+
+        // Remove the package files
+        if let Err(err) = fs::remove_dir_all(&package_dir) {
+            return Err(PackageError::PackageRemoveError{ name, version, dir: package_dir, err });
+        }
+
+        // Done
+        println!("Successfully removed package {}", style(&name).bold().cyan());
     }
 
-    // Check if image is locally loaded in Docker
-    for version in &versions {
-        let image_name = format!("{}:{}", name, version);
-        docker::remove_image(&image_name).await?;
-
-        let image_name = format!("localhost:50050/library/{}:{}", name, version);
-        docker::remove_image(&image_name).await?;
-    }
-
-    fs::remove_dir_all(&package_dir)?;
-
+    // Done!
     Ok(())
 }

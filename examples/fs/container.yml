@@ -1,0 +1,150 @@
+# CONTAINER.yml
+#   by Tim Müller
+#
+# This file describes a package that supports some basic filesystem operations,
+# mostly there to inspect and manage the shared '/data' directory.
+#
+
+
+# Define the file metadata
+name: fs
+version: 1.0.0
+kind: ecu
+
+# Define the files that are part of the package
+files:
+- code.sh
+
+# Defines the dependencies for this file (ubuntu packages)
+dependencies:
+- python3
+
+# Defines the file to call whenever a function is called
+entrypoint:
+  kind: task
+  exec: code.sh
+
+# Define the actions
+actions:
+  ls:
+    command:
+      args:
+      - ls
+    input:
+    - name: target
+      type: string
+    output:
+    - name: output
+      type: string
+  lsdata:
+    command:
+      args:
+      - lsdata
+    input:
+    - name: target
+      type: string
+    - name: dummy
+      type: IntermediateResult
+    output:
+    - name: output
+      type: string
+  treedata:
+    command:
+      args:
+      - treedata
+    input:
+    - name: target
+      type: string
+    - name: dummy
+      type: IntermediateResult
+    output:
+    - name: output
+      type: string
+  read:
+    command:
+      args:
+      - read
+    input:
+    - name: target
+      type: string
+    output:
+    - name: output
+      type: string
+  read64:
+    command:
+      args:
+      - read64
+    input:
+    - name: target
+      type: string
+    output:
+    - name: output
+      type: string
+  write:
+    command:
+      args:
+      - write
+    input:
+    - name: target
+      type: string
+    - name: contents
+      type: string
+    output:
+    - name: output
+      type: string
+  write64:
+    command:
+      args:
+      - write64
+    input:
+    - name: target
+      type: string
+    - name: contents
+      type: string
+    output:
+    - name: output
+      type: string
+  append:
+    command:
+      args:
+      - append
+    input:
+    - name: target
+      type: string
+    - name: contents
+      type: string
+    output:
+    - name: output
+      type: string
+  append64:
+    command:
+      args:
+      - append64
+    input:
+    - name: target
+      type: string
+    - name: contents
+      type: string
+    output:
+    - name: output
+      type: string
+  rm:
+    command:
+      args:
+      - rm
+    input:
+    - name: target
+      type: string
+    output:
+    - name: output
+      type: string
+  rm_dir:
+    command:
+      args:
+      - rm_dir
+    input:
+    - name: target
+      type: string
+    output:
+    - name: output
+      type: string

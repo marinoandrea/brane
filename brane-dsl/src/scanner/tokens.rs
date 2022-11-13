@@ -10,6 +10,9 @@ pub enum Token<'a> {
     /// `&`
     And(Span<'a>),
 
+    /// '@'
+    At(Span<'a>),
+
     /// `break`
     Break(Span<'a>),
 
@@ -124,6 +127,9 @@ pub enum Token<'a> {
     /// *
     Star(Span<'a>),
 
+    /// %
+    Percentage(Span<'a>),
+
     /// Boolean literal
     Boolean(Span<'a>),
 
@@ -157,7 +163,10 @@ impl<'a> Token<'a> {
 
     pub fn as_i64(&self) -> i64 {
         if let Token::Integer(span) = self {
-            i64::from_str(&span.to_string()).unwrap()
+            // Replace the '_' first
+            let raw: String = span.to_string().replace("_", "");
+            // Now parse the integer
+            i64::from_str(&raw).unwrap()
         } else {
             unreachable!()
         }
@@ -186,13 +195,14 @@ impl<'a> Token<'a> {
         use Token::*;
 
         match self {
-            And(span) | Break(span) | Class(span) | Continue(span) | Else(span) | For(span) | Function(span)
+            At(span) | And(span) | Break(span) | Class(span) | Continue(span) | Else(span) | For(span) | Function(span)
             | If(span) | Import(span) | Let(span) | On(span) | Or(span) | Return(span) | Unit(span) | While(span)
             | Dot(span) | Colon(span) | Comma(span) | LeftBrace(span) | LeftBracket(span) | LeftParen(span)
             | Parallel(span) | RightBrace(span) | RightBracket(span) | RightParen(span) | Semicolon(span)
             | Assign(span) | Equal(span) | Greater(span) | GreaterOrEqual(span) | Less(span) | LessOrEqual(span)
-            | Minus(span) | Not(span) | NotEqual(span) | Plus(span) | Slash(span) | Star(span) | Boolean(span)
-            | Integer(span) | Real(span) | SemVer(span) | String(span) | Ident(span) | New(span) => span,
+            | Minus(span) | Not(span) | NotEqual(span) | Plus(span) | Slash(span) | Star(span) | Percentage(span)
+            | Boolean(span) | Integer(span) | Real(span) | SemVer(span) | String(span) | Ident(span)
+            | New(span) => span,
             // None should have been filtered out already.
             None => unreachable!(),
         }

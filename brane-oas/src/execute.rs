@@ -1,13 +1,13 @@
 use crate::{build, resolver};
 use anyhow::Result;
 use backoff::{retry, Error, ExponentialBackoff};
+use brane_exe::FullValue;
 use cookie::Cookie as RawCookie;
 use cookie_store::{Cookie, CookieStore};
 use openapiv3::{OpenAPI, Operation, Parameter as OParameter, ReferenceOr, SecurityScheme};
 use reqwest::blocking::RequestBuilder;
 use reqwest::Url;
 use reqwest_cookie_store::CookieStoreRwLock;
-use specifications::common::Value;
 use std::{collections::HashMap, sync::Arc};
 
 type Map<T> = std::collections::HashMap<String, T>;
@@ -17,17 +17,17 @@ type Map<T> = std::collections::HashMap<String, T>;
 ///
 pub async fn execute(
     operation_id: &str,
-    arguments: &Map<Value>,
+    arguments: &Map<FullValue>,
     oas_document: &OpenAPI,
 ) -> Result<String> {
     let mut arguments = arguments.clone();
     debug!("Arguments: {:?}", arguments);
 
-    if let Some(Value::Struct { properties, .. }) = arguments.get("input") {
+    if let Some(FullValue::Instance(_, values)) = arguments.get("input") {
         debug!("Observed a struct argument with name `input`, expanding..");
 
-        let properties = properties.clone();
-        arguments.extend(properties);
+        let values = values.clone();
+        arguments.extend(values);
 
         debug!("Arguments: {:?}", arguments);
     }
@@ -42,7 +42,7 @@ pub async fn execute(
     // 4. global (document)
     let base_url: Url = arguments
         .get(&String::from("server"))
-        .map(|v| v.as_string().unwrap())
+        .map(|v| if let FullValue::String(value) = v { value.clone() } else { panic!("Given argument is not a string"); })
         .or_else(|| operation.servers.first().map(|s| s.url.clone()))
         .or_else(|| {
             resolver::resolve_path_item(oas_document.paths.get(&path).unwrap())
@@ -165,7 +165,10 @@ pub async fn execute(
 
                 for property in properties {
                     if let Some(value) = arguments.get(&property.name) {
-                        json.insert(property.name.clone(), value.as_json());
+                        json.insert(property.name.clone(), match serde_json::to_value(value) {
+                            Ok(value) => value,
+                            Err(err)  => { return Err(anyhow!("Failed to serialize value '{}' to JSON: {}", value, err)); }
+                        });
                     }
                 }
             }

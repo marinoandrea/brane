@@ -9,60 +9,79 @@ on:
 # Define the jobs
 jobs:
   # Build the CLI for linux
-  build-linux-amd64:
+  build-cli-linux-x86_64:
     runs-on: ubuntu-latest
     steps:
     # Download the repo
     - name: Checkout repository
       uses: actions/checkout@v2
 
-    # Install CMake
-    - name: Install CMake
+    # Install Rust
+    - name: Install Rust (via rustup)
+      run: |
+        curl https://sh.rustup.rs -sSf | sh -s -- -y --default-host x86_64-unknown-linux-gnu --default-toolchain stable --profile default
+
+    # Install dependencies
+    - name: Install dependencies (CMake & musl)
       run: |
         sudo apt update
-        sudo apt-get install -y cmake
+        sudo apt-get install -y cmake musl-tools
+        sudo ln -s /bin/g++ /usr/local/bin/musl-g++
 
-    # Install Rust
-    - name: Install Rust
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: stable
-        target: x86_64-unknown-linux-musl
-        override: true
-
-    # Install cross
-    - name: Install Cargo Cross
-      run: |
-        CROSS_DOCKER_IN_DOCKER=true cargo install cross
-
-    # Build the CLI binary
+    # Compile the CLI binary
     - name: Build (optimized) CLI binary
-      uses: actions-rs/cargo@v1
-      with:
-        command: build
-        args: --release --package brane-cli
-
-    # Build branelet
-    - name: Build (optimized) branelet binary
-      uses: actions-rs/cargo@v1
-      with:
-        command: build
-        args: --target x86_64-unknown-linux-musl --release --package brane-cli
-
-    # Rename them
-    - name: Rename resulting binaries
       run: |
-        mv ./target/release/brane ./target/release/brane-linux-amd64 \
-        && mv ./target/x86_64-unknown-linux-musl/release/branelet ./target/release/branelet-amd64
+        source $HOME/.cargo/env
+        ./make.sh cli
+        mv ./target/release/brane ./target/release/brane-linux-x86_64
 
     # Finally, upload the binaries
     - name: Upload artifacts
       uses: actions/upload-artifact@v2
       with:
-        name: linux-amd64
+        name: linux-x86_64
         path: |
-          target/release/brane-linux-amd64
-          target/release/branelet-amd64
+          target/release/brane-linux-x86_64
+
+  # Build the CLI for macOS
+  build-cli-macos-x86_64:
+    runs-on: macos-latest
+    steps:
+    # Download the repo
+    - name: Checkout repository
+      uses: actions/checkout@v2
+
+    # Install Rust
+    - name: Install Rust (via rustup)
+      run: |
+        curl https://sh.rustup.rs -sSf | sh -s -- -y --default-host x86_64-darwin-macos --default-toolchain stable --profile default
+
+    # Install homebrew
+    - name: Install homebrew
+      run: |
+        /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+    # Install dependencies
+    - name: Install dependencies (CMake, OpenSSL & musl)
+      run: |
+        brew install pkg-config openssl cmake SergioBenitez/osxct/x86_64-unknown-linux-gnu
+        sudo ln -s /usr/local/opt/musl-cross/bin/x86_64-linux-musl-gcc /usr/local/bin/musl-gcc
+        sudo ln -s /usr/local/opt/musl-cross/bin/x86_64-linux-musl-g++ /usr/local/bin/musl-g++
+
+    # Compile the CLI binary
+    - name: Build (optimized) CLI binary
+      run: |
+        source $HOME/.cargo/env
+        ./make.sh cli
+        mv ./target/release/brane ./target/release/brane-darwin-x86_64
+
+    # Finally, upload the binaries
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v2
+      with:
+        name: darwin-x86_64
+        path: |
+          target/release/brane-darwin-x86_64
 
   # # Building the macOS x86_64 binary
   # build-darwin-amd64:

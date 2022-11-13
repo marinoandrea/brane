@@ -1,113 +1,113 @@
-#[macro_use]
-extern crate anyhow;
-#[macro_use]
-extern crate log;
+//  LIB.rs
+//    by Lut99
+// 
+//  Created:
+//    18 Aug 2022, 09:49:38
+//  Last edited:
+//    20 Oct 2022, 14:17:12
+//  Auto updated?
+//    Yes
+// 
+//  Description:
+//!   Defines a library that converts BraneScript _or_ Bakery to a
+//!   temporary AST. This AST may then be further analysed / compiled in
+//!   the `brane-ast` crate.
+// 
 
-mod errors;
-#[path = "generator/generator.rs"]
-mod generator;
-#[path = "parser/parser.rs"]
-mod parser;
-#[path = "scanner/scanner.rs"]
+// Define private modules
 mod scanner;
+mod parser;
 
-use crate::parser::{bakery, bscript};
-use crate::scanner::{Span, Tokens};
-use anyhow::Result;
-use brane_bvm::bytecode::FunctionMut;
-use specifications::package::PackageIndex;
+// Define public modules
+pub mod errors;
+pub mod spec;
+pub mod data_type;
+pub mod location;
+pub mod symbol_table;
+pub mod compiler;
 
-#[derive(Clone, Debug)]
-pub enum Lang {
-    Bakery,
-    BraneScript,
-}
 
-#[derive(Clone, Debug)]
-pub struct CompilerOptions {
-    pub lang: Lang,
-}
+// Bring some stuff into the crate namespace
+pub use errors::ParseError as Error;
+pub use spec::{Language, TextPos, TextRange};
+pub use data_type::DataType;
+pub use location::Location;
+pub use symbol_table::SymbolTable;
+pub use parser::ast;
+pub use compiler::{parse, ParserOptions};
 
-impl CompilerOptions {
-    ///
-    ///
-    ///
-    pub fn new(lang: Lang) -> Self {
-        CompilerOptions { lang }
-    }
-}
 
-#[derive(Clone, Debug)]
-pub struct CompilerState {}
+// Some useful, crate-local macros
+#[cfg(any(feature = "print_parser_path", feature = "print_scanner_path"))]
+thread_local!(
+    /// A feature-dependent definition of a static variable indicating the parser nesting.
+    static PARSER_PATH_NESTING: std::cell::RefCell<usize> = std::cell::RefCell::new(0);
+);
 
-impl Default for CompilerState {
-    fn default() -> Self {
-        CompilerState::new()
-    }
-}
-
-impl CompilerState {
-    ///
-    ///
-    ///
-    pub fn new() -> Self {
-        CompilerState {}
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct Compiler {
-    pub options: CompilerOptions,
-    pub package_index: PackageIndex,
-    pub state: CompilerState,
-}
-
-impl Compiler {
-    ///
-    ///
-    ///
-    pub fn new(
-        options: CompilerOptions,
-        package_index: PackageIndex,
-    ) -> Self {
-        Compiler {
-            state: CompilerState::new(),
-            options,
-            package_index,
+/// A macro that can be used to enter some parser function.
+#[allow(unused_macros)]
+#[cfg(any(feature = "print_parser_path", feature = "print_scanner_path"))]
+macro_rules! enter_pp {
+    ($($arg:tt)+) => {
+        {
+            // Print the nesting
+            print!("{} >> ", (0..crate::PARSER_PATH_NESTING.with(|v| *v.borrow())).map(|_| ' ').collect::<String>());
+            // Print the rest
+            println!($($arg)+);
+            // Increment the parser path indent
+            crate::PARSER_PATH_NESTING.with(|v| *v.borrow_mut() += 1);
         }
-    }
-
-    ///
-    ///
-    ///
-    pub fn compile<S: Into<String>>(
-        &mut self,
-        input: S,
-    ) -> Result<FunctionMut> {
-        let input = input.into();
-        let input = Span::new(&input);
-
-        match scanner::scan_tokens(input) {
-            Ok((_, tokens)) => {
-                let tokens = Tokens::new(&tokens);
-
-                let program = match self.options.lang {
-                    Lang::Bakery => bakery::parse_ast(tokens, self.package_index.clone()),
-                    Lang::BraneScript => bscript::parse_ast(tokens),
-                };
-
-                match program {
-                    Ok((_, program)) => generator::compile(program),
-                    Err(nom::Err::Error(e)) | Err(nom::Err::Failure(e)) => {
-                        bail!("{}", errors::convert_parser_error(tokens, e));
-                    }
-                    _ => bail!("Compiler error: unkown error from parser."),
-                }
-            }
-            Err(nom::Err::Error(e)) | Err(nom::Err::Failure(e)) => {
-                bail!("{}", errors::convert_scanner_error(input, e));
-            }
-            _ => bail!("Compiler error: Unkown error from scanner."),
-        }
-    }
+    };
 }
+#[allow(unused_macros)]
+#[cfg(not(any(feature = "print_parser_path", feature = "print_scanner_path")))]
+macro_rules! enter_pp {
+    ($($arg:tt)+) => {};
+}
+#[allow(unused_imports)]
+pub(crate) use enter_pp;
+
+/// A macro that can be used to exit some parser function.
+#[allow(unused_macros)]
+#[cfg(any(feature = "print_parser_path", feature = "print_scanner_path"))]
+macro_rules! exit_pp {
+    ($res:expr, $($arg:tt)+) => {
+        {
+            // Decrement the parser path indent
+            crate::PARSER_PATH_NESTING.with(|v| *v.borrow_mut() -= 1);
+            // Print the nesting
+            print!("{} << ", (0..crate::PARSER_PATH_NESTING.with(|v| *v.borrow())).map(|_| ' ').collect::<String>());
+            // Print the rest
+            println!($($arg)+);
+            // Return the given value
+            $res
+        }
+    };
+}
+#[allow(unused_macros)]
+#[cfg(not(any(feature = "print_parser_path", feature = "print_scanner_path")))]
+macro_rules! exit_pp {
+    ($res:expr, $($arg:tt)+) => { $res };
+}
+#[allow(unused_imports)]
+pub(crate) use exit_pp;
+
+/// A macro that returns the given expression with proper `enter_pp!` and `exit_pp!` calls.
+#[allow(unused_macros)]
+#[cfg(any(feature = "print_parser_path", feature = "print_scanner_path"))]
+macro_rules! wrap_pp {
+    ($res:expr, $($arg:tt)+) => {
+        {
+            // Run it
+            crate::enter_pp!($($arg)+);
+            crate::exit_pp!($res, $($arg)+)
+        }
+    };
+}
+#[allow(unused_macros)]
+#[cfg(not(any(feature = "print_parser_path", feature = "print_scanner_path")))]
+macro_rules! wrap_pp {
+    ($res:expr, $($arg:tt)+) => { $res };
+}
+#[allow(unused_imports)]
+pub(crate) use wrap_pp;

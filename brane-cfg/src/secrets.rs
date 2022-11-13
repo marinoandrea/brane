@@ -1,157 +1,101 @@
-use crate::store::{Store, StoreError};
+//  SECRETS.rs
+//    by Lut99
+// 
+//  Created:
+//    04 Oct 2022, 11:31:26
+//  Last edited:
+//    18 Oct 2022, 14:14:27
+//  Auto updated?
+//    Yes
+// 
+//  Description:
+//!   Defines functions and structs to deal with secrets in the infra
+//!   file.
+// 
+
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::{BufReader, Read};
-use std::path::PathBuf;
+use std::path::Path;
+
+use log::warn;
+use serde::Deserialize;
+
+pub use crate::errors::SecretsError as Error;
+use crate::spec::InfraLocation;
 
 
-/* TIM */
-/***** ERRORS *****/
-/// Lists errors that can occur while working with secrets files
-#[derive(Debug)]
-pub enum SecretsError {
-    /// Could not canonicalize the given Store path
-    StoreError{ err: StoreError },
-    /// Could not open the local database file
-    LocalOpenError{ path: PathBuf, err: std::io::Error },
-    /// Could not read the local database file
-    LocalIOError{ path: PathBuf, err: std::io::Error },
+/***** HELPER ENUMS *****/
+/// Defines an abstraction over multiple credentials.
+#[derive(Clone, Debug, Deserialize)]
+pub enum Secret {}
 
-    /// Encountered an empty secrets.yml
-    EmptySecretsFile{ path: PathBuf },
-    /// The given secrets.yml cannot be read as YML
-    InvalidSecretsFile{ path: PathBuf, err: serde_yaml::Error },
-    /// The given secret does not appear in the secrets file
-    UnknownSecret{ secret: String },
-
-    /// The Database functionality of a remote secrets file isn't implemented yet
-    DatabaseNotImplemented,
-}
-
-impl std::fmt::Display for SecretsError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            SecretsError::StoreError{ err }           => write!(f, "Could not resolve secrets file location: {}", err),
-            SecretsError::LocalOpenError{ path, err } => write!(f, "Could not open local secrets file '{}': {}", path.display(), err),
-            SecretsError::LocalIOError{ path, err }   => write!(f, "Could not read local secrets file '{}': {}", path.display(), err),
-
-            SecretsError::EmptySecretsFile{ path }        => write!(f, "Secrets file '{}' is empty", path.display()),
-            SecretsError::InvalidSecretsFile{ path, err } => write!(f, "Invalid secrets file '{}': {}", path.display(), err),
-            SecretsError::UnknownSecret{ secret }         => write!(f, "Unknown secret identifier '{}'", secret),
-
-            SecretsError::DatabaseNotImplemented => write!(f, "Storing secrets.yml in a remote database is not yet implemented"),
-        }
+impl Secret {
+    /// Returns a very friendly name for the current secret.
+    #[inline]
+    pub fn kind(&self) -> &'static str {
+        "<TBD>"
     }
 }
 
-impl std::error::Error for SecretsError {}
-/*******/
 
 
-/// Defines the internal representation of a Secrets document
-pub type SecretsDocument = HashMap<String, String>;
 
 
-#[derive(Clone, Debug)]
-pub struct Secrets {
-    store: Store,
+/***** AUXILLARY STRUCTS *****/
+/// Defines the structure of the secrets file itself.
+#[derive(Clone, Debug, Deserialize)]
+pub struct SecretsFile {
+    /// The secrets contained within the file (wow!)
+    pub secrets : HashMap<String, Secret>,
 }
 
-impl Secrets {
-    /* TIM */
-    /// **Edited: Now returning SecretsError.**
-    ///
-    /// Constructor for the Secrets.
-    /// 
-    /// **Arguments**
-    ///  * `store`: The location of the secrets file, which can either be a remote location (via an URL) or a local file (via a path).
-    /// 
-    /// **Returns**  
-    /// A new instance of a Secrets on success or an SecretsError otherwise.
-    pub fn new<S: Into<String>>(store: S) -> Result<Self, SecretsError> {
-        match Store::from(store) {
-            Ok(store)   => Ok(Secrets{ store }),
-            Err(reason) => Err(SecretsError::StoreError{ err: reason }),
+
+
+
+
+/***** LIBRARY *****/
+/// Resolves any unresolved credentials in the given list of Locations.
+/// 
+/// # Arguments
+/// - `locs`: The map of locations to resolve.
+/// - `path`: The path to the secrest file to resolve the credentials with.
+/// 
+/// # Returns
+/// Nothing, but does update any unresolved locations in the given `locs`.
+/// 
+/// # Errors
+/// This function may error if we could not read or parse the secrets file, or if we could not find a secret with the appropriate ID / field.
+pub fn resolve_secrets(locs: &mut HashMap<String, InfraLocation>, path: impl AsRef<Path>) -> Result<(), Error> {
+    let path : &Path = path.as_ref();
+
+    // Get the secrets file, but allow for it not being there
+    let _secrets: SecretsFile = {
+        // Try to open the file
+        match File::open(path) {
+            // Further process it as the secrets store
+            Ok(handle) => match serde_yaml::from_reader(handle) {
+                Ok(locs) => locs,
+                Err(err) => {
+                    warn!("{} (assuming empty secrets file)", Error::FileParseError{ path: path.into(), err });
+                    SecretsFile {
+                        secrets : HashMap::new(),
+                    }
+                },
+            },
+            Err(err) => {
+                warn!("{} (assuming empty secrets file)", Error::FileOpenError { path: path.into(), err });
+                SecretsFile {
+                    secrets : HashMap::new(),
+                }
+            },  
         }
+    };
+
+    // Now iterate over the locations to find the secrets
+    for (_name, _loc) in locs {
+        /* TBD */
     }
-    /*******/
 
-    /* TIM */
-    /// Helper function that opens, reads and parses a secrets.yml file.
-    /// 
-    /// **Arguments**
-    ///  * `store`: The Store describing where the file is located.
-    /// 
-    /// **Returns**  
-    /// The file's contents as a map of secrets on success, or a description of the failure as a SecretsError.
-    fn read_store(store: &Store) -> Result<SecretsDocument, SecretsError> {
-        if let Store::File(store_file) = store {
-            // Open a handle to the local file
-            let infra_handle = match File::open(store_file) {
-                Ok(infra_handle) => infra_handle,
-                Err(reason)      => { return Err(SecretsError::LocalOpenError{ path: store_file.clone(), err: reason }); }
-            };
-            let mut secrets_reader = BufReader::new(infra_handle);
-
-            // Read it into memory in one go
-            let mut secrets_file = String::new();
-            if let Err(reason) = secrets_reader.read_to_string(&mut secrets_file) { return Err(SecretsError::LocalIOError{ path: store_file.clone(), err: reason }); }
-            if secrets_file.is_empty() { return Err(SecretsError::EmptySecretsFile{ path: store_file.clone() }); }
-
-            // Finally, try to parse using serde
-            match serde_yaml::from_str::<SecretsDocument>(&secrets_file) {
-                Ok(result)  => Ok(result),
-                Err(reason) => Err(SecretsError::InvalidSecretsFile{ path: store_file.clone(), err: reason }),
-            }
-        } else {
-            // We didn't program this path yet
-            Err(SecretsError::DatabaseNotImplemented)
-        }
-    }
-    /*******/
-
-    /* TIM */
-    /// **Edited: Now returning SecretsErrors.**
-    /// 
-    /// Validates the Secrets file.  
-    /// Note that this function is slow, as the secrets file isn't actually read from memory.
-    /// 
-    /// **Returns**  
-    /// Nothing if the file was valid, or a SecretsError detailling why it wasn't otherwise.
-    pub fn validate(&self) -> Result<(), SecretsError> {
-        // Simply check if we can read it without any problems
-        match Self::read_store(&self.store) {
-            Ok(_)       => Ok(()),
-            Err(reason) => Err(reason),
-        }
-    }
-    /*******/
-
-    /* TIM */
-    /// **Edited: Now returning SecretsErrors.**
-    /// 
-    /// Returns the value of the given secret.
-    /// 
-    /// **Arguments**
-    ///  * `secret_key`: The string(-like) identifier of the secret we want to retrieve.
-    /// 
-    /// **Returns**  
-    /// The secret's value as a String, or a SecretsError upon a failure.
-    pub fn get<S: Into<String>>(
-        &self,
-        secret_key: S,
-    ) -> Result<String, SecretsError> {
-        // Convert the string-like to a string
-        let secret_key = secret_key.into();
-
-        // Read the secrets file
-        let secrets_document = Self::read_store(&self.store)?;
-
-        // Return the value
-        match secrets_document.get(&secret_key) {
-            Some(value) => Ok(value.clone()),
-            None        => Err(SecretsError::UnknownSecret{ secret: secret_key }),
-        }
-    }
-    /*******/
+    // Done
+    Ok(())
 }

@@ -21,14 +21,16 @@ RUN apt-get update && apt-get install -y \
 # Copy over relevant crates
 RUN mkdir /build
 COPY ./brane-api /build/brane-api
-COPY ./brane-bvm /build/brane-bvm
+COPY ./brane-ast /build/brane-ast
 COPY ./brane-cfg /build/brane-cfg
 COPY ./brane-clb /build/brane-clb
 COPY ./brane-drv /build/brane-drv
 COPY ./brane-dsl /build/brane-dsl
+COPY ./brane-exe /build/brane-exe
 COPY ./brane-job /build/brane-job
 COPY ./brane-log /build/brane-log
 COPY ./brane-plr /build/brane-plr
+COPY ./brane-reg /build/brane-reg
 COPY ./brane-shr /build/brane-shr
 COPY ./specifications /build/specifications
 
@@ -36,14 +38,16 @@ COPY ./specifications /build/specifications
 RUN echo "[workspace]\n" \
          "members = [\n" \
          "    \"brane-api\",\n" \
-         "    \"brane-bvm\",\n" \
+         "    \"brane-ast\",\n" \
          "    \"brane-cfg\",\n" \
          "    \"brane-clb\",\n" \
          "    \"brane-drv\",\n" \
          "    \"brane-dsl\",\n" \
+         "    \"brane-exe\",\n" \
          "    \"brane-job\",\n" \
          "    \"brane-log\",\n" \
          "    \"brane-plr\",\n" \
+         "    \"brane-reg\",\n" \
          "    \"brane-shr\",\n" \
          "    \"specifications\",\n" \
          "]\n" > /build/Cargo.toml
@@ -58,12 +62,14 @@ RUN cargo build \
         --package brane-job \
         --package brane-log \
         --package brane-plr \
-    && cp ./target/release/brane-api /brane-api \
-    && cp ./target/release/brane-clb /brane-clb \
-    && cp ./target/release/brane-drv /brane-drv \
-    && cp ./target/release/brane-job /brane-job \
-    && cp ./target/release/brane-log /brane-log \
-    && cp ./target/release/brane-plr /brane-plr \
+        --package brane-reg \
+    && mv ./target/release/brane-api /brane-api \
+    && mv ./target/release/brane-clb /brane-clb \
+    && mv ./target/release/brane-drv /brane-drv \
+    && mv ./target/release/brane-job /brane-job \
+    && mv ./target/release/brane-log /brane-log \
+    && mv ./target/release/brane-plr /brane-plr \
+    && mv ./target/release/brane-reg /brane-reg \
     && rm -rf /usr/local/cargo/registry \
     && rm -rf ./target
 
@@ -143,6 +149,20 @@ ENTRYPOINT [ "./brane-drv" ]
 
 
 
+##### BRANE-PLR #####
+# This image contains the Brane planner service.
+FROM brane-base AS brane-plr
+
+# Copy `brane-plr` from build stage
+COPY --from=build /brane-plr /brane-plr
+
+# Run the compiled executable as base
+ENTRYPOINT [ "./brane-plr" ]
+
+
+
+
+
 ##### BRANE-JOB #####
 # This image contains the Brane job service.
 FROM brane-base AS brane-job
@@ -157,26 +177,12 @@ ENTRYPOINT [ "./brane-job" ]
 
 
 
-##### BRANE-LOG #####
-# This image contains the Brane log service.
-FROM brane-base AS brane-log
+##### BRANE-REG #####
+# This image contains the Brane registry service.
+FROM brane-base AS brane-reg
 
-# Copy `brane-log from the build stage
-COPY --from=build /brane-log /brane-log
-
-# Run the compiled executable as base
-ENTRYPOINT [ "./brane-log" ]
-
-
-
-
-
-##### BRANE-PLR #####
-# This image contains the Brane planner service.
-FROM brane-base AS brane-plr
-
-# Copy `brane-plr` from build stage
-COPY --from=build /brane-plr /brane-plr
+# Copy `brane-reg` from build stage
+COPY --from=build /brane-reg /brane-reg
 
 # Run the compiled executable as base
-ENTRYPOINT [ "./brane-plr" ]
+ENTRYPOINT [ "./brane-reg" ]

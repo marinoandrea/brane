@@ -11,7 +11,7 @@ extern crate lazy_static;
 pub mod build_common;
 pub mod build_ecu;
 pub mod build_oas;
-pub mod docker;
+pub mod data;
 pub mod errors;
 pub mod packages;
 pub mod registry;
@@ -19,6 +19,7 @@ pub mod repl;
 pub mod run;
 pub mod test;
 pub mod utils;
+pub mod verify;
 pub mod version;
 
 

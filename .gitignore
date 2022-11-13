@@ -235,7 +235,7 @@ _site/
 .jekyll-metadata
 
 ### Brane sensitive configs ###
-/config/
+/config*
 
 ### macOS ###
 .DS_Store

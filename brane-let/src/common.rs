@@ -1,20 +1,22 @@
-/* COMMON.rs
- *   by Lut99
- *
- * Created:
- *   14 Feb 2022, 14:21:21
- * Last edited:
- *   21 Mar 2022, 21:54:26
- * Auto updated?
- *   Yes
- *
- * Description:
- *   Contains common definitions across all executions.
-**/
+//  COMMON.rs
+//    by Lut99
+// 
+//  Created:
+//    14 Feb 2022, 14:21:21
+//  Last edited:
+//    03 Nov 2022, 18:00:25
+//  Auto updated?
+//    Yes
+// 
+//  Description:
+//!   Contains common definitions across all executions.
+// 
 
 use crate::errors::LetError;
 
-use specifications::common::{Parameter, Value};
+use brane_ast::DataType;
+use brane_exe::FullValue;
+use specifications::common::Parameter;
 use specifications::package::PackageKind;
 
 
@@ -56,7 +58,34 @@ pub enum PackageResult {
     /// The package failed to execute on its own
     Failed{ code: i32, stdout: String, stderr: String },
     /// The package completed successfully
-    Finished{ result: Value },
+    Finished{ result: FullValue },
+}
+
+
+
+
+/***** HELPER FUNCTIONS *****/
+/// Returns whether this type is allowed for the package's target type.
+/// 
+/// # Arguments
+/// - `got`: The type we are given to use.
+/// - `expected`: The type the package expected.
+/// 
+/// # Returns
+/// Returns whether they are "the same" or not.
+fn assert_type(got: &DataType, expected: &DataType) -> bool {
+    match (got, expected) {
+        // Specific cases
+        (DataType::String, DataType::Data)               => true,
+        (DataType::String, DataType::IntermediateResult) => true,
+
+        // Recursive cases
+        (DataType::Array{ elem_type: got }, DataType::Array{ elem_type: expected }) => assert_type(&*got, &*expected),
+
+        // General cases
+        (_, DataType::Any) => true,
+        (got, expected)    => got == expected,
+    }
 }
 
 
@@ -79,7 +108,7 @@ pub enum PackageResult {
 /// Nothing if the assert went alright, but a LetError describing why it failed on an error.
 pub fn assert_input(
     parameters: &[Parameter],
-    arguments: &Map<Value>,
+    arguments: &Map<FullValue>,
     function: &str,
     package: &str,
     kind: PackageKind,
@@ -89,10 +118,7 @@ pub fn assert_input(
     // Search through all the allowed parameters
     for p in parameters {
         // Get the expected type, but skip mounts(?)
-        let expected_type = p.data_type.as_str();
-        if expected_type.starts_with("mount") {
-            continue;
-        }
+        let expected_type = DataType::from(p.data_type.as_str());
 
         // Check if the user specified it
         let argument = match arguments.get(&p.name) {
@@ -101,9 +127,10 @@ pub fn assert_input(
         };
 
         // Check if the type makes sense
+        // Note that we make a special case for data & intermediate results, since that will be converted to a type the package is comfortable with
         let actual_type = argument.data_type();
-        if expected_type != actual_type {
-            return Err(LetError::IncompatibleTypes{ function: function.to_string(), package: package.to_string(), kind, name: p.name.clone(), expected: expected_type.to_string(), got: actual_type });
+        if !assert_type(&actual_type, &expected_type) {
+            return Err(LetError::IncompatibleTypes{ function: function.to_string(), package: package.to_string(), kind, name: p.name.clone(), expected: expected_type, got: actual_type });
         }
     }
 

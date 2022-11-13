@@ -1,28 +1,27 @@
-/* ERRORS.rs
- *   by Lut99
- *
- * Created:
- *   17 Feb 2022, 10:27:28
- * Last edited:
- *   23 May 2022, 10:40:28
- * Auto updated?
- *   Yes
- *
- * Description:
- *   File that contains file-spanning error definitions for the brane-cli
- *   package.
-**/
+//  ERRORS.rs
+//    by Lut99
+// 
+//  Created:
+//    17 Feb 2022, 10:27:28
+//  Last edited:
+//    11 Nov 2022, 11:26:13
+//  Auto updated?
+//    Yes
+// 
+//  Description:
+//!   File that contains file-spanning error definitions for the brane-cli
+// 
 
 use std::error::Error;
 use std::fmt::{Display, Formatter, Result as FResult};
 use std::path::PathBuf;
 
-use brane_bvm::vm::VmError;
-use specifications::package::{PackageInfoError, PackageKindError};
-use specifications::container::{ContainerInfoError, LocalContainerInfoError};
-use specifications::version::{ParseError as VersionParseError, Version};
+use reqwest::StatusCode;
 
-use crate::packages::PackageError;
+use brane_shr::debug::PrettyListFormatter;
+use specifications::package::{PackageInfoError, PackageKindError};
+use specifications::container::{ContainerInfoError, Image, LocalContainerInfoError};
+use specifications::version::{ParseError as VersionParseError, Version};
 
 
 /***** GLOBALS *****/
@@ -39,10 +38,22 @@ pub enum CliError {
     // Toplevel errors for the subcommands
     /// Errors that occur during the build command
     BuildError{ err: BuildError },
+    /// Errors that occur during any of the data(-related) command(s)
+    DataError{ err: DataError },
     /// Errors that occur during the import command
     ImportError{ err: ImportError },
+    /// Errors that occur during some package command
+    PackageError{ err: PackageError },
+    /// Errors that occur during some registry command
+    RegistryError{ err: RegistryError },
     /// Errors that occur during the repl command
     ReplError{ err: ReplError },
+    /// Errors that occur during the run command
+    RunError{ err: RunError },
+    /// Errors that occur in the test command
+    TestError{ err: TestError },
+    /// Errors that occur in the verify command
+    VerifyError{ err: VerifyError },
     /// Errors that occur in the version command
     VersionError{ err: VersionError },
     /// Errors that occur in some inter-subcommand utility
@@ -57,21 +68,31 @@ pub enum CliError {
     WorkdirCanonicalizeError{ path: PathBuf, err: std::io::Error },
     /// Could not resolve a string to a package kind
     IllegalPackageKind{ kind: String, err: PackageKindError },
+    /// Could not parse a NAME:VERSION pair
+    PackagePairParseError{ raw: String, err: specifications::version::ParseError },
 }
 
 impl Display for CliError {
     fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
+        use CliError::*;
         match self {
-            CliError::BuildError{ err }   => write!(f, "{}", err),
-            CliError::ImportError{ err }  => write!(f, "{}", err),
-            CliError::ReplError{ err }    => write!(f, "{}", err),
-            CliError::UtilError{ err }    => write!(f, "{}", err),
-            CliError::VersionError{ err } => write!(f, "{}", err),
-            CliError::OtherError{ err }   => write!(f, "{}", err),
+            BuildError{ err }    => write!(f, "{}", err),
+            DataError{ err }     => write!(f, "{}", err),
+            ImportError{ err }   => write!(f, "{}", err),
+            PackageError{ err }  => write!(f, "{}", err),
+            RegistryError{ err } => write!(f, "{}", err),
+            ReplError{ err }     => write!(f, "{}", err),
+            RunError{ err }      => write!(f, "{}", err),
+            TestError{ err }     => write!(f, "{}", err),
+            VerifyError{ err }   => write!(f, "{}", err),
+            VersionError{ err }  => write!(f, "{}", err),
+            UtilError{ err }     => write!(f, "{}", err),
+            OtherError{ err }    => write!(f, "{}", err),
 
-            CliError::PackageFileCanonicalizeError{ path, err } => write!(f, "Could not resolve package file path '{}': {}", path.display(), err),
-            CliError::WorkdirCanonicalizeError{ path, err }     => write!(f, "Could not resolve working directory '{}': {}", path.display(), err),
-            CliError::IllegalPackageKind{ kind, err }           => write!(f, "Illegal package kind '{}': {}", kind, err),
+            PackageFileCanonicalizeError{ path, err } => write!(f, "Could not resolve package file path '{}': {}", path.display(), err),
+            WorkdirCanonicalizeError{ path, err }     => write!(f, "Could not resolve working directory '{}': {}", path.display(), err),
+            IllegalPackageKind{ kind, err }           => write!(f, "Illegal package kind '{}': {}", kind, err),
+            PackagePairParseError{ raw, err }         => write!(f, "Could not parse '{}': {}", raw, err),
         }
     }
 }
@@ -283,6 +304,172 @@ impl Error for BuildError {}
 
 
 
+/// Collects errors during the build subcommand
+#[derive(Debug)]
+pub enum DataError {
+    /// Failed to sent the GET-request to fetch the dfelegate.
+    RequestError{ what: &'static str, address: String, err: reqwest::Error },
+    /// The request returned a non-2xx status code.
+    RequestFailure{ address: String, code: StatusCode, message: Option<String> },
+    /// Failed to get the request body properly.
+    ResponseTextError{ address: String, err: reqwest::Error },
+    // /// Failed to load the keypair.
+    // KeypairLoadError{ err: brane_cfg::certs::Error },
+    // /// Failed to load the certificate root store.
+    // StoreLoadError{ err: brane_cfg::certs::Error },
+    /// Failed to open/read a given file.
+    FileReadError{ what: &'static str, path: PathBuf, err: std::io::Error },
+    /// Failed to parse an identity file.
+    IdentityFileError{ path: PathBuf, err: reqwest::Error },
+    /// Failed to parse a certificate.
+    CertificateError{ path: PathBuf, err: reqwest::Error },
+    /// A directory was not a directory but a file.
+    DirNotADirError{ what: &'static str, path: PathBuf },
+    /// A directory could not be removed.
+    DirRemoveError{ what: &'static str, path: PathBuf, err: std::io::Error },
+    /// A directory could not be created.
+    DirCreateError{ what: &'static str, path: PathBuf, err: std::io::Error },
+    // /// The given certificate file was empty.
+    // EmptyCertFile{ path: PathBuf },
+    // /// Failed to parse the given key/cert pair as an IdentityFile.
+    // IdentityFileError{ certfile: PathBuf, keyfile: PathBuf, err: reqwest::Error },
+    // /// Failed to load the given certificate as PEM root certificate.
+    // RootError{ cafile: PathBuf, err: reqwest::Error },
+    /// Failed to create a temporary directory.
+    TempDirError{ err: std::io::Error },
+    /// Failed to create the dataset directory.
+    DatasetDirError{ name: String, err: UtilError },
+    /// Failed to create a new reqwest proxy
+    ProxyCreateError{ address: String, err: reqwest::Error },
+    /// Failed to create a new reqwest client
+    ClientCreateError{ err: reqwest::Error },
+    /// Failed to reach the next chunk of data.
+    DownloadStreamError{ address: String, err: reqwest::Error },
+    /// Failed to create the file to which we write the download stream.
+    TarCreateError{ path: PathBuf, err: std::io::Error },
+    /// Failed to (re-)open the file to which we've written the download stream.
+    TarOpenError{ path: PathBuf, err: std::io::Error },
+    /// Failed to write to the file where we write the download stream.
+    TarWriteError{ path: PathBuf, err: std::io::Error },
+    /// Failed to extract the downloaded tar.
+    TarExtractError{ source: PathBuf, target: PathBuf, err: std::io::Error },
+
+    /// Failed to get the datasets folder
+    DatasetsError{ err: UtilError },
+    /// Failed to read the datasets folder
+    DatasetsReadError{ path: PathBuf, err: std::io::Error },
+    /// Failed to open a data.yml file.
+    DataInfoOpenError{ path: PathBuf, err: std::io::Error },
+    /// Failed to read/parse a data.yml file.
+    DataInfoReadError{ path: PathBuf, err: serde_yaml::Error },
+    /// Failed to create a new DataIndex from the infos locally read.
+    DataIndexError{ err: specifications::data::DataIndexError },
+
+    /// Failed to load the given AssetInfo file.
+    AssetFileError{ path: PathBuf, err: specifications::data::AssetInfoError },
+    /// Could not canonicalize the given (relative) path.
+    FileCanonicalizeError{ path: PathBuf, err: std::io::Error },
+    /// The given file does not exist
+    FileNotFoundError{ path: PathBuf },
+    /// The given file is not a file
+    FileNotAFileError{ path: PathBuf },
+    /// Failed to create the dataset's directory.
+    DatasetDirCreateError{ err: UtilError },
+    /// A dataset with the given name already exists.
+    DuplicateDatasetError{ name: String },
+    /// Failed to copy the data directory over.
+    DataCopyError{ err: brane_shr::fs::Error },
+    /// Failed to write the DataInfo.
+    DataInfoWriteError{ err: specifications::data::DataInfoError },
+
+    /// The given "keypair" was not a keypair at all
+    NoEqualsInKeyPair{ raw: String },
+    /// Failed to fetch the login file.
+    RegistryFileError{ err: UtilError },
+    /// Failed to create the remote data index.
+    RemoteDataIndexError{ address: String, err: brane_tsk::errors::ApiError },
+    /// Failed to select the download location in case there are multiple.
+    DataSelectError{ err: std::io::Error },
+    /// We encountered a location we did not know
+    UnknownLocation{ name: String },
+
+    /// The given dataset was unknown to us.
+    UnknownDataset{ name: String },
+    /// the given dataset was known but not locally available.
+    UnavailableDataset{ name: String, locs: Vec<String> },
+
+    // /// Failed to ensure the directory of the given dataset.
+    // DatasetDirError{ err: UtilError },
+    /// Failed to ask the user for consent before removing the dataset.
+    ConfirmationError{ err: std::io::Error },
+    /// Failed to remove the dataset's directory
+    RemoveError{ path: PathBuf, err: std::io::Error },
+}
+
+impl Display for DataError {
+    #[inline]
+    fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
+        use DataError::*;
+        match self {
+            RequestError{ what, address, err }       => write!(f, "Failed to send {} request to '{}': {}", what, address, err),
+            RequestFailure{ address, code, message } => write!(f, "Request to '{}' failed with status code {} ({}){}", address, code, code.canonical_reason().unwrap_or("???"), if let Some(msg) = message { format!(": {}", msg) } else { String::new() }),
+            ResponseTextError{ address, err }        => write!(f, "Failed to get body from response sent by '{}' as text: {}", address, err),
+            // KeypairLoadError{ err }                          => write!(f, "Failed to load keypair: {}", err),
+            // StoreLoadError{ err }                            => write!(f, "Failed to load root store: {}", err),
+            FileReadError{ what, path, err }         => write!(f, "Failed to read {} file '{}': {}", what, path.display(), err),
+            IdentityFileError{ path, err }           => write!(f, "Failed to parse identity file '{}': {}", path.display(), err),
+            CertificateError{ path, err }            => write!(f, "Failed to parse certificate '{}': {}", path.display(), err),
+            DirNotADirError{ what, path }            => write!(f, "{} directory '{}' is not a directory", what, path.display()),
+            DirRemoveError{ what, path, err }        => write!(f, "Failed to remove {} directory '{}': {}", what, path.display(), err),
+            DirCreateError{ what, path, err }        => write!(f, "Failed to create {} directory '{}': {}", what, path.display(), err),
+            // EmptyCertFile{ path }                            => write!(f, "No certificates found in certificate file '{}'", path.display()),
+            // IdentityFileError{ certfile, keyfile, err }      => write!(f, "Failed to parse '{}' and '{}' as a single Identity: {}", certfile.display(), keyfile.display(), err),
+            // RootError{ cafile, err }                         => write!(f, "Failed to parse '{}' as a root certificate: {}", cafile.display(), err),
+            TempDirError{ err }                      => write!(f, "Failed to create temporary directory: {}", err),
+            DatasetDirError{ name, err }             => write!(f, "Failed to create dataset directory for dataset '{}': {}", name, err),
+            ProxyCreateError{ address, err }         => write!(f, "Failed to create new proxy to '{}': {}", address, err),
+            ClientCreateError{ err }                 => write!(f, "Failed to create new client: {}", err),
+            DownloadStreamError{ address, err }      => write!(f, "Failed to get next chunk in download stream from '{}': {}", address, err),
+            TarCreateError{ path, err }              => write!(f, "Failed to create tarball file '{}': {}", path.display(), err),
+            TarOpenError{ path, err }                => write!(f, "Failed to re-open tarball file '{}': {}", path.display(), err),
+            TarWriteError{ path, err }               => write!(f, "Failed to write to tarball file '{}': {}", path.display(), err),
+            TarExtractError{ source, target, err }   => write!(f, "Failed to extract '{}' to '{}': {}", source.display(), target.display(), err),
+
+            DatasetsError{ err }           => write!(f, "Failed to get datasets folder: {}", err),
+            DatasetsReadError{ path, err } => write!(f, "Failed to read datasets folder '{}': {}", path.display(), err),
+            DataInfoOpenError{ path, err } => write!(f, "Failed to open data info file '{}': {}", path.display(), err),
+            DataInfoReadError{ path, err } => write!(f, "Failed to read/parse data info file '{}': {}", path.display(), err),
+            DataIndexError{ err }          => write!(f, "Failed to create data index from local datasets: {}", err),
+
+            AssetFileError{ path, err }        => write!(f, "Failed to load given asset file '{}': {}", path.display(), err),
+            FileCanonicalizeError{ path, err } => write!(f, "Failed to resolve path '{}': {}", path.display(), err),
+            FileNotFoundError{ path }          => write!(f, "Referenced file '{}' not found (are you using the correct working directory?)", path.display()),
+            FileNotAFileError{ path }          => write!(f, "Referenced file '{}' is not a file", path.display()),
+            DatasetDirCreateError{ err }       => write!(f, "Failed to create target dataset directory in the Brane data folder: {}", err),
+            DuplicateDatasetError{ name }      => write!(f, "A dataset with the name '{}' already exists locally", name),
+            DataCopyError{ err }               => write!(f, "Failed to data directory: {}", err),
+            DataInfoWriteError{ err }          => write!(f, "Failed to write DataInfo file: {}", err),
+
+            NoEqualsInKeyPair{ raw }             => write!(f, "Missing '=' in key/value pair '{}'", raw),
+            RegistryFileError{ err }             => write!(f, "Could not read registry file: {}", err),
+            RemoteDataIndexError{ address, err } => write!(f, "Failed to fetch remote data index from '{}': {}", address, err),
+            DataSelectError{ err }               => write!(f, "Failed to ask the user (you!) to select a download location: {}", err),
+            UnknownLocation{ name }              => write!(f, "Unknown location '{}'", name),
+
+            UnknownDataset{ name }           => write!(f, "Unknown dataset '{}'", name),
+            UnavailableDataset{ name, locs } => write!(f, "Dataset '{}' is unavailable{}", name, if !locs.is_empty() { format!("; try {} instead", locs.iter().map(|l| format!("'{}'", l)).collect::<Vec<String>>().join(", ")) } else { String::new() }),
+
+            // DatasetDirError{ err }   => write!(f, "Failed to get to-be-removed dataset directory: {}", err),
+            ConfirmationError{ err } => write!(f, "Failed to ask the user (you) for confirmation before removing a dataset: {}", err),
+            RemoveError{ path, err } => write!(f, "Failed to remove dataset directory '{}': {}", path.display(), err),
+        }
+    }
+}
+
+impl Error for DataError {}
+
+
+
 /// Collects errors during the import subcommand
 #[derive(Debug)]
 pub enum ImportError {
@@ -313,6 +500,166 @@ impl Error for ImportError {}
 
 
 
+/// Lists the errors that can occur when trying to do stuff with packages
+#[derive(Debug)]
+pub enum PackageError {
+    /// Something went wrong while calling utilities
+    UtilError{ err: UtilError },
+
+    /// There was an error reading entries from the packages directory
+    PackagesDirReadError{ path: PathBuf, err: std::io::Error },
+    /// We tried to load a package YML but failed
+    InvalidPackageYml{ package: String, path: PathBuf, err: specifications::package::PackageInfoError },
+    /// We tried to load a Package Index from a JSON value with PackageInfos but we failed
+    PackageIndexError{ err: specifications::package::PackageIndexError },
+
+    /// Failed to resolve a specific package/version pair
+    PackageVersionError{ name: String, version: Version, err: UtilError },
+    /// Failed to resolve a specific package
+    PackageError{ name: String, err: UtilError },
+    /// Failed to ask for the user's consent
+    ConsentError{ err: std::io::Error },
+    /// Failed to remove a package directory
+    PackageRemoveError{ name: String, version: Version, dir: PathBuf, err: std::io::Error },
+    /// Failed to get the versions of a package
+    VersionsError{ name: String, dir: PathBuf, err: std::io::Error },
+    /// Failed to parse the version of a package
+    VersionParseError{ name: String, raw: String, err: specifications::version::ParseError },
+    /// Failed to load the PackageInfo of the given package
+    PackageInfoError{ path: PathBuf, err: specifications::package::PackageInfoError },
+    /// The given PackageInfo has no digest set
+    PackageInfoNoDigest{ path: PathBuf },
+    /// Could not remove the given image from the Docker daemon
+    DockerRemoveError{ image: Image, err: brane_tsk::errors::DockerError },
+}
+
+impl std::fmt::Display for PackageError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use self::PackageError::*;
+        match self {
+            UtilError{ err } => write!(f, "{}", err),
+
+            PackagesDirReadError{ path, err }        => write!(f, "Could not read from Brane packages directory '{}': {}", path.display(), err),
+            InvalidPackageYml{ package, path, err }  => write!(f, "Could not read '{}' for package '{}': {}", path.display(), package, err),
+            PackageIndexError{ err }                 => write!(f, "Could not create PackageIndex: {}", err),
+
+            PackageVersionError{ name, version, err }     => write!(f, "Package '{}' does not exist or has no version {} ({})", name, version, err),
+            PackageError{ name, err }                     => write!(f, "Package '{}' does not exist ({})", name, err),
+            ConsentError{ err }                           => write!(f, "Failed to ask for your consent: {}", err),
+            PackageRemoveError{ name, version, dir, err } => write!(f, "Failed to remove package '{}' (version {}) at '{}': {}", name, version, dir.display(), err),
+            VersionsError{ name, dir, err }               => write!(f, "Failed to get versions of package '{}' (at '{}'): {}", name, dir.display(), err),
+            VersionParseError{ name, raw, err }           => write!(f, "Could not parse '{}' as a version for package '{}': {}", raw, name, err),
+            PackageInfoError{ path, err }                 => write!(f, "Could not load package info file '{}': {}", path.display(), err),
+            PackageInfoNoDigest{ path }                   => write!(f, "Package info file '{}' has no digest set", path.display()),
+            DockerRemoveError{ image, err }               => write!(f, "Failed to remove image '{}' from the local Docker daemon: {}", image.digest().unwrap_or("<no digest given>"), err),
+        }
+    }
+}
+
+impl std::error::Error for PackageError {}
+
+
+
+/// Collects errors during the registry subcommands
+#[derive(Debug)]
+pub enum RegistryError {
+    /// Wrapper error indeed.
+    ConfigFileError{ err: UtilError },
+
+    /// Failed to successfully send the package pull request
+    PullRequestError{ url: String, err: reqwest::Error },
+    /// The request was sent successfully, but the server replied with a non-200 access code
+    PullRequestFailure{ url: String, status: reqwest::StatusCode },
+    /// The request did not have a content length specified
+    MissingContentLength{ url: String },
+    /// Failed to convert the content length from raw bytes to string
+    ContentLengthStrError{ url: String, err: reqwest::header::ToStrError },
+    /// Failed to parse the content length as a number
+    ContentLengthParseError{ url: String, raw: String, err: std::num::ParseIntError },
+    /// Failed to download the actual package
+    PackageDownloadError{ url: String, err: reqwest::Error },
+    /// Failed to write the downloaded package to the given file
+    PackageWriteError{ url: String, path: PathBuf, err: std::io::Error },
+    /// Failed to create the package directory
+    PackageDirCreateError{ path: PathBuf, err: std::io::Error },
+    /// Failed to copy the downloaded package over
+    PackageCopyError{ source: PathBuf, target: PathBuf, err: std::io::Error },
+    /// Failed to send GraphQL request for package info
+    GraphQLRequestError{ url: String, err: reqwest::Error },
+    /// Failed to receive GraphQL response with package info
+    GraphQLResponseError{ url: String, err: reqwest::Error },
+    /// Could not parse the kind as a proper PackageInfo kind
+    KindParseError{ url: String, raw: String, err: specifications::package::PackageKindError },
+    /// Could not parse the version as a proper PackageInfo version
+    VersionParseError{ url: String, raw: String, err: specifications::version::ParseError },
+    /// Could not parse the functions as proper PackageInfo functions
+    FunctionsParseError{ url: String, raw: String, err: serde_json::Error },
+    /// Could not parse the types as proper PackageInfo types
+    TypesParseError{ url: String, raw: String, err: serde_json::Error },
+    /// Could not create a file for the PackageInfo
+    PackageInfoCreateError{ path: PathBuf, err: std::io::Error },
+    /// Could not write the PackageInfo
+    PackageInfoWriteError{ path: PathBuf, err: serde_yaml::Error },
+    /// Failed to retrieve the PackageInfo
+    NoPackageInfo{ url: String },
+
+    /// Failed to resolve the packages directory
+    PackagesDirError{ err: UtilError },
+    /// Failed to get all versions for the given package
+    VersionsError{ name: String, err: UtilError },
+    /// Failed to resolve the directory of a specific package
+    PackageDirError{ name: String, version: Version, err: UtilError },
+    /// Could not create a new temporary file
+    TempFileError{ err: std::io::Error },
+    /// Could not compress the package file
+    CompressionError{ name: String, version: Version, path: PathBuf, err: std::io::Error },
+    /// Failed to re-open the compressed package file
+    PackageArchiveOpenError{ path: PathBuf, err: std::io::Error },
+    /// Failed to upload the compressed file to the instance
+    UploadError{ path: PathBuf, endpoint: String, err: reqwest::Error },
+}
+
+impl Display for RegistryError {
+    #[inline]
+    fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
+        use RegistryError::*;
+        match self {
+            ConfigFileError{ err } => write!(f, "{}", err),
+
+            PullRequestError{ url, err }             => write!(f, "Could not send the request to pull pacakge to '{}': {}", url, err),
+            PullRequestFailure{ url, status }        => write!(f, "Request to pull package from '{}' was met with status code {} ({})", url, status.as_u16(), status.canonical_reason().unwrap_or("???")),
+            MissingContentLength{ url }              => write!(f, "Response from '{}' did not have 'Content-Length' header set", url),
+            ContentLengthStrError{ url, err }        => write!(f, "Could not convert content length received from '{}' to string: {}", url, err),
+            ContentLengthParseError{ url, raw, err } => write!(f, "Could not parse '{}' as a number (the content-length received from '{}'): {}", raw, url, err),
+            PackageDownloadError{ url, err }         => write!(f, "Could not download package from '{}': {}", url, err),
+            PackageWriteError{ url, path, err }      => write!(f, "Could not write package downloaded from '{}' to '{}': {}", url, path.display(), err),
+            PackageDirCreateError{ path, err }       => write!(f, "Could not create package directory '{}': {}", path.display(), err),
+            PackageCopyError{ source, target, err }  => write!(f, "Could not copy package from '{}' to '{}': {}", source.display(), target.display(), err),
+            GraphQLRequestError{ url, err }          => write!(f, "Could not send a GraphQL request to '{}': {}", url, err),
+            GraphQLResponseError{ url, err }         => write!(f, "Could not get the GraphQL respones from '{}': {}", url, err),
+            KindParseError{ url, raw, err }          => write!(f, "Could not parse '{}' (received from '{}') as package kind: {}", raw, url, err),
+            VersionParseError{ url, raw, err }       => write!(f, "Could not parse '{}' (received from '{}') as package version: {}", raw, url, err),
+            FunctionsParseError{ url, raw, err }     => write!(f, "Could not parse '{}' (received from '{}') as package functions: {}", raw, url, err),
+            TypesParseError{ url, raw, err }         => write!(f, "Could not parse '{}' (received from '{}') as package types: {}", raw, url, err),
+            PackageInfoCreateError{ path, err }      => write!(f, "Could not create PackageInfo file '{}': {}", path.display(), err),
+            PackageInfoWriteError{ path, err }       => write!(f, "Could not write to PackageInfo file '{}': {}", path.display(), err),
+            NoPackageInfo{ url }                     => write!(f, "Server '{}' responded with empty response (is your name/version correct?)", url),
+
+            PackagesDirError{ err }                      => write!(f, "Could not resolve the packages directory: {}", err),
+            VersionsError{ name, err }                   => write!(f, "Could not get version list for package '{}': {}", name, err),
+            PackageDirError{ name, version, err }        => write!(f, "Could not resolve package directory of package '{}' (version {}): {}", name, version, err),
+            TempFileError{ err }                         => write!(f, "Could not create a new temporary file: {}", err),
+            CompressionError{ name, version, path, err } => write!(f, "Could not compress package '{}' (version {}) to '{}': {}", name, version, path.display(), err),
+            PackageArchiveOpenError{ path, err }         => write!(f, "Could not re-open compressed package archive '{}': {}", path.display(), err),
+            UploadError{ path, endpoint, err }           => write!(f, "Could not upload compressed package archive '{}' to '{}': {}", path.display(), endpoint, err),
+        }
+    }
+}
+
+impl Error for RegistryError {}
+
+
+
 /// Collects errors during the repl subcommand
 #[derive(Debug)]
 pub enum ReplError {
@@ -321,36 +668,216 @@ pub enum ReplError {
     /// Could not get the location of the REPL history file
     HistoryFileError{ err: UtilError },
 
-    /// Could not connect to the given address
-    ClientConnectError{ address: String, err: tonic::transport::Error },
-    /// Could not create a new session on the given address
-    SessionCreateError{ address: String, err: tonic::Status },
-    /// Requesting a command failed
-    CommandRequestError{ address: String, err: tonic::Status },
-
-    /// Failed to 'read' the local package index
-    PackageIndexError{ err: PackageError },
-    /// Failed to create the local VM
-    VmCreateError{ err: VmError },
+    /// Failed to initialize one of the states.
+    InitializeError{ what: &'static str, err: RunError },
+    /// Failed to run one of the VMs/clients.
+    RunError{ what: &'static str, err: RunError },
+    /// Failed to process the VM result.
+    ProcessError{ what: &'static str, err: RunError },
 }
 
 impl Display for ReplError {
     fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
+        use ReplError::*;
         match self {
-            ReplError::ConfigDirCreateError{ err } => write!(f, "Could not create the configuration directory for the REPL history: {}", err),
-            ReplError::HistoryFileError{ err }     => write!(f, "Could not get REPL history file location: {}", err),
+            ConfigDirCreateError{ err } => write!(f, "Could not create the configuration directory for the REPL history: {}", err),
+            HistoryFileError{ err }     => write!(f, "Could not get REPL history file location: {}", err),
 
-            ReplError::ClientConnectError{ address, err }  => write!(f, "Could not connect to remote Brane instance '{}': {}", address, err),
-            ReplError::SessionCreateError{ address, err }  => write!(f, "Could not create new session with remote Brane instance '{}': remote returned status: {}", address, err),
-            ReplError::CommandRequestError{ address, err } => write!(f, "Could not run command on remote Brane instance '{}': request failed: remote returned status: {}", address, err),
-
-            ReplError::PackageIndexError{ err } => write!(f, "Could not read local package index: {}", err),
-            ReplError::VmCreateError{ err }     => write!(f, "Could not create local VM: {}", err),
+            InitializeError{ what, err } => write!(f, "Failed to initialize {} and associated structures: {}", what, err),
+            RunError{ what, err }        => write!(f, "Failed to execute workflow on {}: {}", what, err),
+            ProcessError{ what, err }    => write!(f, "Failed to process {} workflow results: {}", what, err),
         }
     }
 }
 
 impl Error for ReplError {}
+
+
+
+/// Collects errors during the run subcommand.
+#[derive(Debug)]
+pub enum RunError {
+    /// Failed to create the local package index.
+    LocalPackageIndexError{ err: PackageError },
+    /// Failed to create the local data index.
+    LocalDataIndexError{ err: DataError },
+    /// Failed to get the packages directory.
+    PackagesDirError{ err: UtilError },
+    /// Failed to get the datasets directory.
+    DatasetsDirError{ err: UtilError },
+    /// Failed to create a temporary intermediate results directory.
+    ResultsDirCreateError{ err: std::io::Error },
+
+    /// Failed to fetch the login file.
+    RegistryFileError{ err: UtilError },
+    /// Failed to create the remote package index.
+    RemotePackageIndexError{ address: String, err: brane_tsk::errors::ApiError },
+    /// Failed to create the remote data index.
+    RemoteDataIndexError{ address: String, err: brane_tsk::errors::ApiError },
+    /// Failed to pull the delegate map from the remote delegate index(ish - `brane-api`)
+    RemoteDelegatesError{ address: String, err: DelegatesError },
+    /// Could not connect to the given address
+    ClientConnectError{ address: String, err: tonic::transport::Error },
+    /// Failed to parse the AppId send by the remote driver.
+    AppIdError{ address: String, raw: String, err: brane_tsk::errors::IdError },
+    /// Could not create a new session on the given address
+    SessionCreateError{ address: String, err: tonic::Status },
+
+    /// An error occurred while compile the given snippet. It will already have been printed to stdout.
+    CompileError{ what: String, errs: Vec<brane_ast::Error> },
+    /// Failed to serialize the compiled workflow.
+    WorkflowSerializeError{ err: serde_json::Error },
+    /// Requesting a command failed
+    CommandRequestError{ address: String, err: tonic::Status },
+    /// Failed to parse the value returned by the remote driver.
+    ValueParseError{ address: String, raw: String, err: serde_json::Error },
+    /// Failed to run the workflow
+    ExecError{ err: brane_tsk::errors::TaskError },
+
+    /// The returned dataset was unknown.
+    UnknownDataset{ name: String },
+    /// The returend dataset was known but not available locally.
+    UnavailableDataset{ name: String, locs: Vec<String> },
+    /// Failed to download remote dataset.
+    DataDownloadError{ err: DataError },
+
+    /// Failed to read the source from stdin
+    StdinReadError{ err: std::io::Error },
+    /// Failed to read the source from a given file
+    FileReadError{ path: PathBuf, err: std::io::Error },
+    // /// Failed to compile the given file (the reasons have already been printed to stderr).
+    // CompileError{ path: PathBuf, errs: Vec<brane_ast::Error> },
+}
+
+impl Display for RunError {
+    #[inline]
+    fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
+        use RunError::*;
+        match self {
+            LocalPackageIndexError{ err }  => write!(f, "Failed to fetch local package index: {}", err),
+            LocalDataIndexError{ err }     => write!(f, "Failed to fetch local data index: {}", err),
+            PackagesDirError{ err }        => write!(f, "Failed to get packages directory: {}", err),
+            DatasetsDirError{ err }        => write!(f, "Failed to get datasets directory: {}", err),
+            ResultsDirCreateError{ err }   => write!(f, "Failed to create new temporary directory as an intermediate result directory: {}", err),
+
+            RegistryFileError{ err }                => write!(f, "Could not read registry file: {}", err),
+            RemotePackageIndexError{ address, err } => write!(f, "Failed to fetch remote package index from '{}': {}", address, err),
+            RemoteDataIndexError{ address, err }    => write!(f, "Failed to fetch remote data index from '{}': {}", address, err),
+            RemoteDelegatesError{ address, err }    => write!(f, "Failed to fetch delegates map from '{}': {}", address, err),
+            ClientConnectError{ address, err }      => write!(f, "Could not connect to remote Brane instance '{}': {}", address, err),
+            AppIdError{ address, raw, err }         => write!(f, "Could not parse '{}' send by remote '{}' as an application ID: {}", raw, address, err),
+            SessionCreateError{ address, err }      => write!(f, "Could not create new session with remote Brane instance '{}': remote returned status: {}", address, err),
+
+            CompileError{ .. }                   => write!(f, "Compilation of workflow failed (see output above)"),
+            WorkflowSerializeError{ err }        => write!(f, "Failed to serialize the compiled workflow: {}", err),
+            CommandRequestError{ address, err }  => write!(f, "Could not run command on remote Brane instance '{}': request failed: remote returned status: {}", address, err),
+            ValueParseError{ address, raw, err } => write!(f, "Could not parse '{}' sent by remote '{}' as a value: {}", raw, address, err),
+            ExecError{ err }                     => write!(f, "Failed to run workflow: {}", err),
+
+            UnknownDataset{ name }           => write!(f, "Unknown dataset '{}'", name),
+            UnavailableDataset{ name, locs } => write!(f, "Unavailable dataset '{}'{}", name, if !locs.is_empty() { format!("; it is available at {}", PrettyListFormatter::new(locs.iter().map(|l| format!("'{}'", l)), "or")) } else { String::new() }),
+            DataDownloadError{ err }         => write!(f, "Failed to download remote dataset: {}", err),
+
+            StdinReadError{ err }      => write!(f, "Failed to read source from stdin: {}", err),
+            FileReadError{ path, err } => write!(f, "Failed to read source from file '{}': {}", path.display(), err),
+        }
+    }
+}
+
+impl Error for RunError {}
+
+
+
+/// Collects errors during the test subcommand.
+#[derive(Debug)]
+pub enum TestError {
+    /// A package defines the same function as a builtin
+    PackageDefinesBuiltin{ name: String, version: Version, duplicate: String },
+    /// Failed to query the function to run.
+    FunctionQueryError{ err: std::io::Error },
+
+    /// Failed to ask the user for confirmation
+    YesNoQueryError{ err: std::io::Error },
+    /// Failed to get the local data index.
+    DataIndexError{ err: DataError },
+    /// Failed to query the user.
+    ValueQueryError{ res_type: &'static str, err: std::io::Error },
+    /// Failed to resolve a given class' name.
+    UndefinedClass{ name: String },
+
+    /// Failed to create a temporary directory
+    TempDirError{ err: std::io::Error },
+    /// We can't access a dataset in the local instance.
+    DatasetUnavailable{ name: String, locs: Vec<String> },
+    /// The given dataset was unknown to us.
+    UnknownDataset{ name: String },
+    /// Failed to get the general package directory.
+    PackagesDirError{ err: UtilError },
+    /// Failed to get the general dataset directory.
+    DatasetsDirError{ err: UtilError },
+    /// Failed to get the directory of a package.
+    PackageDirError{ name: String, version: Version, err: UtilError },
+    /// Failed to read the PackageInfo of the given package.
+    PackageInfoError{ name: String, version: Version, err: specifications::package::PackageInfoError },
+
+    /// Failed to initialize the offline VM.
+    InitializeError{ err: RunError },
+    /// Failed to run the offline VM.
+    RunError{ err: RunError },
+    /// Failed to read the intermediate results file.
+    IntermediateResultFileReadError{ path: PathBuf, err: std::io::Error },
+}
+
+impl Display for TestError {
+    #[inline]
+    fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
+        use TestError::*;
+        match self {
+            PackageDefinesBuiltin{ name, version, duplicate } => write!(f, "Package '{}' (version {}) attempts to re-define builtin class '{}'", name, version, duplicate),
+            FunctionQueryError{ err }                         => write!(f, "Failed to query the user (you) for which function to run: {}", err),
+
+            YesNoQueryError{ err }           => write!(f, "Failed to query the user (you) for confirmation: {}", err),
+            DataIndexError{ err }            => write!(f, "Failed to load local data index: {}", err),
+            ValueQueryError{ res_type, err } => write!(f, "Failed to query the user (you) for a value of type {}: {}", res_type, err),
+            UndefinedClass{ name }           => write!(f, "Encountered undefined class '{}'", name),
+
+            TempDirError{ err }                    => write!(f, "Failed to create temporary results directory: {}", err),
+            DatasetUnavailable{ name, locs }       => write!(f, "Dataset '{}' is unavailable{}", name, if !locs.is_empty() { format!("; however, locations {} do (try to get download permission to those datasets)", locs.iter().map(|l| format!("'{}'", l)).collect::<Vec<String>>().join(", ")) } else { String::new() }),
+            UnknownDataset{ name }                 => write!(f, "Unknown dataset '{}'", name),
+            PackagesDirError{ err }                => write!(f, "Failed to get packages directory: {}", err),
+            DatasetsDirError{ err }                => write!(f, "Failed to get datasets directory: {}", err),
+            PackageDirError{ name, version, err }  => write!(f, "Failed to get directory of package '{}' (version {}): {}", name, version, err),
+            PackageInfoError{ name, version, err } => write!(f, "Failed to read package info for package '{}' (version {}): {}", name, version, err),
+
+            InitializeError{ err }                       => write!(f, "Failed to initialize offline VM: {}", err),
+            RunError{ err }                              => write!(f, "Failed to run offline VM: {}", err),
+            IntermediateResultFileReadError{ path, err } => write!(f, "Failed to read intermediate result file '{}': {}", path.display(), err),
+        }
+    }
+}
+
+impl Error for TestError {}
+
+
+
+/// Collects errors relating to the verify command.
+#[derive(Debug)]
+pub enum VerifyError {
+    /// Failed to verify the config
+    ConfigFailed{ err: brane_cfg::Error },
+}
+
+impl Display for VerifyError {
+    #[inline]
+    fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
+        use VerifyError::*;
+        match self {
+            ConfigFailed{ err } => write!(f, "Failed to verify configuration: {}", err),
+        }
+    }
+}
+
+impl Error for VerifyError {}
 
 
 
@@ -451,6 +978,11 @@ pub enum UtilError {
     /// Could not find the package folder inside brane's data folder
     BranePackageDirNotFound{ path: PathBuf },
 
+    /// Could not create the dataset folder inside brane's data folder
+    BraneDatasetsDirCreateError{ path: PathBuf, err: std::io::Error },
+    /// Could not find the dataset folder inside brane's data folder.
+    BraneDatasetsDirNotFound{ path: PathBuf },
+
     /// Could not create the directory for a package
     PackageDirCreateError{ package: String, path: PathBuf, err: std::io::Error },
     /// The target package directory does not exist
@@ -459,6 +991,11 @@ pub enum UtilError {
     VersionDirCreateError{ package: String, version: Version, path: PathBuf, err: std::io::Error },
     /// The target package/version directory does not exist
     VersionDirNotFound{ package: String, version: Version, path: PathBuf },
+
+    /// Could not create the dataset folder for a specific dataset
+    BraneDatasetDirCreateError{ name: String, path: PathBuf, err: std::io::Error },
+    /// Could not find the dataset folder for a specific dataset.
+    BraneDatasetDirNotFound{ name: String, path: PathBuf },
 
     /// There was an error reading entries from a package's directory
     PackageDirReadError{ path: PathBuf, err: std::io::Error },
@@ -471,57 +1008,99 @@ pub enum UtilError {
     // /// Could not canonicalize a package/version directory
     // VersionCanonicalizeError{ path: PathBuf, err: std::io::Error },
 
+    /// Could not get the registry login info
+    ConfigFileError{ err: specifications::registry::RegistryConfigError },
+
     /// The given name is not a valid bakery name.
     InvalidBakeryName{ name: String },
 }
 
 impl Display for UtilError {
+    #[inline]
     fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
+        use UtilError::*;
         match self {
-            UtilError::DockerConnectionFailed{ err }        => write!(f, "Could not connect to local Docker instance: {}", err),
-            UtilError::DockerVersionError{ err }            => write!(f, "Could not get version of the local Docker instance: {}", err),
-            UtilError::DockerNoVersion                      => write!(f, "Local Docker instance doesn't report a version number"),
-            UtilError::IllegalDockerVersion{ version, err } => write!(f, "Local Docker instance reports unparseable version '{}': {}", version, err),
-            UtilError::BuildxLaunchError{ command, err }    => write!(f, "Could not run command '{}' to get Buildx version information: {}", command, err),
-            UtilError::BuildxVersionNoParts{ version }      => write!(f, "Illegal Buildx version '{}': did not find second part (separted by spaces) with version number", version),
-            UtilError::BuildxVersionNoV{ version }          => write!(f, "Illegal Buildx version '{}': did not find 'v' prepending version number", version),
-            UtilError::IllegalBuildxVersion{ version, err } => write!(f, "Buildx reports unparseable version '{}': {}", version, err),
+            ConfigFileError{ err } => write!(f, "Could not get the registry login information: {}", err),
 
-            UtilError::DirectoryReadError{ dir, err } => write!(f, "Could not read from directory '{}': {}", dir.display(), err),
-            UtilError::UndeterminedPackageFile{ dir } => write!(f, "Could not determine package file in directory '{}'; specify it manually with '--file'", dir.display()),
+            DockerConnectionFailed{ err }        => write!(f, "Could not connect to local Docker instance: {}", err),
+            DockerVersionError{ err }            => write!(f, "Could not get version of the local Docker instance: {}", err),
+            DockerNoVersion                      => write!(f, "Local Docker instance doesn't report a version number"),
+            IllegalDockerVersion{ version, err } => write!(f, "Local Docker instance reports unparseable version '{}': {}", version, err),
+            BuildxLaunchError{ command, err }    => write!(f, "Could not run command '{}' to get Buildx version information: {}", command, err),
+            BuildxVersionNoParts{ version }      => write!(f, "Illegal Buildx version '{}': did not find second part (separted by spaces) with version number", version),
+            BuildxVersionNoV{ version }          => write!(f, "Illegal Buildx version '{}': did not find 'v' prepending version number", version),
+            IllegalBuildxVersion{ version, err } => write!(f, "Buildx reports unparseable version '{}': {}", version, err),
 
-            UtilError::PackageFileOpenError{ file, err } => write!(f, "Could not open package file '{}': {}", file.display(), err),
-            UtilError::PackageFileReadError{ file, err } => write!(f, "Could not read from package file '{}': {}", file.display(), err),
-            UtilError::UndeterminedPackageKind{ file }   => write!(f, "Could not determine package from package file '{}'; specify it manually with '--kind'", file.display()),
+            DirectoryReadError{ dir, err } => write!(f, "Could not read from directory '{}': {}", dir.display(), err),
+            UndeterminedPackageFile{ dir } => write!(f, "Could not determine package file in directory '{}'; specify it manually with '--file'", dir.display()),
+
+            PackageFileOpenError{ file, err } => write!(f, "Could not open package file '{}': {}", file.display(), err),
+            PackageFileReadError{ file, err } => write!(f, "Could not read from package file '{}': {}", file.display(), err),
+            UndeterminedPackageKind{ file }   => write!(f, "Could not determine package from package file '{}'; specify it manually with '--kind'", file.display()),
     
-            UtilError::UserConfigDirNotFound                        => write!(f, "Could not find the user's config directory for your OS (reported as {})", std::env::consts::OS),
-            UtilError::BraneConfigDirCreateError{ path, err }       => write!(f, "Could not create Brane config directory '{}': {}", path.display(), err),
-            UtilError::BraneConfigDirNotFound{ path }               => write!(f, "Brane config directory '{}' not found", path.display()),
+            UserConfigDirNotFound                        => write!(f, "Could not find the user's config directory for your OS (reported as {})", std::env::consts::OS),
+            BraneConfigDirCreateError{ path, err }       => write!(f, "Could not create Brane config directory '{}': {}", path.display(), err),
+            BraneConfigDirNotFound{ path }               => write!(f, "Brane config directory '{}' not found", path.display()),
 
-            UtilError::HistoryFileCreateError{ path, err } => write!(f, "Could not create history file '{}' for the REPL: {}", path.display(), err),
-            UtilError::HistoryFileNotFound{ path }         => write!(f, "History file '{}' for the REPL does not exist", path.display()),
+            HistoryFileCreateError{ path, err } => write!(f, "Could not create history file '{}' for the REPL: {}", path.display(), err),
+            HistoryFileNotFound{ path }         => write!(f, "History file '{}' for the REPL does not exist", path.display()),
 
-            UtilError::UserLocalDataDirNotFound                   => write!(f, "Could not find the user's local data directory for your OS (reported as {})", std::env::consts::OS),
-            UtilError::BraneDataDirCreateError{ path, err }       => write!(f, "Could not create Brane data directory '{}': {}", path.display(), err),
-            UtilError::BraneDataDirNotFound{ path }               => write!(f, "Brane data directory '{}' not found", path.display()),
+            UserLocalDataDirNotFound                   => write!(f, "Could not find the user's local data directory for your OS (reported as {})", std::env::consts::OS),
+            BraneDataDirCreateError{ path, err }       => write!(f, "Could not create Brane data directory '{}': {}", path.display(), err),
+            BraneDataDirNotFound{ path }               => write!(f, "Brane data directory '{}' not found", path.display()),
 
-            UtilError::BranePackageDirCreateError{ path, err } => write!(f, "Could not create Brane package directory '{}': {}", path.display(), err),
-            UtilError::BranePackageDirNotFound{ path }         => write!(f, "Brane package directory '{}' not found", path.display()),
+            BranePackageDirCreateError{ path, err } => write!(f, "Could not create Brane package directory '{}': {}", path.display(), err),
+            BranePackageDirNotFound{ path }         => write!(f, "Brane package directory '{}' not found", path.display()),
 
-            UtilError::PackageDirCreateError{ package, path, err }          => write!(f, "Could not create directory for package '{}' (path: '{}'): {}", package, path.display(), err),
-            UtilError::PackageDirNotFound{ package, path }                  => write!(f, "Directory for package '{}' does not exist (path: '{}')", package, path.display()),
-            UtilError::VersionDirCreateError{ package, version, path, err } => write!(f, "Could not create directory for package '{}', version: {} (path: '{}'): {}", package, version, path.display(), err),
-            UtilError::VersionDirNotFound{ package, version, path }         => write!(f, "Directory for package '{}', version: {} does not exist (path: '{}')", package, version, path.display()),
+            BraneDatasetsDirCreateError{ path, err } => write!(f, "Could not create Brane datasets directory '{}': {}", path.display(), err),
+            BraneDatasetsDirNotFound{ path }         => write!(f, "Brane datasets directory '{}' not found", path.display()),
 
-            UtilError::PackageDirReadError{ path, err }             => write!(f, "Could not read package directory '{}': {}", path.display(), err),
-            UtilError::UnreadableVersionEntry{ path }               => write!(f, "Could not get the version directory from '{}'", path.display()),
-            UtilError::IllegalVersionEntry{ package, version, err } => write!(f, "Entry '{}' for package '{}' is not a valid version: {}", version, package, err),
-            UtilError::NoVersions{ package }                        => write!(f, "Package '{}' does not have any registered versions", package),
-            // UtilError::VersionCanonicalizeError{ path, err }        => write!(f, "Could not resolve version directory '{}': {}", path.display(), err),
+            PackageDirCreateError{ package, path, err }          => write!(f, "Could not create directory for package '{}' (path: '{}'): {}", package, path.display(), err),
+            PackageDirNotFound{ package, path }                  => write!(f, "Directory for package '{}' does not exist (path: '{}')", package, path.display()),
+            VersionDirCreateError{ package, version, path, err } => write!(f, "Could not create directory for package '{}', version: {} (path: '{}'): {}", package, version, path.display(), err),
+            VersionDirNotFound{ package, version, path }         => write!(f, "Directory for package '{}', version: {} does not exist (path: '{}')", package, version, path.display()),
 
-            UtilError::InvalidBakeryName{ name } => write!(f, "The given name '{}' is not a valid name; expected alphanumeric or underscore characters", name),
+            BraneDatasetDirCreateError{ name, path, err } => write!(f, "Could not create Brane dataset directory '{}' for dataset '{}': {}", path.display(), name, err),
+            BraneDatasetDirNotFound{ name, path }         => write!(f, "Brane dataset directory '{}' for dataset '{}' not found", path.display(), name),
+
+            PackageDirReadError{ path, err }             => write!(f, "Could not read package directory '{}': {}", path.display(), err),
+            UnreadableVersionEntry{ path }               => write!(f, "Could not get the version directory from '{}'", path.display()),
+            IllegalVersionEntry{ package, version, err } => write!(f, "Entry '{}' for package '{}' is not a valid version: {}", version, package, err),
+            NoVersions{ package }                        => write!(f, "Package '{}' does not have any registered versions", package),
+            // VersionCanonicalizeError{ path, err }        => write!(f, "Could not resolve version directory '{}': {}", path.display(), err),
+
+            InvalidBakeryName{ name } => write!(f, "The given name '{}' is not a valid name; expected alphanumeric or underscore characters", name),
         }
     }
 }
 
 impl Error for UtilError {}
+
+
+
+/// A really specific error enum for errors relating to fetching delegates.
+#[derive(Debug)]
+pub enum DelegatesError {
+    /// Failed to sent the GET-request to fetch the map.
+    RequestError{ address: String, err: reqwest::Error },
+    /// The request returned a non-2xx status code.
+    RequestFailure{ address: String, code: StatusCode, message: Option<String> },
+    /// Failed to get the request body properly.
+    ResponseTextError{ address: String, err: reqwest::Error },
+    /// Failed to parse the request body properly.
+    ResponseParseError{ address: String, raw: String, err: serde_json::Error },
+}
+
+impl Display for DelegatesError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
+        use DelegatesError::*;
+        match self {
+            RequestError{ address, err }             => write!(f, "Failed to send delegates request to '{}': {}", address, err),
+            RequestFailure{ address, code, message } => write!(f, "Request to '{}' failed with status code {} ({}){}", address, code, code.canonical_reason().unwrap_or("???"), if let Some(msg) = message { format!(": {}", msg) } else { String::new() }),
+            ResponseTextError{ address, err }        => write!(f, "Failed to get body from response sent by '{}' as text: {}", address, err),
+            ResponseParseError{ address, raw, err }  => write!(f, "Failed to parse response body '{}' sent by '{}' as a delegate map: {}", raw, address, err),
+        }
+    }
+}
+
+impl Error for DelegatesError {}

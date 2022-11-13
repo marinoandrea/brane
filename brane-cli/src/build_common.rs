@@ -1,17 +1,17 @@
-/* BUILD COMMON.rs
- *   by Lut99
- *
- * Created:
- *   21 Feb 2022, 12:32:28
- * Last edited:
- *   31 May 2022, 17:02:57
- * Auto updated?
- *   Yes
- *
- * Description:
- *   Contains common macros, constants and functions between the different
- *   package kinds.
-**/
+//  BUILD COMMON.rs
+//    by Lut99
+// 
+//  Created:
+//    21 Feb 2022, 12:32:28
+//  Last edited:
+//    03 Nov 2022, 14:31:12
+//  Auto updated?
+//    Yes
+// 
+//  Description:
+//!   Contains common macros, constants and functions between the
+//!   different
+// 
 
 use std::fs::{self, File};
 use std::path::Path;

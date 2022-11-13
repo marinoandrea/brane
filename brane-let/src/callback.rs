@@ -1,6 +1,6 @@
 use anyhow::Result;
 use brane_clb::grpc::{CallbackKind, CallbackRequest, CallbackServiceClient};
-use brane_job::interface::FailureResult;
+// use brane_job::interface::FailureResult;
 use libc::{strsignal, c_int, c_char};
 use log::debug;
 use std::error::Error;
@@ -272,8 +272,7 @@ impl Callback {
     /// Nothing when the call was sent successfully, or a CallbackError otherwise.
     pub async fn failed(&mut self, code: i32, stdout: String, stderr: String) -> Result<(), CallbackError> {
         // Encode the strings as the JSON intermediate representation
-        let to_send = FailureResult{ code, stdout, stderr };
-        let payload_text = match serde_json::to_string(&to_send) {
+        let payload_text = match serde_json::to_string(&(code, stdout, stderr)) {
             Ok(payload_text) => payload_text,
             Err(err)         => { return Err(CallbackError::FailureSerializeError{ err }); }
         };
