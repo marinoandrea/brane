@@ -26,31 +26,13 @@ use specifications::registry::RegistryConfig;
 use specifications::version::Version;
 
 use crate::errors::RegistryError;
-use crate::utils::{get_config_dir, get_packages_dir, ensure_package_dir, get_package_versions, ensure_packages_dir, ensure_config_dir};
+use crate::utils::{get_config_dir, get_packages_dir, get_registry_file, ensure_package_dir, get_package_versions, ensure_packages_dir, ensure_config_dir};
 
 
 type DateTimeUtc = DateTime<Utc>;
 
 
 /***** HELPER FUNCTIONS *****/
-/// Reads a RegistryConfig from the configuration file (`config_dir/registry.yml`).
-/// 
-/// # Returns
-/// The parsed RegistryConfig.
-/// 
-/// # Errors
-/// This function may error if we could not find, read or parse the config file that is the RegistryFile. If not found, this likely indicates the user hasn't logged-in yet.
-pub fn get_registry_file() -> Result<RegistryConfig, RegistryError> {
-    // Get the configuration file path
-    let config_file = get_config_dir().unwrap().join("registry.yml");
-
-    // Attempt to load it
-    match RegistryConfig::from_path(&config_file) {
-        Ok(config) => Ok(config),
-        Err(err)   => Err(RegistryError::ConfigFileError{ err }),
-    }
-}
-
 /// Get the GraphQL endpoint of the Brane API.
 /// 
 /// # Returns
@@ -60,7 +42,7 @@ pub fn get_registry_file() -> Result<RegistryConfig, RegistryError> {
 /// This function may error if we could not find, read or parse the config file with the login data. If not found, this likely indicates the user hasn't logged-in yet.
 #[inline]
 pub fn get_graphql_endpoint() -> Result<String, RegistryError> {
-    Ok(format!("{}/graphql", get_registry_file()?.url))
+    Ok(format!("{}/graphql", get_registry_file().map_err(|err| RegistryError::ConfigFileError{ err })?.url))
 }
 
 /// Get the package endpoint of the Brane API.
@@ -72,7 +54,19 @@ pub fn get_graphql_endpoint() -> Result<String, RegistryError> {
 /// This function may error if we could not find, read or parse the config file with the login data. If not found, this likely indicates the user hasn't logged-in yet.
 #[inline]
 pub fn get_packages_endpoint() -> Result<String, RegistryError> {
-    Ok(format!("{}/packages", get_registry_file()?.url))
+    Ok(format!("{}/packages", get_registry_file().map_err(|err| RegistryError::ConfigFileError{ err })?.url))
+}
+
+/// Get the data endpoint of the Brane API.
+/// 
+/// # Returns
+/// The endpoint (as a String).
+/// 
+/// # Errors
+/// This function may error if we could not find, read or parse the config file with the login data. If not found, this likely indicates the user hasn't logged-in yet.
+#[inline]
+pub fn get_data_endpoint() -> Result<String, RegistryError> {
+    Ok(format!("{}/data", get_registry_file().map_err(|err| RegistryError::ConfigFileError{ err })?.url))
 }
 
 

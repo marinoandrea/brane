@@ -1,4 +1,17 @@
-use crate::Context;
+//  PACKAGES.rs
+//    by Lut99
+// 
+//  Created:
+//    17 Oct 2022, 15:18:32
+//  Last edited:
+//    17 Oct 2022, 15:19:08
+//  Auto updated?
+//    Yes
+// 
+//  Description:
+//!   Defines things that relate to packages.
+// 
+
 use anyhow::{Context as _, Result};
 use bytes::Bytes;
 use flate2::read::GzDecoder;
@@ -19,6 +32,10 @@ use warp::http::HeaderValue;
 use warp::hyper::Body;
 use warp::reply::Response;
 use warp::{http::StatusCode, Rejection, Reply};
+
+use log::{debug, error};
+
+use crate::spec::Context;
 
 #[derive(Clone, IntoUserType, FromUserType)]
 pub struct PackageUdt {

@@ -5,8 +5,6 @@ authors = ["Onno Valkering", "Tim Müller"]
 edition = "2018"
 
 [dependencies]
-anyhow = "1"
-brane-bvm = { path = "../brane-bvm" }
 bytes = "1"
 itertools = "0.10"
 log = "0.4"
@@ -17,5 +15,11 @@ regex = "1.5"
 semver = "1.0"
 serde = "1"
 serde_json = "1"
-specifications = { path = "../specifications" }
 thiserror = "1"
+
+brane-shr = { path = "../brane-shr" }
+specifications = { path = "../specifications" }
+
+[features]
+print_scanner_path = []
+print_parser_path = []

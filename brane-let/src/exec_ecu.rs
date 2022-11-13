@@ -1,15 +1,33 @@
-use crate::callback::Callback;
-use crate::common::{assert_input, HEARTBEAT_DELAY, Map, PackageResult, PackageReturnState};
-use crate::errors::{DecodeError, LetError};
-use specifications::common::{Parameter, Type, Value};
-use specifications::container::{Action, ActionCommand, LocalContainerInfo};
+//  EXEC ECU.rs
+//    by Lut99
+// 
+//  Created:
+//    20 Sep 2022, 13:55:30
+//  Last edited:
+//    26 Oct 2022, 17:20:58
+//  Auto updated?
+//    Yes
+// 
+//  Description:
+//!   Contains code that can execute any containers (i.e., the
+//!   Ecu/Code-type).
+// 
+
+use std::collections::HashMap;
 use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+
 use tokio::io::AsyncReadExt;
 use tokio::process::{Command as TokioCommand, Child as TokioChild};
 use tokio::time::{self, Duration};
-use yaml_rust::{Yaml, YamlLoader};
+
+use brane_exe::FullValue;
+use specifications::container::{Action, ActionCommand, LocalContainerInfo};
+
+// use crate::callback::Callback;
+use crate::common::{assert_input, HEARTBEAT_DELAY, Map, PackageResult, PackageReturnState};
+use crate::errors::LetError;
 
 
 /***** CONSTANTS *****/
@@ -41,26 +59,26 @@ const PREFIX: &str = "~~>";
 /// The return state of the package call on success, or a LetError otherwise.
 pub async fn handle(
     function: String,
-    arguments: Map<Value>,
+    arguments: Map<FullValue>,
     working_dir: PathBuf,
-    callback: &mut Option<&mut Callback>,
+    // callback: &mut Option<&mut Callback>,
 ) -> Result<PackageResult, LetError> {
     debug!("Executing '{}' (ecu) using arguments:\n{:#?}", function, arguments);
 
     // Initialize the package
-    let (container_info, function, function_output) = match initialize(&function, &arguments, &working_dir) {
+    let (container_info, function) = match initialize(&function, &arguments, &working_dir) {
         Ok(results) => {
-            if let Some(callback) = callback {
-                if let Err(err) = callback.initialized().await { warn!("Could not update driver on Initialized: {}", err); }
-            }
+            // if let Some(callback) = callback {
+            //     if let Err(err) = callback.initialized().await { warn!("Could not update driver on Initialized: {}", err); }
+            // }
 
             info!("Reached target 'Initialized'");
             results
         },
         Err(err) => {
-            if let Some(callback) = callback {
-                if let Err(err) = callback.initialize_failed(format!("{}", &err)).await { warn!("Could not update driver on InitializeFailed: {}", err); }
-            }
+            // if let Some(callback) = callback {
+            //     if let Err(err) = callback.initialize_failed(format!("{}", &err)).await { warn!("Could not update driver on InitializeFailed: {}", err); }
+            // }
             return Err(err);
         }
     };
@@ -68,46 +86,46 @@ pub async fn handle(
     // Launch the job
     let (command, process) = match start(&container_info, &function, &arguments, &working_dir) {
         Ok(result) => {
-            if let Some(callback) = callback {
-                if let Err(err) = callback.started().await { warn!("Could not update driver on Started: {}", err); }
-            }
+            // if let Some(callback) = callback {
+            //     if let Err(err) = callback.started().await { warn!("Could not update driver on Started: {}", err); }
+            // }
 
             info!("Reached target 'Started'");
             result
         },
         Err(err) => {
-            if let Some(callback) = callback {
-                if let Err(err) = callback.start_failed(format!("{}", &err)).await { warn!("Could not update driver on StartFailed: {}", err); }
-            }
+            // if let Some(callback) = callback {
+            //     if let Err(err) = callback.start_failed(format!("{}", &err)).await { warn!("Could not update driver on StartFailed: {}", err); }
+            // }
             return Err(err);
         }
     };
 
     // Wait until the job is completed
-    let result = match complete(process, callback).await {
+    let result = match complete(process).await {
         Ok(result) => {
-            if let Some(callback) = callback {
-                if let Err(err) = callback.completed().await { warn!("Could not update driver on Completed: {}", err); }
-            }
+            // if let Some(callback) = callback {
+            //     if let Err(err) = callback.completed().await { warn!("Could not update driver on Completed: {}", err); }
+            // }
 
             info!("Reached target 'Completed'");
             result
         },
         Err(err) => {
-            if let Some(callback) = callback {
-                if let Err(err) = callback.complete_failed(format!("{}", &err)).await { warn!("Could not update driver on CompleteFailed: {}", err); }
-            }
+            // if let Some(callback) = callback {
+            //     if let Err(err) = callback.complete_failed(format!("{}", &err)).await { warn!("Could not update driver on CompleteFailed: {}", err); }
+            // }
             return Err(err);
         },
     };
 
     // Convert the call to a PackageReturn value instead of state
-    let result = match decode(result, &command.capture, &function_output, &container_info.types) {
+    let result = match decode(result, &command.capture) {
         Ok(result) => result,
         Err(err)   => {
-            if let Some(callback) = callback {
-                if let Err(err) = callback.decode_failed(format!("{}", &err)).await { warn!("Could not update driver on DecodeFailed: {}", err); }
-            }
+            // if let Some(callback) = callback {
+            //     if let Err(err) = callback.decode_failed(format!("{}", &err)).await { warn!("Could not update driver on DecodeFailed: {}", err); }
+            // }
             return Err(err);
         }
     };
@@ -140,9 +158,9 @@ pub async fn handle(
 ///    * A LetError describing what went wrong.
 fn initialize(
     function: &str,
-    arguments: &Map<Value>,
+    arguments: &Map<FullValue>,
     working_dir: &Path
-) -> Result<(LocalContainerInfo, Action, Vec<Parameter>), LetError> {
+) -> Result<(LocalContainerInfo, Action), LetError> {
     debug!("Reading local_container.yml...");
     // Get the container info from the path
     let container_info_path = working_dir.join("local_container.yml");
@@ -159,7 +177,6 @@ fn initialize(
 
     // Extract the list of function parameters
     let function_input = action.input.clone().unwrap_or_default();
-    let function_output = action.output.clone().unwrap_or_default();
     // Make sure the input matches what we expect
     assert_input(&function_input, arguments, function, &container_info.name, container_info.kind)?;
 
@@ -169,7 +186,7 @@ fn initialize(
     let init_sh = working_dir.join("init.sh");
     if !init_sh.exists() {
         // No need; the user doesn't require an additional setup
-        return Ok((container_info, action, function_output));
+        return Ok((container_info, action));
     }
 
     // Otherwise, run the init.sh script
@@ -185,7 +202,7 @@ fn initialize(
     }
 
     // Initialization complete!
-    Ok((container_info, action, function_output))
+    Ok((container_info, action))
 }
 
 
@@ -206,7 +223,7 @@ fn initialize(
 fn start(
     container_info: &LocalContainerInfo,
     function: &Action,
-    arguments: &Map<Value>,
+    arguments: &Map<FullValue>,
     working_dir: &Path,
 ) -> Result<(ActionCommand, TokioChild), LetError> {
     // Determine entrypoint and, optionally, command and arguments
@@ -262,7 +279,7 @@ fn start(
 /// **Returns**  
 /// A new map with the environment on success, or a LetError on failure.
 fn construct_envs(
-    variables: &Map<Value>
+    variables: &Map<FullValue>
 ) -> Result<Map<String>, LetError> {
     // Simply add the values one-by-one
     let mut envs = Map::<String>::new();
@@ -273,119 +290,89 @@ fn construct_envs(
         if envs.contains_key(&name) { return Err(LetError::DuplicateArgument{ name }); }
 
         // Convert the argument's value to some sort of valid string
-        match variable {
-            Value::Array { entries, .. } => {
-                // Complication case; add one entry for each array element
+        envs.insert(name.clone(), match serde_json::to_string(variable) {
+            Ok(value) => value,
+            Err(err)  => { return Err(LetError::SerializeError{ argument: name, data_type: variable.data_type(), err }); }
+        });
+        // use FullValue::*;
+        // match variable {
+        //     Boolean(value) => { envs.insert(name, format!("{}", value)); },
+        //     Integer(value) => { envs.insert(name, format!("{}", value)); },
+        //     Real(value)    => { envs.insert(name, format!("{}", value)); },
+        //     String(value)  => { envs.insert(name, value.clone()); },
 
-                // Add the length of the array as the array entry itself
-                envs.insert(name.clone(), entries.len().to_string());
+        //     Array(values) => { envs.insert(name.clone(), match serde_json::to_string(values) {
+        //         Ok(value) => value,
+        //         Err(err)  => { return Err(LetError::ArraySerializeError{ argument: name, err }); },
+        //     }); },
+        //     Instance(c_name, values) => { envs.insert(name.clone(), match serde_json::to_string(values) {
+        //         Ok(value) => value,
+        //         Err(err)  => { return Err(LetError::ClassSerializeError{ argument: name, class: c_name.clone(), err }); }
+        //     }); },
 
-                // Add the individual elements
-                for (index, entry) in entries.iter().enumerate() {
-                    // Create the name to add
-                    let entry_name = format!("{}_{}", &name, index);
-                    if envs.contains_key(&entry_name) { return Err(LetError::DuplicateArrayArgument{ array: name, elem: index, name: entry_name }); }
-
-                    // Match on the value of the element
-                    if let Value::Array { .. } = entry {
-                        // We don't support nested arrays (yet)
-                        return Err(LetError::UnsupportedNestedArray{ elem: index });
-                    } else if let Value::Struct { properties, .. } = entry {
-                        // Construct as a struct
-                        construct_struct_envs(&entry_name, properties, &mut envs)?;
-                    } else {
-                        // Match the other values quick 'n' dirty
-                        let value = match entry {
-                            Value::Boolean(value) => value.to_string(),
-                            Value::Integer(value) => value.to_string(),
-                            Value::Real(value)    => value.to_string(),
-                            Value::Unicode(value) => value.to_string(),
-                            _ => { return Err(LetError::UnsupportedArrayElement{ elem: index, elem_type: entry.data_type() }); }
-                        };
-
-                        // Add then with the proper index
-                        envs.insert(entry_name, value);
-                    }
-                }
-            }
-            Value::Boolean(value) => {
-                envs.insert(name, value.to_string());
-            }
-            Value::Integer(value) => {
-                envs.insert(name, value.to_string());
-            }
-            Value::Pointer { .. } => unreachable!(),
-            Value::Real(value) => {
-                envs.insert(name, value.to_string());
-            }
-            Value::Struct { properties, .. } => {
-                construct_struct_envs(&name, properties, &mut envs)?;
-            }
-            Value::Unicode(value) => {
-                envs.insert(name, value.to_string());
-            }
-            _ => return Err(LetError::UnsupportedType{ argument: name.clone(), elem_type: variable.data_type() }),
-        }
+        //     // The rest (i.e., Void) is not supported.
+        //     _ => return Err(LetError::UnsupportedType{ argument: name.clone(), elem_type: variable.data_type() }),
+        // }
     }
 
     Ok(envs)
 }
 
-/// **Edited: now returning LetErrors + accepting a single basename instead of name + index.**
-/// 
-/// Translates a struct to environment variables.
-/// 
-/// **Arguments**
-///  * `base_name`: The base name of the struct environment variable, which is either its name or an array element.
-///  * `properties`: The struct's properties.
-///  * `envs`: The resulting dict containing the environment.
-/// 
-/// **Returns**  
-/// Nothing on success, or a LetError otherwise.
-fn construct_struct_envs(
-    base_name: &str,
-    properties: &Map<Value>,
-    envs: &mut Map<String>,
-) -> Result<(), LetError> {
-    // Simply add each property under its own name
-    for (key, entry) in properties.iter() {
-        // Make sure the field name doesn't already exist
-        let field_name = format!("{}_{}", base_name, key);
-        if envs.contains_key(&field_name) { return Err(LetError::DuplicateStructArgument{ sname: base_name.to_string(), field: key.clone(), name: field_name }); }
+// /// **Edited: now returning LetErrors + accepting a single basename instead of name + index.**
+// /// 
+// /// Translates a struct to environment variables.
+// /// 
+// /// **Arguments**
+// ///  * `base_name`: The base name of the struct environment variable, which is either its name or an array element.
+// ///  * `properties`: The struct's properties.
+// ///  * `envs`: The resulting dict containing the environment.
+// /// 
+// /// **Returns**  
+// /// Nothing on success, or a LetError otherwise.
+// fn construct_struct_envs(
+//     base_name: &str,
+//     properties: &Map<Value>,
+//     envs: &mut Map<String>,
+// ) -> Result<(), LetError> {
+//     // Simply add each property under its own name
+//     for (key, entry) in properties.iter() {
+//         // Make sure the field name doesn't already exist
+//         let field_name = format!("{}_{}", base_name, key);
+//         if envs.contains_key(&field_name) { return Err(LetError::DuplicateStructArgument{ sname: base_name.to_string(), field: key.clone(), name: field_name }); }
 
-        // Match on the value type
-        let value = match entry {
-            Value::Array { entries: _, .. } => { return Err(LetError::UnsupportedStructArray{ name: base_name.to_string(), field: key.clone() }) },
-            Value::Boolean(value) => value.to_string(),
-            Value::Integer(value) => value.to_string(),
-            Value::Real(value)    => value.to_string(),
-            Value::Unicode(value) => value.to_string(),
-            Value::Struct { data_type, properties } => match data_type.as_str() {
-                "Directory" | "File" => {
-                    // Make sure they have a URL field
-                    let value = match properties.get("url") {
-                        Some(value) => value.to_string(),
-                        None        => { return Err(LetError::IllegalNestedURL{ name: base_name.to_string(), field: key.clone() }); }
-                    };
-                    // Construct the nested field name
-                    let nested_field_name = format!("{}_URL", field_name);
-                    if envs.contains_key(&nested_field_name) { return Err(LetError::DuplicateStructArgument{ sname: field_name, field: "URL".to_string(), name: nested_field_name }); }
-                    // Add it!
-                    envs.insert(nested_field_name, value);
-                    continue;
-                }
-                _ => { return Err(LetError::UnsupportedNestedStruct{ name: base_name.to_string(), field: key.clone() }); },
-            },
-            _ => { return Err(LetError::UnsupportedStructField{ name: base_name.to_string(), field: key.clone(), elem_type: entry.data_type() }); },
-        };
+//         // Match on the value type
+//         let value = match entry {
+//             Value::Array { entries: _, .. } => { return Err(LetError::UnsupportedStructArray{ name: base_name.to_string(), field: key.clone() }) },
+//             Value::Boolean(value) => value.to_string(),
+//             Value::Integer(value) => value.to_string(),
+//             Value::Real(value)    => value.to_string(),
+//             Value::Unicode(value) => value.to_string(),
+//             Value::Struct { data_type, properties } => match data_type.as_str() {
+//                 "Directory" | "File" => {
+//                     // Make sure they have a URL field
+//                     let value = match properties.get("url") {
+//                         Some(value) => value.to_string(),
+//                         None        => { return Err(LetError::IllegalNestedURL{ name: base_name.to_string(), field: key.clone() }); }
+//                     };
+//                     // Construct the nested field name
+//                     let nested_field_name = format!("{}_URL", field_name);
+//                     if envs.contains_key(&nested_field_name) { return Err(LetError::DuplicateStructArgument{ sname: field_name, field: "URL".to_string(), name: nested_field_name }); }
+//                     // Add it!
+//                     envs.insert(nested_field_name, value);
+//                     continue;
+//                 }
+//                 _ => { return Err(LetError::UnsupportedNestedStruct{ name: base_name.to_string(), field: key.clone() }); },
+//             },
+//             _ => { return Err(LetError::UnsupportedStructField{ name: base_name.to_string(), field: key.clone(), elem_type: entry.data_type() }); },
+//         };
 
-        // Add the converted value
-        envs.insert(field_name, value);
-    }
+//         // Add the converted value
+//         envs.insert(field_name, value);
+//     }
 
-    // Done!
-    Ok(())
-}
+//     // Done!
+//     Ok(())
+// }
 
 
 
@@ -402,7 +389,7 @@ fn construct_struct_envs(
 /// The PackageReturnState describing how the call went on success, or a LetError on failure.
 async fn complete(
     process: TokioChild,
-    callback: &mut Option<&mut Callback>,
+    // callback: &mut Option<&mut Callback>,
 ) -> Result<PackageReturnState, LetError> {
     let mut process = process;
 
@@ -420,11 +407,11 @@ async fn complete(
                     break Some(status);
                 },
                 _ = &mut sleep => {
-                    // Timeout occurred; send the heartbeat and continue
-                    if let Some(callback) = callback {
-                        if let Err(err) = callback.heartbeat().await { warn!("Could not update driver on Heartbeat: {}", err); }
-                        else { debug!("Sent Heartbeat to driver."); }
-                    }
+                    // // Timeout occurred; send the heartbeat and continue
+                    // if let Some(callback) = callback {
+                    //     if let Err(err) = callback.heartbeat().await { warn!("Could not update driver on Heartbeat: {}", err); }
+                    //     else { debug!("Sent Heartbeat to driver."); }
+                    // }
 
                     // Stop without result
                     break None;
@@ -541,45 +528,37 @@ fn preprocess_stdout(
 /// **Arguments**
 ///  * `result`: The result from the call that we (possibly) want to decode.
 ///  * `mode`: The capture mode that determines which bit of the output is interesting to us.
-///  * `parameters`: The function output parameters.
-///  * `c_types`: A list of class types that we know of at the time of parsing.
 /// 
 /// **Returns**  
 /// The decoded return state as a PackageResult, or a LetError otherwise.
-fn decode(
-    result: PackageReturnState,
-    mode: &Option<String>,
-    parameters: &[Parameter],
-    c_types: &Map<Type>,
-) -> Result<PackageResult, LetError> {
+fn decode(result: PackageReturnState, mode: &Option<String>) -> Result<PackageResult, LetError> {
     // Match on the result
     match result {
         PackageReturnState::Finished{ stdout } => {
             // First, preprocess the stdout
             let stdout = preprocess_stdout(stdout, mode);
 
-            // Next, convert the stdout to YAML
-            let stdout_yml = match YamlLoader::load_from_str(&stdout) {
-                Ok(docs) => docs,
-                Err(err) => { return Err(LetError::DecodeError{ stdout, err: DecodeError::InvalidYAML{ err } }); }
-            };
+            // If there is nothing to parse, note a Void
+            if !stdout.trim().is_empty() {
+                // Simply use serde, our old friend
+                let output: HashMap<String, FullValue> = match serde_yaml::from_str(&stdout) {
+                    Ok(value) => value,
+                    Err(err)  => { return Err(LetError::DecodeError{ stdout, err }); }  
+                };
 
-            // Then, from the YAML, get the types we want
-            let output = match unwrap_yaml_hash(&stdout_yml[0], parameters, c_types) {
-                Ok(output) => output,
-                Err(err)   => { return Err(LetError::DecodeError{ stdout, err }); }
-            };
+                // Get the only key
+                if output.len() > 1 { return Err(LetError::UnsupportedMultipleOutputs{ n: output.len() }); }
+                let value = if output.len() == 1 {
+                    output.into_iter().next().unwrap().1
+                } else {
+                    FullValue::Void
+                };
 
-            // Get the only key
-            if output.len() > 1 { return Err(LetError::UnsupportedMultipleOutputs{ n: output.len() }); }
-            let value = if output.len() == 1 {
-                output.into_iter().next().unwrap().1
+                // Done
+                Ok(PackageResult::Finished{ result: value })
             } else {
-                Value::Unit
-            };
-
-            // Done
-            Ok(PackageResult::Finished{ result: value })
+                Ok(PackageResult::Finished{ result: FullValue::Void })
+            }
         },
 
         PackageReturnState::Failed{ code, stdout, stderr } => {
@@ -594,194 +573,194 @@ fn decode(
     }
 }
 
-/// **Edited: now returning DecodeErrors.**
-/// 
-/// Tries to extract the given parameters with types from the given YAML output from a package call.
-/// 
-/// **Arguments**
-///  * `value`: The YAML output from the package call.
-///  * `parameters`: The list of function output parameters.
-///  * `types`: A list of class types that we know of at the time of parsing.
-/// 
-/// **Returns**  
-/// The parsed outputs, stored by key, on success, or a DecodeError on failure.
-fn unwrap_yaml_hash(
-    value: &Yaml,
-    parameters: &[Parameter],
-    types: &Map<Type>,
-) -> Result<Map<Value>, DecodeError> {
-    // Get the hashmap variant of the YAML data
-    let map = match value.as_hash() {
-        Some(map)  => map,
-        None       => { return Err(DecodeError::NotAHash); }
-    };
+// /// **Edited: now returning DecodeErrors.**
+// /// 
+// /// Tries to extract the given parameters with types from the given YAML output from a package call.
+// /// 
+// /// **Arguments**
+// ///  * `value`: The YAML output from the package call.
+// ///  * `parameters`: The list of function output parameters.
+// ///  * `types`: A list of class types that we know of at the time of parsing.
+// /// 
+// /// **Returns**  
+// /// The parsed outputs, stored by key, on success, or a DecodeError on failure.
+// fn unwrap_yaml_hash(
+//     value: &Yaml,
+//     parameters: &[Parameter],
+//     types: &Map<Type>,
+// ) -> Result<Map<FullValue>, DecodeError> {
+//     // Get the hashmap variant of the YAML data
+//     let map = match value.as_hash() {
+//         Some(map)  => map,
+//         None       => { return Err(DecodeError::NotAHash); }
+//     };
 
-    // Go through the parameters to try to get them all
-    let mut output = Map::<Value>::new();
-    for p in parameters {
-        // Try to get this parameter from the map
-        let key = Yaml::from_str(p.name.as_str());
-        let value = &map[&key];
+//     // Go through the parameters to try to get them all
+//     let mut output = Map::<FullValue>::new();
+//     for p in parameters {
+//         // Try to get this parameter from the map
+//         let key = Yaml::from_str(p.name.as_str());
+//         let value = &map[&key];
 
-        // Match the values
-        let value = match value {
-            Yaml::Array(elements) => {
-                // Get the expected array type as everything before the '[]' in the typename as provided by container.yml
-                let n = match p.data_type.find('[') {
-                    Some(n) => n,
-                    None    => { return Err(DecodeError::OutputTypeMismatch{ name: p.name.clone(), expected: p.data_type.clone(), got: "Array".to_string() }); }
-                };
-                let value_type: String = p.data_type.chars().take(n).collect();
+//         // Match the values
+//         let value = match value {
+//             Yaml::Array(elements) => {
+//                 // Get the expected array type as everything before the '[]' in the typename as provided by container.yml
+//                 let n = match p.data_type.find('[') {
+//                     Some(n) => n,
+//                     None    => { return Err(DecodeError::OutputTypeMismatch{ name: p.name.clone(), expected: p.data_type.clone(), got: "Array".to_string() }); }
+//                 };
+//                 let value_type: String = p.data_type.chars().take(n).collect();
 
-                // Unwrap the entry values as the expected type
-                let mut entries = vec![];
-                for element in elements.iter() {
-                    let variable = unwrap_yaml_value(element, &value_type, &p.name)?;
-                    entries.push(variable);
-                }
+//                 // Unwrap the entry values as the expected type
+//                 let mut values = vec![];
+//                 for element in elements.iter() {
+//                     let variable = unwrap_yaml_value(element, &value_type, &p.name)?;
+//                     values.push(variable);
+//                 }
 
-                // Return the value as an Array
-                let data_type = p.data_type.to_string();
-                Value::Array { data_type, entries }
-            }
-            Yaml::Hash(_)  => unwrap_yaml_struct(value, &p.data_type, types, &p.name)?,
-            Yaml::BadValue => { return Err(DecodeError::MissingOutputArgument{ name: p.name.clone() }); }
-            _              => unwrap_yaml_value(value, &p.data_type, &p.name)?,
-        };
+//                 // Return the value as an Array
+//                 let data_type = p.data_type.to_string();
+//                 FullValue::Array { values }
+//             }
+//             Yaml::Hash(_)  => unwrap_yaml_struct(value, &p.data_type, types, &p.name)?,
+//             Yaml::BadValue => { return Err(DecodeError::MissingOutputArgument{ name: p.name.clone() }); }
+//             _              => unwrap_yaml_value(value, &p.data_type, &p.name)?,
+//         };
 
-        output.insert(p.name.clone(), value);
-    }
+//         output.insert(p.name.clone(), value);
+//     }
 
-    // Done!
-    Ok(output)
-}
+//     // Done!
+//     Ok(output)
+// }
 
-/// **Edited: now returning DecodeErrors.**
-/// 
-/// Converts a given Yaml Hash value to a Value struct.
-/// 
-/// **Arguments**
-///  * `value`: The YAML value to parse.
-///  * `data_type`: The data type to parse the value as.
-///  * `types`: A list of class types that we know of at the time of parsing.
-///  * `p_name`: The name of the output argument we're currently parsing. Used for writing sensible errors only.
-fn unwrap_yaml_struct(
-    value: &Yaml,
-    data_type: &str,
-    types: &Map<Type>,
-    p_name: &str,
-) -> Result<Value, DecodeError> {
-    // Try to get the class type
-    let class_type = match types.get(data_type) {
-        Some(class_type) => class_type,
-        None             => { return Err(DecodeError::UnknownClassType{ name: p_name.to_string(), class_name: data_type.to_string() }); }
-    };
-    let mut properties = Map::<Value>::new();
+// /// **Edited: now returning DecodeErrors.**
+// /// 
+// /// Converts a given Yaml Hash value to a Value struct.
+// /// 
+// /// **Arguments**
+// ///  * `value`: The YAML value to parse.
+// ///  * `data_type`: The data type to parse the value as.
+// ///  * `types`: A list of class types that we know of at the time of parsing.
+// ///  * `p_name`: The name of the output argument we're currently parsing. Used for writing sensible errors only.
+// fn unwrap_yaml_struct(
+//     value: &Yaml,
+//     data_type: &str,
+//     types: &Map<Type>,
+//     p_name: &str,
+// ) -> Result<FullValue, DecodeError> {
+//     // Try to get the class type
+//     let class_type = match types.get(data_type) {
+//         Some(class_type) => class_type,
+//         None             => { return Err(DecodeError::UnknownClassType{ name: p_name.to_string(), class_name: data_type.to_string() }); }
+//     };
+//     let mut values = Map::<FullValue>::new();
 
-    // Loop through the properties of this class to parse them all
-    for p in &class_type.properties {
-        // Define the temporary p_name
-        let mut class_p_name = String::from(p_name); class_p_name.push('.'); class_p_name.push_str(&p.name);
+//     // Loop through the properties of this class to parse them all
+//     for p in &class_type.properties {
+//         // Define the temporary p_name
+//         let mut class_p_name = String::from(p_name); class_p_name.push('.'); class_p_name.push_str(&p.name);
 
-        // Get the property
-        let prop_value = value[p.name.as_str()].clone();
-        if let Yaml::BadValue = prop_value { return Err(DecodeError::MissingStructProperty{ name: p_name.to_string(), class_name: data_type.to_string(), property_name: p.name.clone() }); }
-        let prop = unwrap_yaml_value(&prop_value, &p.data_type, &class_p_name)?;
+//         // Get the property
+//         let prop_value = value[p.name.as_str()].clone();
+//         if let Yaml::BadValue = prop_value { return Err(DecodeError::MissingStructProperty{ name: p_name.to_string(), class_name: data_type.to_string(), property_name: p.name.clone() }); }
+//         let prop = unwrap_yaml_value(&prop_value, &p.data_type, &class_p_name)?;
 
-        // Insert it into the list
-        properties.insert(p.name.to_string(), prop);
-    }
+//         // Insert it into the list
+//         values.insert(p.name.to_string(), prop);
+//     }
 
-    // Return the new struct
-    Ok(Value::Struct {
-        data_type: data_type.to_string(),
-        properties,
-    })
-}
+//     // Return the new struct
+//     Ok(FullValue::Instance {
+//         values,
+//         name : class_type.name,
+//     })
+// }
 
-/// **Edited: now returning DecodeErrors.**
-/// 
-/// Converts a given Yaml value to a Value value.
-/// 
-/// **Arguments**
-///  * `value`: The YAML value to parse.
-///  * `data_type`: The data type to parse the value as.
-///  * `p_name`: The name of the output argument we're currently parsing. Used for writing sensible errors only.
-fn unwrap_yaml_value(
-    value: &Yaml,
-    data_type: &str,
-    p_name: &str,
-) -> Result<Value, DecodeError> {
-    debug!("Unwrapping as {}: {:?} ", data_type, value);
+// /// **Edited: now returning DecodeErrors.**
+// /// 
+// /// Converts a given Yaml value to a Value value.
+// /// 
+// /// **Arguments**
+// ///  * `value`: The YAML value to parse.
+// ///  * `data_type`: The data type to parse the value as.
+// ///  * `p_name`: The name of the output argument we're currently parsing. Used for writing sensible errors only.
+// fn unwrap_yaml_value(
+//     value: &Yaml,
+//     data_type: &str,
+//     p_name: &str,
+// ) -> Result<FullValue, DecodeError> {
+//     debug!("Unwrapping as {}: {:?} ", data_type, value);
 
-    // Match on the data type
-    let value = match data_type {
-        "boolean" => {
-            match value.as_bool() {
-                Some(value) => Value::Boolean(value),
-                None        => { return Err(DecodeError::OutputTypeMismatch{ name: p_name.to_string(), expected: data_type.to_string(), got: "Boolean".to_string() }) },
-            }
-        }
-        "File[]" => {
-            // It's an array of files
-            if let Yaml::Array(elements) = value {
-                // Go through each of the elements, recursing to parse those
-                let mut entries = vec![];
-                for element in elements.iter() {
-                    let variable = unwrap_yaml_value(element, "File", p_name)?;
-                    entries.push(variable);
-                }
+//     // Match on the data type
+//     let value = match data_type {
+//         "boolean" => {
+//             match value.as_bool() {
+//                 Some(value) => FullValue::Boolean(value),
+//                 None        => { return Err(DecodeError::OutputTypeMismatch{ name: p_name.to_string(), expected: data_type.to_string(), got: "Boolean".to_string() }) },
+//             }
+//         }
+//         "File[]" => {
+//             // It's an array of files
+//             if let Yaml::Array(elements) = value {
+//                 // Go through each of the elements, recursing to parse those
+//                 let mut entries = vec![];
+//                 for element in elements.iter() {
+//                     let variable = unwrap_yaml_value(element, "File", p_name)?;
+//                     entries.push(variable);
+//                 }
 
-                // Construct an array with the parsed values
-                Value::Array {
-                    data_type: data_type.to_string(),
-                    entries,
-                }
-            } else {
-                return Err(DecodeError::OutputTypeMismatch{ name: p_name.to_string(), expected: data_type.to_string(), got: "a non-array".to_string() });
-            }
-        }
-        "Directory" | "File" => {
-            // We expected a string URL now
-            let url = match value.as_str() {
-                Some(value) => Value::Unicode(String::from(value)),
-                None        => {
-                    // Pimp the expected type a little before returning
-                    let mut expected = String::from(data_type); expected.push_str(" (URL as String)");
-                    return Err(DecodeError::OutputTypeMismatch{ name: p_name.to_string(), expected, got: "a non-string".to_string() });
-                }
-            };
+//                 // Construct an array with the parsed values
+//                 Value::Array {
+//                     data_type: data_type.to_string(),
+//                     entries,
+//                 }
+//             } else {
+//                 return Err(DecodeError::OutputTypeMismatch{ name: p_name.to_string(), expected: data_type.to_string(), got: "a non-array".to_string() });
+//             }
+//         }
+//         "Directory" | "File" => {
+//             // We expected a string URL now
+//             let url = match value.as_str() {
+//                 Some(value) => Value::Unicode(String::from(value)),
+//                 None        => {
+//                     // Pimp the expected type a little before returning
+//                     let mut expected = String::from(data_type); expected.push_str(" (URL as String)");
+//                     return Err(DecodeError::OutputTypeMismatch{ name: p_name.to_string(), expected, got: "a non-string".to_string() });
+//                 }
+//             };
 
-            // Create a struct to wrap this property
-            let mut properties: Map<Value> = Default::default();
-            properties.insert(String::from("url"), url);
+//             // Create a struct to wrap this property
+//             let mut properties: Map<Value> = Default::default();
+//             properties.insert(String::from("url"), url);
 
-            // Return it
-            Value::Struct {
-                data_type: String::from(data_type),
-                properties,
-            }
-        }
-        "integer" => {
-            match value.as_i64() {
-                Some(value) => Value::Integer(value),
-                None        => { return Err(DecodeError::OutputTypeMismatch{ name: p_name.to_string(), expected: data_type.to_string(), got: "a non-integer".to_string() }); }
-            }
-        }
-        "real" => {
-            match value.as_f64() {
-                Some(value) => Value::Real(value),
-                None        => { return Err(DecodeError::OutputTypeMismatch{ name: p_name.to_string(), expected: data_type.to_string(), got: "a non-float".to_string() }); }
-            }
-        }
-        _ => {
-            // Otherwise, just get as a string(?)
-            match value.as_str() {
-                Some(value) => Value::Unicode(String::from(value)),
-                None        => { return Err(DecodeError::OutputTypeMismatch{ name: p_name.to_string(), expected: data_type.to_string(), got: "a non-string".to_string() }); }
-            }
-        }
-    };
+//             // Return it
+//             Value::Struct {
+//                 data_type: String::from(data_type),
+//                 properties,
+//             }
+//         }
+//         "integer" => {
+//             match value.as_i64() {
+//                 Some(value) => Value::Integer(value),
+//                 None        => { return Err(DecodeError::OutputTypeMismatch{ name: p_name.to_string(), expected: data_type.to_string(), got: "a non-integer".to_string() }); }
+//             }
+//         }
+//         "real" => {
+//             match value.as_f64() {
+//                 Some(value) => Value::Real(value),
+//                 None        => { return Err(DecodeError::OutputTypeMismatch{ name: p_name.to_string(), expected: data_type.to_string(), got: "a non-float".to_string() }); }
+//             }
+//         }
+//         _ => {
+//             // Otherwise, just get as a string(?)
+//             match value.as_str() {
+//                 Some(value) => Value::Unicode(String::from(value)),
+//                 None        => { return Err(DecodeError::OutputTypeMismatch{ name: p_name.to_string(), expected: data_type.to_string(), got: "a non-string".to_string() }); }
+//             }
+//         }
+//     };
 
-    Ok(value)
-}
+//     Ok(value)
+// }

@@ -1,0 +1,35 @@
+# Defines a package that is used to test the compiler passes in all the test files.
+
+# Define the file metadata
+name: test
+version: 1.0.0
+kind: ecu
+
+# Defines the file to call whenever a function is called
+entrypoint:
+  kind: task
+  exec: echo
+
+# Define the dependencies (as Ubuntu packages)
+dependencies:
+- fortune
+
+# Define the actions
+actions:
+  hello_world:
+    command:
+      args:
+      - "output: \"Hello, world\""
+    output:
+    - name: output
+      type: string
+
+# Define the types
+types:
+  TestClass:
+    name: TestClass
+    properties:
+    - name: hello
+      type: string
+    - name: fourty_two
+      type: int

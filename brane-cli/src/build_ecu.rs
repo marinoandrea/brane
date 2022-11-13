@@ -216,11 +216,18 @@ fn generate_dockerfile(
     // Always make it executable
     writeln_build!(contents, "RUN chmod +x /branelet")?;
 
-    // Add JuiceFS
-    writeln_build!(contents, "RUN mkdir /data")?;
-    writeln_build!(contents, "ADD https://github.com/juicedata/juicefs/releases/download/v0.12.1/juicefs-0.12.1-linux-$JUICEFS_ARCH.tar.gz /juicefs-0.12.1-linux-$JUICEFS_ARCH.tar.gz")?;
-    writeln_build!(contents, "RUN tar -xzvf /juicefs-0.12.1-linux-$JUICEFS_ARCH.tar.gz \\")?;
-    writeln_build!(contents, " && rm /LICENSE /README.md /README_CN.md /juicefs-0.12.1-linux-$JUICEFS_ARCH.tar.gz")?;
+    // Add the pre-installation script
+    if let Some(install) = &document.install {
+        for line in install {
+            writeln_build!(contents, "RUN {}", line)?;
+        }
+    }
+
+    // // Add JuiceFS
+    // writeln_build!(contents, "RUN mkdir /data")?;
+    // writeln_build!(contents, "ADD https://github.com/juicedata/juicefs/releases/download/v0.12.1/juicefs-0.12.1-linux-$JUICEFS_ARCH.tar.gz /juicefs-0.12.1-linux-$JUICEFS_ARCH.tar.gz")?;
+    // writeln_build!(contents, "RUN tar -xzvf /juicefs-0.12.1-linux-$JUICEFS_ARCH.tar.gz \\")?;
+    // writeln_build!(contents, " && rm /LICENSE /README.md /README_CN.md /juicefs-0.12.1-linux-$JUICEFS_ARCH.tar.gz")?;
 
     // Copy the package files
     writeln_build!(contents, "ADD ./container/wd.tar.gz /opt")?;
@@ -233,8 +240,8 @@ fn generate_dockerfile(
     if !entrypoint.exists() || !entrypoint.is_file() { return Err(BuildError::MissingExecutable{ path: entrypoint }); }
     writeln_build!(contents, "RUN chmod +x /opt/wd/{}", &document.entrypoint.exec)?;
 
-    // Add installation script
-    if let Some(install) = &document.install {
+    // Add the post-installation script
+    if let Some(install) = &document.unpack {
         for line in install {
             writeln_build!(contents, "RUN {}", line)?;
         }

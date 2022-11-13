@@ -1,0 +1,15 @@
+// A small file to test data deduction
+
+import data_test;
+
+let ect_umc := new Data{ name := "Test" };
+let ect_sta := new Data{ name := "Test" };
+
+let local := parallel [all] [{
+    return run_script(ect_umc);
+}, {
+    return run_script(ect_sta);
+}];
+
+let res := aggregate(local[0], local[1]);
+return res;

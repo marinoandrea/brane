@@ -1,171 +1,247 @@
-use crate::executor::JobExecutor;
-use crate::{grpc, packages};
-use anyhow::Result;
-use brane_bvm::vm::{Vm, VmOptions, VmState, VmError};
-use brane_cfg::Infrastructure;
-use brane_dsl::{Compiler, CompilerOptions, Lang};
-use brane_shr::jobs::JobStatus;
-use dashmap::DashMap;
-use rdkafka::producer::FutureProducer;
+//  HANDLER.rs
+//    by Lut99
+// 
+//  Created:
+//    12 Sep 2022, 16:18:11
+//  Last edited:
+//    09 Nov 2022, 10:59:55
+//  Auto updated?
+//    Yes
+// 
+//  Description:
+//!   Implements the command handler from the client.
+// 
+
+use std::str::FromStr;
 use std::sync::Arc;
-use std::time::SystemTime;
+
+use dashmap::DashMap;
+use log::{debug, error};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
-use uuid::Uuid;
 
+use brane_ast::Workflow;
+use brane_cfg::InfraPath;
+use brane_exe::FullValue;
+use brane_tsk::errors::TaskError;
+use brane_tsk::spec::{AppId, Planner};
+use brane_tsk::grpc;
+use brane_tsk::instance::{InstancePlanner, InstanceVm};
+
+
+/***** HELPER MACROS *****/
+/// Sends an error back to the client, also logging it here. Is like `err!` but returning the stream.
+macro_rules! fatal_err {
+    ($tx:ident, Status::$status:ident, $err:expr) => {
+        {
+            // Always log to stderr
+            log::error!("{}", $err);
+            // Attempt to log on tx
+            let serr: String = $err.to_string();
+            if let Err(err) = $tx.send(Err(Status::$status(serr))).await { log::error!("Failed to notify client of error: {}", err); }
+            // Return
+            return;
+        }
+    };
+    ($tx:ident, $status:expr) => {
+        {
+            // Always log to stderr
+            log::error!("Aborting incoming request: {}", $status);
+            // Attempt to log on tx
+            if let Err(err) = $tx.send(Err($status)).await { log::error!("Failed to notify client of error: {}", err); }
+            // Return
+            return;
+        }
+    };
+
+    ($tx:ident, $rx:ident, Status::$status:ident, $err:expr) => {
+        {
+            // Always log to stderr
+            log::error!("{}", $err);
+            // Attempt to log on tx
+            if let Err(err) = $tx.send(Err(Status::$status($err.to_string()))).await { log::error!("Failed to notify client of error: {}", err); }
+            // Return
+            return Ok(Response::new(ReceiverStream::new($rx)));
+        }
+    };
+    ($tx:ident, $rx:ident, $status:expr) => {
+        {
+            // Always log to stderr
+            log::error!("Aborting incoming request: {}", $status);
+            // Attempt to log on tx
+            if let Err(err) = $tx.send(Err($status)).await { log::error!("Failed to notify client of error: {}", err); }
+            // Return
+            return Ok(Response::new(ReceiverStream::new($rx)));
+        }
+    };
+}
+
+
+
+
+
+/***** LIBRARY *****/
+/// The DriverHandler handles incoming gRPC requests. This is effectively what 'drives' the driver.
 #[derive(Clone)]
 pub struct DriverHandler {
-    pub command_topic: String,
-    pub graphql_url: String,
-    pub producer: FutureProducer,
-    pub sessions: Arc<DashMap<String, VmState>>,
-    pub states: Arc<DashMap<String, JobStatus>>,
-    pub heartbeats: Arc<DashMap<String, SystemTime>>,
-    pub locations: Arc<DashMap<String, String>>,
-    pub infra: Infrastructure,
+    /// The path to the infrastructure file.
+    infra_path : InfraPath,
+    /// The topic where to send planning commands on.
+    cmd_topic  : String,
+    /// The planner we use to plan stuff.
+    planner    : Arc<InstancePlanner>,
+
+    /// Current sessions and active VMs. Note that this only concerns states if connected via a REPL-session; any in-statement state (i.e., calling nodes) is handled by virtue of the VM being implemented as `async`.
+    sessions : Arc<DashMap<AppId, InstanceVm>>,
+}
+
+impl DriverHandler {
+    /// Constructor for the DriverHandler.
+    /// 
+    /// # Arguments
+    /// - `api_endpoint`: The address of the `brane-api` endpoint that contains dataset and package metadata and such.
+    /// - `reg_endpoint`: The address of the `aux-registry` endpoint that contains the images to run.
+    /// - `cmd_topic`: The Kafka topic to send new planning commands on.
+    /// - `planner`: The InstancePlanner that handles our side of planning.
+    /// 
+    /// # Returns
+    /// A new DriverHandler instance.
+    #[inline]
+    pub fn new(infra_path: impl Into<InfraPath>, cmd_topic: impl Into<String>, planner: Arc<InstancePlanner>) -> Self {
+        Self {
+            infra_path : infra_path.into(),
+            cmd_topic  : cmd_topic.into(),
+            planner,
+
+            sessions : Arc::new(DashMap::new()),
+        }
+    }
 }
 
 #[tonic::async_trait]
 impl grpc::DriverService for DriverHandler {
     type ExecuteStream = ReceiverStream<Result<grpc::ExecuteReply, Status>>;
 
-    ///
-    ///
-    ///
-    async fn create_session(
-        &self,
-        _request: Request<grpc::CreateSessionRequest>,
-    ) -> Result<Response<grpc::CreateSessionReply>, Status> {
-        let uuid = Uuid::new_v4().to_string();
+    /// Creates a new BraneScript session.
+    /// 
+    /// # Arguments
+    /// - `request`: The request to create a response to.
+    /// 
+    /// # Returns
+    /// The response to the request, which only contains a new AppId.
+    /// 
+    /// # Errors
+    /// This function doesn't typically error.
+    async fn create_session(&self, _request: Request<grpc::CreateSessionRequest>) -> Result<Response<grpc::CreateSessionReply>, Status> {
+        // Create a new VM for this session
+        let app_id: AppId = AppId::generate();
+        self.sessions.insert(app_id.clone(), InstanceVm::new(&self.infra_path, app_id.clone(), self.planner.clone()));
 
-        let reply = grpc::CreateSessionReply { uuid };
+        // Now return the ID to the user for future reference
+        debug!("Created new session '{}'", app_id);
+        let reply = grpc::CreateSessionReply { uuid: app_id.into() };
         Ok(Response::new(reply))
     }
 
-    ///
-    ///
-    ///
-    async fn execute(
-        &self,
-        request: Request<grpc::ExecuteRequest>,
-    ) -> Result<Response<Self::ExecuteStream>, Status> {
+
+
+    /// Executes a new job in an existing BraneScript session.
+    /// 
+    /// # Arguments
+    /// - `request`: The request with the new (already compiled) snippet to execute.
+    /// 
+    /// # Returns
+    /// The response to the request, which contains the result of this workflow (if any).
+    /// 
+    /// # Errors
+    /// This function may error for any reason a job might fail.
+    async fn execute(&self, request: Request<grpc::ExecuteRequest>) -> Result<Response<Self::ExecuteStream>, Status> {
         let request = request.into_inner();
-        let package_index = packages::get_package_index(&self.graphql_url).await.unwrap();
-        let sessions = self.sessions.clone();
+        debug!("Receiving execute request for session '{}'", request.uuid);
 
         // Prepare gRPC stream between client and (this) driver.
         let (tx, rx) = mpsc::channel::<Result<grpc::ExecuteReply, Status>>(10);
 
-        let executor = JobExecutor {
-            client_tx: tx.clone(),
-            command_topic: self.command_topic.clone(),
-            producer: self.producer.clone(),
-            session_uuid: request.uuid.clone(),
-            states: self.states.clone(),
-            heartbeats: self.heartbeats.clone(),
-            locations: self.locations.clone(),
-            infra: self.infra.clone(),
+        // Parse the given ID
+        let app_id: AppId = match AppId::from_str(&request.uuid) {
+            Ok(app_id) => app_id,
+            Err(err)   => { fatal_err!(tx, rx, Status::invalid_argument, err); },
         };
 
-        /* TIM */
-        let vm_state = sessions.get(&request.uuid).as_deref().cloned();
+        // Fetch the VM
+        let sessions: Arc<DashMap<AppId, InstanceVm>> = self.sessions.clone();
+        let vm: InstanceVm = match sessions.get(&app_id) {
+            Some(vm) => vm.clone(),
+            None     => { fatal_err!(tx, rx, Status::internal(format!("No session with ID '{}' found", app_id))); }
+        };
+
+        // We're gonna run the rest asynchronous, since that needs less of us
+        let cmd_topic : String               = self.cmd_topic.clone();
+        let planner   : Arc<InstancePlanner> = self.planner.clone();
         tokio::spawn(async move {
-            let options = CompilerOptions::new(Lang::BraneScript);
-            let mut compiler = Compiler::new(options, package_index.clone());
+            debug!("Executing workflow for session '{}'", app_id);
+    
+            // We assume that the input is an already compiled workflow; so no need to fire up any parsers/compilers
 
-            // Compile input and send update to client.
-            let function = match compiler.compile(request.input) {
-                Ok(function) => function,
-                Err(error) => {
-                    let status = Status::invalid_argument(error.to_string());
-                    tx.send(Err(status)).await.unwrap();
-                    return;
-                }
+            // We only have to use JSON magic
+            debug!("Parsing workflow of {} characters", request.input.len());
+            let workflow: Workflow = match serde_json::from_str(&request.input) {
+                Ok(workflow) => workflow,
+                Err(err)     => {
+                    debug!("Workflow:\n{}\n{}\n{}\n\n", (0..80).map(|_| '-').collect::<String>(), request.input, (0..80).map(|_| '-').collect::<String>());
+                    fatal_err!(tx, Status::invalid_argument, err);
+                },
             };
 
-            // Restore VM state corresponding to the session, if any.
-            // We do this in a block to make sure vm doesn't exist anymore when we .await on tx.send
-            let res: Result<(), VmError> = {
-                // Create the VM with state if we have one, or otherwise without
-                let mut vm = if let Some(vm_state) = vm_state {
-                    debug!("Restore VM with state:\n{:?}", vm_state);
-                    match Vm::new_with_state(executor, Some(package_index), vm_state) {
-                        Ok(vm)      => Ok(vm),
-                        Err(reason) => Err(reason),
-                    }
-                } else {
-                    debug!("No VM state to restore, creating new VM.");
-                    let options = VmOptions {
-                        clear_after_main: true,
-                        ..Default::default()
-                    };
-                    match Vm::new_with(executor, Some(package_index), Some(options)) {
-                        Ok(vm)      => Ok(vm),
-                        Err(reason) => Err(reason),
-                    }
-                };
-
-                // Switch on the creation state of the VM
-                match vm {
-                    Ok(ref mut vm) => {
-                        // We can continue to run it
-
-                        // TEMP: needed because the VM is not completely `send`.
-                        // futures::executor::block_on(vm.main(function));
-                        let res = futures::executor::block_on(vm.main(function));
-
-                        // Already store the state of the VM before erroring to let Tokio allow the .await on tx.send
-                        let vm_state = vm.capture_state();
-                        sessions.insert(request.uuid, vm_state);
-
-                        // Done
-                        res
-                    },
-                    // We couldn't create it
-                    Err(reason) => Err(reason),
-                }
+            // Spend some time resolving the workflow with the planner
+            debug!("Planning workflow on Kafka topic '{}'", cmd_topic);
+            let plan: Workflow = match planner.plan(workflow).await {
+                Ok(plan) => plan,
+                Err(err) => { fatal_err!(tx, Status::internal, err); },
             };
 
-            // Make vm a non-muteable reference so it allows the await
+            // We now have a runnable plan ( ͡° ͜ʖ ͡°), so run it
+            debug!("Executing workflow of {} edges", plan.graph.len());
+            let (vm, res): (InstanceVm, Result<FullValue, TaskError>) = vm.exec(tx.clone(), plan).await;
+
+            // Insert the VM again
+            debug!("Saving state session state");
+            sessions.insert(app_id, vm);
+
+            // Switch on the actual result and send that back to the user
             match res {
-                Ok(()) => {
-                    // Send a debug message to client saying it all worked out
+                Ok(res)  => {
                     debug!("Completed execution.");
+
+                    // Serialize the value
+                    let sres: String = match serde_json::to_string(&res) {
+                        Ok(sres) => sres,
+                        Err(err) => { fatal_err!(tx, Status::internal, err); }  
+                    };
 
                     // Create the reply text
                     let msg = String::from("Driver completed execution.");
                     let reply = grpc::ExecuteReply {
-                        close: true,
-                        debug: Some(msg.clone()),
-                        stderr: None,
-                        stdout: None,
+                        close  : true,
+                        debug  : Some(msg.clone()),
+                        stderr : None,
+                        stdout : None,
+                        value  : Some(sres),
                     };
 
-                    // Send it to the client
+                    // Send it
                     if let Err(err) = tx.send(Ok(reply)).await {
-                        error!("Could not send debug message '{}' to client: {}", msg, err);
+                        error!("Failed to send workflow result back to client: {}", err);
                     }
                 },
                 Err(err) => {
-                    // Create the reply text
-                    let msg = format!("{}", err);
-                    let reply = grpc::ExecuteReply {
-                        close: true,
-                        debug: None,
-                        stderr: Some(msg.clone()),
-                        stdout: None,
-                    };
-
-                    // Send it to the client
-                    if let Err(err) = tx.send(Ok(reply)).await {
-                        error!("Could not send VM error '{}' to client: {}", msg, err);
-                    }
-                }
-            }
+                    fatal_err!(tx, Status::internal, err);
+                },
+            };
         });
-        /*******/
 
+        // Return the receiver stream so the client can find us
         Ok(Response::new(ReceiverStream::new(rx)))
     }
 }

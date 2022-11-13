@@ -1,0 +1,26 @@
+import test;
+
+hello_world();
+
+// @["test"]
+// hello_world();
+
+// Test an on-statement
+on "test" {
+    println("I'm talking to you from far away!");
+    hello_world();
+}
+
+let random := "random";
+on "random_but_not_really_anymore" {
+    println("I have no idea where I am!");
+    hello_world();
+}
+
+func fourty_two() {
+    return "42";
+}
+on "42" {
+    println("I have found the answer");
+    hello_world();
+}

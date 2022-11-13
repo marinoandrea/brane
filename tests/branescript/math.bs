@@ -1,0 +1,9 @@
+// Test some number literal / math operations (and comments while at it!)
+1 + 1;
+2 - 1;
+42 * 55 + 1;
+33333 * 33333;
+828 + 12318 % 123123 / 1231231231;
+12.00 + 123_123;
+777777.777777;
+555e+10;

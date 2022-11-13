@@ -8,6 +8,36 @@
 #
 
 
+##### FUNCTIONS #####
+# Shows the contents of a directory - recursively.
+tree_dir() {
+    # Print the contents of the file IFF it is a file
+    list=""
+    if [[ -f "$1" ]]; then
+        list="$list
+  f $1"
+
+    elif [[ -d "$1" ]]; then
+        list="$list
+  d $1"
+        for d in "$1"/*; do
+            list="$list$(tree_dir "$d")"
+        done
+
+    else
+        list="$list
+  ? $1"
+
+    fi
+
+    # Return the things
+    echo "$list"
+}
+
+
+
+
+
 ##### CLI #####
 # Read the command used
 if [[ "$#" -ne 1 ]]; then
@@ -22,6 +52,10 @@ if [[ "$1" == "-h" || "$1" == "--help" ]]; then
     echo "Commands:"
     echo "  ls            Lists all files & directories in a folder. The list is returned as a JSON for nice"
     echo "                printing."
+    echo "  lsdata        Lists all files & directories in a folder, while taking a dummy dataset to explore"
+    echo "                its path. The list is returned as JSON for nice printing."
+    echo "  treedata      Lists all files & directories (recursively) in a folder, while taking a dummy"
+    echo "                dataset to explore its contents."
     echo "  read          Prints the contents of the given file as a regular string."
     echo "  read64        Prints the raw contents of the given file as base64."
     echo "  write         Writes the given string to the given file, overwriting what was already there. The"
@@ -47,9 +81,7 @@ cmd="$1"
 
 
 ##### PREPROCESS #####
-# Make the path relative to the /data dir
-path="/data/$TARGET"
-# path="$TARGET"
+path=$(echo "$TARGET" | python3 -c "import json, sys; print(json.load(sys.stdin))")
 
 
 
@@ -76,6 +108,31 @@ if [[ "$cmd" == "ls" ]]; then
         echo "output: \"Given path '$path' is not a file or directory\""
         exit 0
     fi
+
+# Switch on the parsed command
+elif [[ "$cmd" == "lsdata" ]]; then
+    # Print the contents of the file IFF it is a file
+    if [[ -f "$path" ]]; then
+        echo "output: \"f $path\""
+    elif [[ -d "$path" ]]; then
+        echo "output: |"
+        for d in "$path"/*; do
+            if [[ -f "$d" ]]; then
+                echo "  f $d"
+            elif [[ -d "$d" ]]; then
+                echo "  d $d"
+            else
+                echo "  ? $d"
+            fi
+        done
+    else
+        echo "output: \"Given path '$path' is not a file or directory\""
+        exit 0
+    fi
+
+elif [[ "$cmd" == "treedata" ]]; then
+    # Print the contents of the file IFF it is a file
+    echo "output: |$(tree_dir "$path")"
 
 elif [[ "$cmd" == "read" ]]; then
     # Simply attempt to read

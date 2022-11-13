@@ -1,0 +1,17 @@
+// Test some array expressions
+
+let arr1 := [ 1, 2, 3, 4, 5 ];
+println(arr1[0]);
+
+let arr2 := [ 10, 9, 8, 7, 6, 5, 4, 3, 2, 1 ];
+for (let i := 0; i < 10; i := i + 1) {
+    print(i);
+    print(") ");
+    println(arr2[9 - i]);
+}
+
+println([1, 2, 3][1]);
+
+let arr_arr := [ [1, 2, 3], [4, 5, 6], [7, 8, 9] ];
+println(arr_arr[0]);
+println(arr_arr[0][2]);

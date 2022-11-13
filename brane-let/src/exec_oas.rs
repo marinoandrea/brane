@@ -1,16 +1,30 @@
+//  EXEC OAS.rs
+//    by Lut99
+// 
+//  Created:
+//    20 Sep 2022, 13:57:17
+//  Last edited:
+//    26 Oct 2022, 17:21:23
+//  Auto updated?
+//    Yes
+// 
+//  Description:
+//!   Contains code for executing OpenAPI Standard (OAS) packages.
+// 
+
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 use tokio::time::{self, Duration};
 
+use brane_exe::FullValue;
 use brane_oas::OpenAPI;
-use specifications::common::{Function, Type, Value};
 use specifications::package::{PackageInfo, PackageKind};
 use specifications::version::Version;
 
-use crate::callback::Callback;
+// use crate::callback::Callback;
 use crate::common::{assert_input, HEARTBEAT_DELAY, Map, PackageResult, PackageReturnState};
-use crate::errors::{DecodeError, LetError};
+use crate::errors::LetError;
 
 
 /***** ENTRYPOINT *****/
@@ -28,57 +42,57 @@ use crate::errors::{DecodeError, LetError};
 /// The return state of the package call on success, or a LetError otherwise.
 pub async fn handle(
     function: String,
-    arguments: Map<Value>,
+    arguments: Map<FullValue>,
     working_dir: PathBuf,
-    callback: &mut Option<&mut Callback>,
+    // callback: &mut Option<&mut Callback>,
 ) -> Result<PackageResult, LetError> {
     debug!("Executing '{}' (oas) using arguments:\n{:#?}", function, arguments);
 
     // Initialize the package
-    let (oas_document, package_info, function_info) = match initialize(&function, &arguments, &working_dir) {
+    let oas_document = match initialize(&function, &arguments, &working_dir) {
         Ok(results) => {
-            if let Some(callback) = callback {
-                if let Err(err) = callback.initialized().await { warn!("Could not update driver on Initialized: {}", err); }
-                if let Err(err) = callback.started().await { warn!("Could not update driver on Started: {}", err); }
-            }
+            // if let Some(callback) = callback {
+            //     if let Err(err) = callback.initialized().await { warn!("Could not update driver on Initialized: {}", err); }
+            //     if let Err(err) = callback.started().await { warn!("Could not update driver on Started: {}", err); }
+            // }
 
             info!("Reached target 'Initialized'");
             info!("Reached target 'Started'");
             results
         },
         Err(err) => {
-            if let Some(callback) = callback {
-                if let Err(err) = callback.initialize_failed(format!("{}", &err)).await { warn!("Could not update driver on InitializeFailed: {}", err); }
-            }
+            // if let Some(callback) = callback {
+            //     if let Err(err) = callback.initialize_failed(format!("{}", &err)).await { warn!("Could not update driver on InitializeFailed: {}", err); }
+            // }
             return Err(err);
         }
     };
 
     // Do the API call, sending heartbeat updates while at it
-    let result = match complete(&function, &arguments, &oas_document, callback).await {
+    let result = match complete(&function, &arguments, &oas_document).await {
         Ok(result) => {
-            if let Some(callback) = callback {
-                if let Err(err) = callback.completed().await { warn!("Could not update driver on Completed: {}", err); }
-            }
+            // if let Some(callback) = callback {
+            //     if let Err(err) = callback.completed().await { warn!("Could not update driver on Completed: {}", err); }
+            // }
 
             info!("Reached target 'Completed'");
             result
         },
         Err(err) => {
-            if let Some(callback) = callback {
-                if let Err(err) = callback.complete_failed(format!("{}", &err)).await { warn!("Could not update driver on CompleteFailed: {}", err); }
-            }
+            // if let Some(callback) = callback {
+            //     if let Err(err) = callback.complete_failed(format!("{}", &err)).await { warn!("Could not update driver on CompleteFailed: {}", err); }
+            // }
             return Err(err);
         },
     };
 
     // Convert the call to a PackageReturn value instead of state
-    let result = match decode(result, &function_info.return_type, &package_info.types) {
+    let result = match decode(result) {
         Ok(result) => result,
         Err(err)   => {
-            if let Some(callback) = callback {
-                if let Err(err) = callback.decode_failed(format!("{}", &err)).await { warn!("Could not update driver on DecodeFailed: {}", err); }
-            }
+            // if let Some(callback) = callback {
+            //     if let Err(err) = callback.decode_failed(format!("{}", &err)).await { warn!("Could not update driver on DecodeFailed: {}", err); }
+            // }
             return Err(err);
         }
     };
@@ -109,9 +123,9 @@ pub async fn handle(
 ///    * A LetError describing what went wrong.
 fn initialize(
     function: &str,
-    arguments: &Map<Value>,
+    arguments: &Map<FullValue>,
     working_dir: &Path,
-) -> Result<(OpenAPI, PackageInfo, Function), LetError> {
+) -> Result<OpenAPI, LetError> {
     // Get the OasDocument from path
     let oas_file = working_dir.join("document.yml");
     let oas_document = match brane_oas::parse_oas_file(&oas_file) {
@@ -135,7 +149,7 @@ fn initialize(
     assert_input(&function_info.parameters, arguments, function, &package_info.name, package_info.kind)?;
 
     // Done!
-    Ok((oas_document, package_info, function_info))
+    Ok(oas_document)
 }
 
 
@@ -190,9 +204,9 @@ fn create_package_info(
 /// The PackageReturnState describing how the call went on success, or a LetError on failure.
 async fn complete(
     function: &str,
-    arguments: &Map<Value>,
+    arguments: &Map<FullValue>,
     oas_doc: &OpenAPI,
-    callback: &mut Option<&mut Callback>,
+    // callback: &mut Option<&mut Callback>,
 ) -> Result<PackageReturnState, LetError> {
     // Handle waiting for the subprocess and doing heartbeats in a neat way, using select
     let result = loop {
@@ -208,11 +222,11 @@ async fn complete(
                     break Some(result);
                 },
                 _ = &mut sleep => {
-                    // Timeout occurred; send the heartbeat and continue
-                    if let Some(callback) = callback {
-                        if let Err(err) = callback.heartbeat().await { warn!("Could not update driver on Heartbeat: {}", err); }
-                        else { debug!("Sent Heartbeat to driver."); }
-                    }
+                    // // Timeout occurred; send the heartbeat and continue
+                    // if let Some(callback) = callback {
+                    //     if let Err(err) = callback.heartbeat().await { warn!("Could not update driver on Heartbeat: {}", err); }
+                    //     else { debug!("Sent Heartbeat to driver."); }
+                    // }
 
                     // Stop without result
                     break None;
@@ -240,40 +254,24 @@ async fn complete(
 /// 
 /// **Arguments**
 ///  * `result`: The result from the call that we (possibly) want to decode.
-///  * `return_type`: The one general object / type that is returned by the call.
-///  * `c_types`: The output types to capture in the resulting output.
-///  * `p_name`: The name of the output argument we're currently parsing. Used for writing sensible errors only.
 /// 
 /// **Returns**  
 /// The decoded return state as a PackageResult, or a LetError otherwise.
-fn decode(
-    result: PackageReturnState,
-    return_type: &str,
-    c_types: &Map<Type>,
-) -> Result<PackageResult, LetError> {
+fn decode(result: PackageReturnState) -> Result<PackageResult, LetError> {
     // Match on the result
     match result {
         PackageReturnState::Finished{ stdout } => {
-            // First, convert the input to JSON
-            let stdout_json = match serde_json::from_str(&stdout) {
+            // First, convert the input to a JSON value
+            let stdout_json: serde_json::Value = match serde_json::from_str(&stdout) {
                 Ok(stdout_json) => stdout_json,
-                Err(err)        => { return Err(LetError::DecodeError{ stdout, err: DecodeError::InvalidJSON{ err } }); }
+                Err(err)        => { return Err(LetError::OasDecodeError{ stdout, err }); }
             };
-
-            // Try to parse it into a value (which always succeeds, as its already valid JSON and we accept any object / value)
-            let output = Value::from_json(&stdout_json);
             debug!("Received JSON response:\n{}", serde_json::to_string_pretty(&stdout_json).unwrap_or_else(|_| String::from("<could not serialize>")));
-            debug!("Parsed response:\n{:#?}", output);
-            debug!("Trying to construct '{}' from parsed response.", return_type);
-
-            // If the nested type is an Array or a Struct, verify its type; otherwise, just parse
-            let output = match &output {
-                Value::Array { .. } | Value::Struct { .. } => match as_type(&output, return_type, c_types, "OAS output") {
-                    Ok(value) => value,
-                    Err(err)  => { return Err(LetError::DecodeError{ stdout, err }); }
-                },
-                _ => output,
+            let output: FullValue = match serde_json::from_value(stdout_json) {
+                Ok(output) => output,
+                Err(err)   => { return Err(LetError::OasDecodeError{ stdout, err }); }
             };
+            debug!("Parsed response:\n{:#?}", output);
 
             // Done
             Ok(PackageResult::Finished{ result: output })
@@ -291,75 +289,75 @@ fn decode(
     }
 }
 
-/// **Edited: Now returning DecodeErrors.**
-/// 
-/// Tries to build the given object or array with proper typing.  
-/// Simply clones the value if it isn't an object or an array.
-/// 
-/// **Arguments**
-///  * `object`: The object or array (or other) to rebuild.
-///  * `c_type`: The type we want the object to be.
-///  * `c_types`: A list of known Class type definitions.
-///  * `p_name`: The name of the output argument we're currently parsing. Used for writing sensible errors only.
-/// 
-/// **Returns**  
-/// The rebuilt Value on success, or a DecodeError otherwise.
-fn as_type(
-    object: &Value,
-    c_type: &str,
-    c_types: &Map<Type>,
-    p_name: &str,
-) -> Result<Value, DecodeError> {
-    // Switch on the object type
-    let mut filtered = Map::<Value>::new();
-    match object {
-        Value::Struct { properties, .. } => {
-            // It's a struct, so check if the type exists in the form it is now
-            match c_types.get(c_type) {
-                Some(c_type) => {
-                    // Rebuild all properties
-                    for p in &c_type.properties {
-                        // Try to get one
-                        let property = match properties.get(&p.name) {
-                            Some(property) => property,
-                            None           => { return Err(DecodeError::MissingStructProperty{ name: p_name.to_string(), class_name: c_type.name.clone(), property_name: p.name.clone() }); }
-                        };
+// /// **Edited: Now returning DecodeErrors.**
+// /// 
+// /// Tries to build the given object or array with proper typing.  
+// /// Simply clones the value if it isn't an object or an array.
+// /// 
+// /// **Arguments**
+// ///  * `object`: The object or array (or other) to rebuild.
+// ///  * `c_type`: The type we want the object to be.
+// ///  * `c_types`: A list of known Class type definitions.
+// ///  * `p_name`: The name of the output argument we're currently parsing. Used for writing sensible errors only.
+// /// 
+// /// **Returns**  
+// /// The rebuilt Value on success, or a DecodeError otherwise.
+// fn as_type(
+//     object: &Value,
+//     c_type: &str,
+//     c_types: &Map<Type>,
+//     p_name: &str,
+// ) -> Result<Value, DecodeError> {
+//     // Switch on the object type
+//     let mut filtered = Map::<Value>::new();
+//     match object {
+//         Value::Struct { properties, .. } => {
+//             // It's a struct, so check if the type exists in the form it is now
+//             match c_types.get(c_type) {
+//                 Some(c_type) => {
+//                     // Rebuild all properties
+//                     for p in &c_type.properties {
+//                         // Try to get one
+//                         let property = match properties.get(&p.name) {
+//                             Some(property) => property,
+//                             None           => { return Err(DecodeError::MissingStructProperty{ name: p_name.to_string(), class_name: c_type.name.clone(), property_name: p.name.clone() }); }
+//                         };
 
-                        // Rebuild it with a recursive call
-                        let property = as_type(property, &p.data_type, c_types, p_name)?;
-                        filtered.insert(p.name.to_string(), property.clone());
-                    }
+//                         // Rebuild it with a recursive call
+//                         let property = as_type(property, &p.data_type, c_types, p_name)?;
+//                         filtered.insert(p.name.to_string(), property.clone());
+//                     }
 
-                    // Return the rebuild struct
-                    Ok(Value::Struct {
-                        data_type: c_type.name.clone(),
-                        properties: filtered,
-                    })
-                },
-                None => Err(DecodeError::UnknownClassType{ name: p_name.to_string(), class_name: c_type.to_string() }),
-            }
-        }
-        Value::Array { entries: elements, .. } => {
-            // Get the array's base type name
-            let n = match c_type.find('[') {
-                Some(n) => n,
-                None    => { return Err(DecodeError::OutputTypeMismatch{ name: p_name.to_string(), expected: c_type.to_string(), got: "Array".to_string() }); }
-            };
-            let element_type: String = c_type.chars().take(n).collect();
+//                     // Return the rebuild struct
+//                     Ok(Value::Struct {
+//                         data_type: c_type.name.clone(),
+//                         properties: filtered,
+//                     })
+//                 },
+//                 None => Err(DecodeError::UnknownClassType{ name: p_name.to_string(), class_name: c_type.to_string() }),
+//             }
+//         }
+//         Value::Array { entries: elements, .. } => {
+//             // Get the array's base type name
+//             let n = match c_type.find('[') {
+//                 Some(n) => n,
+//                 None    => { return Err(DecodeError::OutputTypeMismatch{ name: p_name.to_string(), expected: c_type.to_string(), got: "Array".to_string() }); }
+//             };
+//             let element_type: String = c_type.chars().take(n).collect();
 
-            // Go through each of the elements, recursing to rebuild those
-            let mut entries = vec![];
-            for element in elements.iter() {
-                let variable = as_type(element, &element_type, c_types, p_name)?;
-                entries.push(variable);
-            }
+//             // Go through each of the elements, recursing to rebuild those
+//             let mut entries = vec![];
+//             for element in elements.iter() {
+//                 let variable = as_type(element, &element_type, c_types, p_name)?;
+//                 entries.push(variable);
+//             }
 
-            // Finally, return the rebuild array
-            Ok(Value::Array {
-                entries,
-                data_type: c_type.to_string(),
-            })
-        }
-        _ => Ok(object.clone()),
-    }
-}
+//             // Finally, return the rebuild array
+//             Ok(Value::Array {
+//                 entries,
+//                 data_type: c_type.to_string(),
+//             })
+//         }
+//         _ => Ok(object.clone()),
+//     }
+// }

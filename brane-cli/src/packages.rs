@@ -7,7 +7,7 @@ use bollard::image::ImportImageOptions;
 use bollard::image::TagImageOptions;
 use bollard::models::BuildInfo;
 use bollard::Docker;
-use chrono::Utc;
+use chrono::{Local, Utc};
 use console::{pad_str, style, Alignment};
 use dialoguer::Confirm;
 use fs_extra::dir;
@@ -21,10 +21,13 @@ use tokio::fs::File as TFile;
 use tokio_stream::StreamExt;
 use tokio_util::codec::{BytesCodec, FramedRead};
 
+use brane_dsl::DataType;
+use brane_shr::debug::PrettyListFormatter;
+use brane_tsk::docker;
+use specifications::container::Image;
 use specifications::package::{PackageIndex, PackageInfo};
 use specifications::version::Version;
 
-use crate::docker;
 use crate::errors::PackageError;
 use crate::utils::{ensure_packages_dir, ensure_package_dir, get_package_versions};
 
@@ -119,18 +122,97 @@ pub fn get_package_index() -> Result<PackageIndex, PackageError> {
 
 
 /***** SUBCOMMANDS *****/
-///
-///
-///
+/// Inspects the given package, pretty-printing its details.
+/// 
+/// # Arguments
+/// - `name`: The name of the package to inspect.
+/// - `version`: The version of the package to inspect.
+/// - `syntax`: The mode of syntax to use for classes & functions. Can be 'bscript', 'bakery' or 'custom'.
+/// 
+/// # Returns
+/// Nothing
 pub fn inspect(
     name: String,
     version: Version,
+    syntax: String,
 ) -> Result<()> {
     let package_dir = ensure_package_dir(&name, Some(&version), false)?;
     let package_file = package_dir.join("package.yml");
 
-    if let Ok(package_info) = PackageInfo::from_path(package_file) {
-        println!("{:#?}", package_info);
+    if let Ok(info) = PackageInfo::from_path(package_file) {
+        // _Neatly_ print it
+        println!();
+        println!("Package {} ({} package, version {})", style(&info.name).bold().cyan(), style(format!("{}", info.kind)).bold(), style(format!("{}", info.version)).bold());
+        println!("Created {} ({} ago)", style(format!("{}", info.created.with_timezone(&Local))).bold().cyan(), HumanDuration(Duration::from_secs((Local::now().time() - info.created.time()).num_seconds() as u64)));
+        println!();
+
+        // Print the description and owner(s)
+        println!("Owners: {}", if !info.owners.is_empty() { format!("{}", PrettyListFormatter::new(info.owners.iter().map(|o| format!("{}", style(&o).bold())), "and")) } else { "<unspecified>".into() });
+        println!("{}", if !info.description.trim().is_empty() { &info.description } else { "<no description>" });
+        println!();
+
+        // Now print the types
+        println!("Classes provided by this package:");
+        let mut types: Vec<&String> = info.types.keys().collect();
+        types.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
+        for name in types {
+            let info = info.types.get(name).unwrap();
+            match syntax.as_str() {
+                "bscript" => {
+                    println!("  - class {} {{", style(&name).bold().cyan());
+                    for p in &info.properties {
+                        println!("        {}: {};", style(&p.name).bold(), DataType::from(&p.data_type));
+                    }
+                    println!("    }}");
+                },
+
+                "bakery" => {
+                    return Err(anyhow!("Bakery syntax is not yet implemented"));
+                },
+
+                "custom" => {
+                    println!("  - Class {}", style(&name).bold().cyan());
+                    for p in &info.properties {
+                        println!("        {} {};", DataType::from(&p.data_type), style(&p.name).bold());
+                    }
+                },
+
+                _ => { return Err(anyhow!("Given syntax '{}' is unknown", syntax)); }
+            }
+        }
+        if info.types.is_empty() { println!("    <none>"); }
+        println!();
+
+        // Now print the list of functions
+        println!("Functions provided by this package:");
+        let mut funcs: Vec<&String> = info.functions.keys().collect();
+        funcs.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
+        for name in funcs {
+            let func = info.functions.get(name).unwrap();
+            match syntax.as_str() {
+                "bscript" => {
+                    println!("  - func {}({}) -> {}", style(&name).bold().cyan(), func.parameters.iter().map(|p| format!("{}: {}", style(&p.name).bold(), DataType::from(&p.data_type))).collect::<Vec<String>>().join(", "), DataType::from(&func.return_type));
+                },
+
+                "bakery" => {
+                    return Err(anyhow!("Bakery syntax is not yet implemented"));
+                },
+
+                "custom" => {
+                    println!("  - Function {}", style(&name).bold().cyan());
+                    println!("      - Arguments:");
+                    for p in &func.parameters {
+                        println!("          - {} {}", DataType::from(&p.data_type), style(&p.name).bold());
+                    }
+                    println!("      - Returns: {}", DataType::from(&func.return_type));
+                },
+
+                _ => { return Err(anyhow!("Given syntax '{}' is unknown", syntax)); }
+            }
+        }
+        if info.functions.is_empty() { println!("    <none>"); }
+        println!();
+
     } else {
         return Err(anyhow!("Failed to read package information."));
     }
@@ -346,8 +428,9 @@ pub async fn remove(
             };
 
             // Remove that image from the Docker daemon
-            if let Err(err) = docker::remove_image(&digest).await {
-                return Err(PackageError::DockerRemoveError{ image: digest, err });
+            let image: Image = Image::new(&package_info.name, Some(format!("{}", package_info.version)), Some(digest));
+            if let Err(err) = docker::remove_image(&image).await {
+                return Err(PackageError::DockerRemoveError{ image, err });
             }
 
             // Also remove the package files
@@ -440,8 +523,9 @@ pub async fn remove(
             };
 
             // Remove that image from the Docker daemon
-            if let Err(err) = docker::remove_image(&digest).await {
-                return Err(PackageError::DockerRemoveError{ image: digest, err });
+            let image: Image = Image::new(&package_info.name, Some(format!("{}", package_info.version)), Some(digest));
+            if let Err(err) = docker::remove_image(&image).await {
+                return Err(PackageError::DockerRemoveError{ image, err });
             }
         }
 

@@ -5,7 +5,7 @@
 # Created:
 #   09 Jun 2022, 12:20:28
 # Last edited:
-#   08 Aug 2022, 17:18:02
+#   27 Oct 2022, 16:18:18
 # Auto updated?
 #   Yes
 #
@@ -41,10 +41,14 @@ import typing
 # Only relevant when downloading files
 VERSION = "0.6.3"
 
-# List of services in an instance
-SERVICES = [ "api", "clb", "drv", "job", "log", "plr" ]
-# List of auxillary services in an instance
-AUX_SERVICES = [ "format", "xenon" ]
+# List of services that live in the control part of an instance
+CENTRAL_SERVICES = [ "api", "drv", "plr" ]
+# List of auxillary services in the control part of an instance
+AUX_CENTRAL_SERVICES = [ "xenon" ]
+# List of services that live in a worker node in an instance
+WORKER_SERVICES = [ "job", "reg" ]
+# List of auxillary services in a worker node in an instance
+AUX_WORKER_SERVICES = []
 
 # The directory where we compile OpenSSL to
 OPENSSL_DIR = "./target/openssl/$ARCH"
@@ -2716,7 +2720,7 @@ class CrateTarget(Target):
                 return f"{name} ({exe}) cannot be run: {stderr}"
 
         # Now check for any target-specific options
-        return self._support_checker(args)
+        return self._support_checker(self, args)
 
 
 
@@ -3130,7 +3134,7 @@ debug: bool = False
 # A list of deduced sources
 instance_srcs = {
     f"{svc}" : deduce_toml_src_dirs(f"./brane-{svc}/Cargo.toml")
-    for svc in SERVICES
+    for svc in CENTRAL_SERVICES + WORKER_SERVICES
 }
 for svc in instance_srcs:
     if instance_srcs[svc] is None: cancel(f"Could not auto-deduce '{svc}-image' dependencies")
@@ -3162,29 +3166,50 @@ targets = {
         description = "Builds the Brane Command-Line Interface (Brane CLI). You may use '--precompiled' to download it from the internet instead."
     ),
     "branelet" : CrateTarget("branelet",
-        "brane-let", target="$ARCH-unknown-linux-musl", give_target_on_unspecified=False,
+        "brane-let", target="$ARCH-unknown-linux-musl", give_target_on_unspecified=True,
         description = "Builds the Brane in-package executable, for use with the `build --init` command in the CLI."
     ),
     "download-instance": DownloadTarget("download-instance",
-        "./target/release/brane-instance-$ARCH.tar.gz", "https://github.com/epi-project/brane/releases/download/v$VERSION/brane-instance-$ARCH.tar.gz",
-        description="Downloads the container images that compise the Brane instance."
+        "./target/release/brane-central-$ARCH.tar.gz", "https://github.com/epi-project/brane/releases/download/v$VERSION/brane-central-$ARCH.tar.gz",
+        description="Downloads the container images that comprise the central Brane instance."
     ),
     "instance" : EitherTarget("instance",
         "down", {
             True: ShellTarget("instance-download",
                 [
-                    ShellCommand("tar", "-xzf", "$CWD/target/release/brane-instance-$ARCH.tar.gz", cwd="./target/$RELEASE/"),
+                    ShellCommand("tar", "-xzf", "$CWD/target/release/brane-central-$ARCH.tar.gz", cwd="./target/$RELEASE/"),
                     ShellCommand("bash", "-c", "cp ./target/$RELEASE/$ARCH/* ./target/$RELEASE"),
                 ],
-                srcs_deps={ "download-instance": [ "./target/release/brane-instance-$ARCH.tar.gz" ] },
-                dsts=[ f"./target/$RELEASE/brane-{svc}.tar" for svc in SERVICES ],
+                srcs_deps={ "download-instance": [ "./target/release/brane-central-$ARCH.tar.gz" ] },
+                dsts=[ f"./target/$RELEASE/brane-{svc}.tar" for svc in CENTRAL_SERVICES ],
                 deps=[ "download-instance" ]
             ),
             False: VoidTarget("instance-compiled",
-                deps=[ f"{svc}-image" for svc in SERVICES ] + [ f"{svc}-image" for svc in AUX_SERVICES ],
+                deps=[ f"{svc}-image" for svc in CENTRAL_SERVICES ] + [ f"{svc}-image" for svc in AUX_CENTRAL_SERVICES ],
             ),
         },
-        description="Either builds or downloads the container images that compise the Brane instance (depending on whether '--download' is given)."
+        description="Either builds or downloads the container images that comprise the central node of a Brane instance (depending on whether '--download' is given)."
+    ),
+    "download-worker-instance": DownloadTarget("download-worker-instance",
+        "./target/release/brane-worker-$ARCH.tar.gz", "https://github.com/epi-project/brane/releases/download/v$VERSION/brane-worker-$ARCH.tar.gz",
+        description="Downloads the container images that comprise a worker node in the Brane instance."
+    ),
+    "worker-instance" : EitherTarget("worker-instance",
+        "down", {
+            True: ShellTarget("worker-instance-download",
+                [
+                    ShellCommand("tar", "-xzf", "$CWD/target/release/brane-worker-$ARCH.tar.gz", cwd="./target/$RELEASE/"),
+                    ShellCommand("bash", "-c", "cp ./target/$RELEASE/$ARCH/* ./target/$RELEASE"),
+                ],
+                srcs_deps={ "download-worker-instance": [ "./target/release/brane-worker-$ARCH.tar.gz" ] },
+                dsts=[ f"./target/$RELEASE/brane-{svc}.tar" for svc in WORKER_SERVICES ],
+                deps=[ "download-worker-instance" ]
+            ),
+            False: VoidTarget("worker-instance-compiled",
+                deps=[ f"{svc}-image" for svc in WORKER_SERVICES ] + [ f"{svc}-image" for svc in AUX_WORKER_SERVICES ],
+            ),
+        },
+        description="Either builds or downloads the container images that comprise a worker node in the Brane instance (depending on whether '--download' is given)."
     ),
 
 
@@ -3202,13 +3227,24 @@ targets = {
     "install-instance" : EitherTarget("install-instance",
         "down", {
             True: VoidTarget("install-instance-download",
-                deps=[ "instance" ],    
+                deps=[ "instance" ],
             ),
             False: VoidTarget("install-instance-compiled",
-                deps=[ f"install-{svc}-image" for svc in SERVICES ] + [ f"install-{svc}-image" for svc in AUX_SERVICES ],
+                deps=[ f"install-{svc}-image" for svc in CENTRAL_SERVICES ] + [ f"install-{svc}-image" for svc in AUX_CENTRAL_SERVICES ],
             ),
         },
-        description="Installs the brane instance by loading the compiled or downloaded images into the local Docker engine."
+        description="Installs the central node of a Brane instance by loading the compiled or downloaded images into the local Docker engine."
+    ),
+    "install-worker-instance" : EitherTarget("install-instance",
+        "down", {
+            True: VoidTarget("install-worker-instance-download",
+                deps=[ "worker-instance" ],
+            ),
+            False: VoidTarget("install-instance-worker-compiled",
+                deps=[ f"install-{svc}-image" for svc in WORKER_SERVICES ] + [ f"install-{svc}-image" for svc in AUX_WORKER_SERVICES ],
+            ),
+        },
+        description="Installs a worker node of a Brane instance by loading the compiled or downloaded images into the local Docker engine."
     ),
 
 
@@ -3219,35 +3255,59 @@ targets = {
         ],
         description="Ensures that a 'brane' network exists.",
     ),
-    "ensure-configuration": ShellTarget("ensure-configuration",
+    "ensure-instance-configuration": ShellTarget("ensure-instance-configuration",
         [
             # Ensure the infra.yml exists, and error if it doesn't
             ShellCommand("bash", "-c", "if [[ -f ./config/infra.yml ]]; then echo \"'./config/infra.yml' exists\"; else echo \"Missing './config/infra.yml'; provide one before running the Brane instance\" >&2; exit 1; fi", description="Ensuring infra.yml exists..."),
             # Ensure the secrets.yml exists, and generate an empty one if it doesn't
             ShellCommand("bash", "-c", "if [[ -f ./config/secrets.yml ]]; then echo \"'./config/secrets.yml' exists\"; else touch ./config/secrets.yml; echo \"Generated empty './config/secrets.yml'\"; fi", description="Ensuring secrets.yml exists..."),
         ],
-        description="Ensures that the necessary configuration files exist.",
+        description="Ensures that the necessary configuration files exist for the central part of an instance.",
+    ),
+    "ensure-worker-configuration": ShellTarget("ensure-worker-configuration",
+        [
+            # Ensure the infra.yml exists, and error if it doesn't
+            ShellCommand("bash", "-c", "if [[ -f ./config/store.yml ]]; then echo \"'./config/store.yml' exists\"; else touch ./config/store.yml; echo \"Generated empty './config/store.yml'\"; fi", description="Ensuring store.yml exists..."),
+        ],
+        description="Ensures that the necessary configuration files exist for a worker node.",
     ),
 
 
 
     "start-instance": ShellTarget("start-instance",
         [
-            ShellCommand("bash", "-c", "bash -c \"COMPOSE_IGNORE_ORPHANS=1 docker-compose -p brane -f docker-compose-brn.yml up -d\""),
+            ShellCommand("bash", "-c", "COMPOSE_IGNORE_ORPHANS=1 docker-compose -p brane-central -f docker-compose-central.yml up -d"),
         ],
-        deps=[ "install-instance", "ensure-docker-network", "ensure-configuration" ],
-        description="Starts the instance by running the compose file. Use 'stop-instance' to stop it again."
+        deps=[ "install-instance", "ensure-docker-network", "ensure-instance-configuration" ],
+        description="Starts the instance by running the compose file. Use 'stop-instance' to stop it again.",
     ),
     "stop-instance": ShellTarget("stop-instance",
         [
-            ShellCommand("bash", "-c", "bash -c \"COMPOSE_IGNORE_ORPHANS=1 docker-compose -p brane -f docker-compose-brn.yml down\""),
+            ShellCommand("bash", "-c", "COMPOSE_IGNORE_ORPHANS=1 docker-compose -p brane-central -f docker-compose-central.yml down"),
         ],
         deps=[],
-        description="Stops the instance by running the compose file. Does nothing if 'start-instance' was not run."
+        description="Stops the instance by running the compose file. Does nothing if 'start-instance' was not run.",
+    ),
+
+
+
+    "start-worker-instance": ShellTarget("start-worker-instance",
+        [
+            ShellCommand("bash", "-c", "COMPOSE_IGNORE_ORPHANS=1 docker-compose -p brane-worker -f docker-compose-worker.yml up -d"),
+        ],
+        deps=[ "install-worker-instance", "ensure-docker-network", "ensure-worker-configuration" ],
+        description="Starts the part of a Brane instance that runs on a local domain (i.e., a worker node). Use 'stop-worker-instance' to stop it again.",
+    ),
+    "stop-worker-instance": ShellTarget("stop-worker-instance",
+        [
+            ShellCommand("bash", "-c", "COMPOSE_IGNORE_ORPHANS=1 docker-compose -p brane-worker -f docker-compose-worker.yml down"),
+        ],
+        deps=[],
+        description="Stops the worker node by running the compose file. Does nothing if 'start-worker-instance' was not run.",
     ),
 }
 # Generate some really repetitive entries
-for svc in SERVICES:
+for svc in CENTRAL_SERVICES + WORKER_SERVICES:
     # Generate the service binary targets
     targets[f"{svc}-binary-dev"] = CrateTarget(f"{svc}-binary-dev",
         f"brane-{svc}", target="$RUST_ARCH-unknown-linux-musl", give_target_on_unspecified=True, force_dev=True, env={
@@ -3287,7 +3347,7 @@ for svc in SERVICES:
         description=f"Installs the brane-{svc} image by loading it into the local Docker engine."
     )
 
-for svc in AUX_SERVICES:
+for svc in AUX_CENTRAL_SERVICES + AUX_WORKER_SERVICES:
     # Resolve the svc to a Dockerfile name
     if svc == "format": dockerfile = "Dockerfile.juicefs"
     elif svc == "xenon": dockerfile = "Dockerfile.xenon"

@@ -5,9 +5,19 @@ authors = ["Onno Valkering", "Tim Müller"]
 edition = "2018"
 
 [dependencies]
-anyhow = "1"
+async-compression = { version = "0.3.15", features = ["tokio","gzip"] }
+log = "0.4"
 num-derive = "0.2"
 num-traits = "0.2"
+rdkafka = { version = "0.26", features = ["cmake-build"] }
 regex = "1.5"
-specifications = { path = "../specifications" }
+tokio = { version = "1.20", features = ["rt","macros"] }
+tokio-stream = "0.1"
+tokio-tar = "0.3.0"
 url = "2.2"
+
+specifications = { path = "../specifications" }
+
+[dev-dependencies]
+getrandom = "0.2.8"
+tempfile = "3.2"

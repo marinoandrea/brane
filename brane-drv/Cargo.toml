@@ -5,39 +5,20 @@ authors = ["Onno Valkering", "Tim Müller"]
 edition = "2018"
 
 [dependencies]
-anyhow = "1"
-appdirs = "0.2"
-async-trait = "0.1"
-base64 = "0.13"
-brane-bvm = { path = "../brane-bvm" }
-brane-cfg = { path = "../brane-cfg" }
-brane-dsl = { path = "../brane-dsl" }
-brane-job = { path = "../brane-job" }
-brane-shr = { path = "../brane-shr" }
-bytes = "1"
-chrono = "0.4"
 clap = { version = "3.1.12", features = ["derive", "env"] }
 dashmap = "4.0"
 dotenv = "0.15"
 env_logger = "0.9"
-futures = "0.3"
-futures-core = "0.3"
-futures-util = "0.3"
-graphql_client = "0.10"
-lazy_static = "1.4"
 log = "0.4"
 prost = "0.8"
-rand = "0.8"
 rdkafka = { version = "0.26", features = ["cmake-build"] }
-reqwest = {version = "0.11", features = ["json", "stream", "multipart"] }
-semver = "1.0"
-serde = "1"
 serde_json = "1"
-specifications = { path = "../specifications" }
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", features = [] }
 tokio-stream = "0.1"
 tonic = "0.5"
-uuid = { version = "0.8", features = ["v4"] }
 
-[build-dependencies]
-tonic-build = "0.5"
+brane-ast = { path = "../brane-ast" }
+brane-cfg = { path = "../brane-cfg" }
+brane-exe = { path = "../brane-exe" }
+brane-tsk = { path = "../brane-tsk" }
+specifications = { path = "../specifications" }

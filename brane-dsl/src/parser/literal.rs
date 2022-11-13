@@ -1,21 +1,116 @@
-use super::ast::Lit;
-use crate::scanner::{Token, Tokens};
-use crate::tag_token;
+//  LITERAL.rs
+//    by Lut99
+// 
+//  Created:
+//    10 Aug 2022, 15:39:44
+//  Last edited:
+//    12 Sep 2022, 16:12:36
+//  Auto updated?
+//    Yes
+// 
+//  Description:
+//!   Contains nom function(s) that parse literal tokens.
+// 
+
+use std::num::NonZeroUsize;
+
 use nom::error::{ContextError, ParseError};
 use nom::{branch, combinator as comb};
 use nom::{IResult, Parser};
-use std::num::NonZeroUsize;
 
+use super::wrap_pp;
+use super::ast::Literal;
+
+use crate::spec::TextRange;
+use crate::scanner::{Token, Tokens};
+use crate::tag_token;
+
+
+/***** HELPER FUNCTIONS *****/
+/// Resolves escape strings in a string by, well, resolving them.
+/// 
+/// # Arguments
+/// - `raw`: The string to resolve.
+/// 
+/// # Returns
+/// The to-be-resolved string.
+fn resolve_escape(raw: String) -> String {
+    // Loop to add
+    let mut res: String = String::with_capacity(raw.len());
+    let mut escaped: bool = false;
+    for c in raw.chars() {
+        // Check if escaped
+        if escaped {
+            // We are; match a specific set of characters
+            if c == '\\' || c == '"' || c == '\'' {
+                res.push(c);
+            } else if c == 'n' {
+                res.push('\n');
+            } else if c == 'r' {
+                res.push('\r');
+            } else if c == 't' {
+                res.push('\t');
+            } else {
+                panic!("Encountered unknown escape character '{}'", c);
+            }
+            escaped = false;
+        } else if c == '\\' {
+            // Going into escape mode
+            escaped = true;
+        } else {
+            res.push(c);
+        }
+    }
+
+    // Done
+    res
+}
+
+
+
+
+
+/***** LIBRARY *****/
+/// Parses a literal Token to a Literal node in the AST.
 ///
-///
-///
-pub fn parse<'a, E: ParseError<Tokens<'a>> + ContextError<Tokens<'a>>>(input: Tokens<'a>) -> IResult<Tokens, Lit, E> {
-    branch::alt((
-        comb::map(tag_token!(Token::Boolean), |t| Lit::Boolean(t.tok[0].as_bool())),
-        comb::map(tag_token!(Token::Integer), |t| Lit::Integer(t.tok[0].as_i64())),
-        comb::map(tag_token!(Token::Real), |t| Lit::Real(t.tok[0].as_f64())),
-        comb::map(tag_token!(Token::String), |t| Lit::String(t.tok[0].as_string())),
-        comb::map(tag_token!(Token::Unit), |_| Lit::Unit),
-    ))
-    .parse(input)
+/// # Arguments
+/// - `input`: The list of tokens to parse from.
+/// 
+/// # Returns
+/// The remaining list of tokens and the parsed Literal if there was anything to parse. Otherwise, a `nom::Error` is returned (which may be a real error or simply 'could not parse').
+pub fn parse<'a, E: ParseError<Tokens<'a>> + ContextError<Tokens<'a>>>(input: Tokens<'a>) -> IResult<Tokens, Literal, E> {
+    wrap_pp!(
+        branch::alt((
+            comb::map(tag_token!(Token::Boolean), |t| Literal::Boolean {
+                value : t.tok[0].as_bool(),
+
+                range : TextRange::from(t.tok[0].inner()),
+            }),
+            comb::map(tag_token!(Token::Integer), |t| Literal::Integer {
+                value : t.tok[0].as_i64(),
+
+                range : TextRange::from(t.tok[0].inner()),
+            }),
+            comb::map(tag_token!(Token::Real),    |t| Literal::Real {
+                value : t.tok[0].as_f64(),
+
+                range : TextRange::from(t.tok[0].inner()),
+            }),
+            comb::map(tag_token!(Token::String),  |t| Literal::String {
+                value : resolve_escape(t.tok[0].as_string()),
+
+                range : {
+                    // Wrap one back and forth for the quotes
+                    let mut r = TextRange::from(t.tok[0].inner());
+                    r.start.col -= 1;
+                    r.end.col += 1;
+                    r
+                },
+            }),
+            comb::map(tag_token!(Token::Unit),    |t| Literal::Void {
+                range : TextRange::from(t.tok[0].inner()),
+            }),
+        ))
+        .parse(input),
+    "LITERAL")
 }

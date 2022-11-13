@@ -2,7 +2,7 @@ extern crate anyhow;
 #[macro_use]
 extern crate log;
 
-pub mod callback;
+// pub mod callback;
 pub mod common;
 pub mod errors;
 pub mod exec_ecu;

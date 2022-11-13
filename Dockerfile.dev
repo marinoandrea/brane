@@ -98,6 +98,24 @@ ENTRYPOINT [ "./brane-drv", "--debug" ]
 
 
 
+##### BRANE-PLR #####
+# This image contains the Brane planner service.
+FROM brane-base AS brane-plr
+
+# Define the architecture argument
+ARG ARCH
+
+# Copy `brane-plr` from build stage
+COPY ./.container-bins/$ARCH/brane-plr /brane-plr
+RUN chmod +x /brane-plr
+
+# Run the compiled executable as base
+ENTRYPOINT [ "./brane-plr", "--debug" ]
+
+
+
+
+
 ##### BRANE-JOB #####
 # This image contains the Brane job service.
 FROM brane-base AS brane-job
@@ -116,34 +134,16 @@ ENTRYPOINT [ "./brane-job", "--debug" ]
 
 
 
-##### BRANE-LOG #####
-# This image contains the Brane log service.
-FROM brane-base AS brane-log
+##### BRANE-REG #####
+# This image contains the Brane registry service.
+FROM brane-base AS brane-reg
 
 # Define the architecture argument
 ARG ARCH
 
-# Copy `brane-log from the build stage
-COPY ./.container-bins/$ARCH/brane-log /brane-log
-RUN chmod +x /brane-log
+# Copy `brane-job` from build stage
+COPY ./.container-bins/$ARCH/brane-reg /brane-reg
+RUN chmod +x /brane-reg
 
 # Run the compiled executable as base
-ENTRYPOINT [ "./brane-log", "--debug" ]
-
-
-
-
-
-##### BRANE-PLR #####
-# This image contains the Brane planner service.
-FROM brane-base AS brane-plr
-
-# Define the architecture argument
-ARG ARCH
-
-# Copy `brane-plr` from build stage
-COPY ./.container-bins/$ARCH/brane-plr /brane-plr
-RUN chmod +x /brane-plr
-
-# Run the compiled executable as base
-ENTRYPOINT [ "./brane-plr", "--debug" ]
+ENTRYPOINT [ "./brane-reg", "--debug" ]

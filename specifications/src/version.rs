@@ -1,17 +1,17 @@
-/* VERSION.rs
- *   by Lut99
- *
- * Created:
- *   23 Mar 2022, 15:15:12
- * Last edited:
- *   20 Jun 2022, 12:05:26
- * Auto updated?
- *   Yes
- *
- * Description:
- *   Implements a new Version struct, which is like semver's Version but with
- *   support to select 'latest' versions.
-**/
+//  VERSION.rs
+//    by Lut99
+// 
+//  Created:
+//    23 Mar 2022, 15:15:12
+//  Last edited:
+//    22 Sep 2022, 10:14:12
+//  Auto updated?
+//    Yes
+// 
+//  Description:
+//!   Implements a new Version struct, which is like semver's Version but
+//!   with
+// 
 
 use std::cmp::{Ordering};
 use std::error::Error;
@@ -308,7 +308,7 @@ impl Version {
 
     /// Constructor for the Version that sets it to an (unresolved) 'latest' version.
     #[inline]
-    pub fn latest() -> Self {
+    pub const fn latest() -> Self {
         Self {
             major : u64::MAX,
             minor : u64::MAX,
@@ -583,6 +583,22 @@ impl From<&semver::Version> for Version {
             minor : version.minor,
             patch : version.patch,
         }
+    }
+}
+
+
+
+impl From<Version> for String {
+    #[inline]
+    fn from(value: Version) -> Self {
+        format!("{}", value)
+    }
+}
+
+impl From<&Version> for String {
+    #[inline]
+    fn from(value: &Version) -> Self {
+        format!("{}", value)
     }
 }
 

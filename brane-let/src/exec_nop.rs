@@ -1,21 +1,21 @@
-/* EXEC NOP.rs
- *   by Lut99
- *
- * Created:
- *   14 Feb 2022, 16:37:17
- * Last edited:
- *   21 Mar 2022, 21:56:06
- * Auto updated?
- *   Yes
- *
- * Description:
- *   "Executes" the no-operation command in brane-let. Does nothing, except
- *   for sending required callbacks.
-**/
+//  EXEC NOP.rs
+//    by Lut99
+// 
+//  Created:
+//    14 Feb 2022, 16:37:17
+//  Last edited:
+//    26 Oct 2022, 17:21:32
+//  Auto updated?
+//    Yes
+// 
+//  Description:
+//!   "Executes" the no-operation command in brane-let. Does nothing,
+//!   except
+// 
 
-use specifications::common::Value;
+use brane_exe::FullValue;
 
-use crate::callback::Callback;
+// use crate::callback::Callback;
 use crate::common::PackageResult;
 use crate::errors::LetError;
 
@@ -29,28 +29,28 @@ use crate::errors::LetError;
 /// **Returns**  
 /// The return state of the package call on success, or a LetError otherwise.
 pub async fn handle(
-    callback: &mut Option<&mut Callback>,
+    // callback: &mut Option<&mut Callback>,
 ) -> Result<PackageResult, LetError> {
     debug!("Executing No-Operation (nop) without arguments");
 
     // Send the 'Initialize' callback
-    if let Some(callback) = callback {
-        if let Err(err) = callback.initialized().await { warn!("Could not update driver on Initialized: {}", err); }
-    }
+    // if let Some(callback) = callback {
+    //     if let Err(err) = callback.initialized().await { warn!("Could not update driver on Initialized: {}", err); }
+    // }
     info!("Reached target 'Initialized'");
 
     // Send the 'Started' callback
-    if let Some(callback) = callback {
-        if let Err(err) = callback.started().await { warn!("Could not update driver on Started: {}", err); }
-    }
+    // if let Some(callback) = callback {
+    //     if let Err(err) = callback.started().await { warn!("Could not update driver on Started: {}", err); }
+    // }
     info!("Reached target 'Started'");
 
     // Send the 'Completed' callback
-    if let Some(callback) = callback {
-        if let Err(err) = callback.completed().await { warn!("Could not update driver on Completed: {}", err); }
-    }
+    // if let Some(callback) = callback {
+    //     if let Err(err) = callback.completed().await { warn!("Could not update driver on Completed: {}", err); }
+    // }
     info!("Reached target 'Completed'");
 
     // Done, return the empty result
-    Ok(PackageResult::Finished{ result: Value::Unit })
+    Ok(PackageResult::Finished{ result: FullValue::Void })
 }

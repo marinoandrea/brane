@@ -1,0 +1,12 @@
+// Test import statements
+import test;
+
+// Oh my god not even these comments work with newlines; this comment parser is absolute crap
+// Edit: Fixed :D
+// 
+// This nested one shadows properly when submitting a full workflow, but not in snippet mode
+// {
+//     import test[1.0.0];
+// }
+
+println(hello_world());

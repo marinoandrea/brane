@@ -15,6 +15,10 @@ kind: ecu
 files:
 - code.sh
 
+# Defines the dependencies for this file (ubuntu packages)
+dependencies:
+- python3
+
 # Defines the file to call whenever a function is called
 entrypoint:
   kind: task
@@ -29,6 +33,30 @@ actions:
     input:
     - name: target
       type: string
+    output:
+    - name: output
+      type: string
+  lsdata:
+    command:
+      args:
+      - lsdata
+    input:
+    - name: target
+      type: string
+    - name: dummy
+      type: IntermediateResult
+    output:
+    - name: output
+      type: string
+  treedata:
+    command:
+      args:
+      - treedata
+    input:
+    - name: target
+      type: string
+    - name: dummy
+      type: IntermediateResult
     output:
     - name: output
       type: string

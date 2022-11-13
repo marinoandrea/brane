@@ -1,0 +1,20 @@
+// Test a class definition
+class Jedi {
+    name: string;
+    is_master: bool;
+    lightsaber_colour: string;
+
+    func swoosh(self) {
+        println(self.name + " is swinging their " + self.lightsaber_colour + " lightsaber!");
+    }
+}
+
+// Create the class
+let obi_wan := new Jedi {
+    name              := "Obi-Wan Kenobi",
+    is_master         := true,
+    lightsaber_colour := "blue",
+};
+
+// Call a method
+obi_wan.swoosh();

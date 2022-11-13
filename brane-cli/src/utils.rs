@@ -1,32 +1,29 @@
-/* UTILS.rs
- *   by Lut99
- *
- * Created:
- *   21 Feb 2022, 14:43:30
- * Last edited:
- *   09 May 2022, 15:07:10
- * Auto updated?
- *   Yes
- *
- * Description:
- *   Contains useful utilities used throughout the brane-cli package.
-**/
+//  UTILS.rs
+//    by Lut99
+// 
+//  Created:
+//    21 Feb 2022, 14:43:30
+//  Last edited:
+//    03 Nov 2022, 11:42:20
+//  Auto updated?
+//    Yes
+// 
+//  Description:
+//!   Contains useful utilities used throughout the brane-cli package.
+// 
 
 use std::error::Error;
 use std::fmt::{Display, Formatter, Result as FResult};
 use std::fs::{self, File};
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 use std::str::FromStr;
 
-use bollard::Docker;
-use log::warn;
-
 use specifications::package::PackageKind;
+use specifications::registry::RegistryConfig;
 use specifications::version::Version;
 
-use crate::{MIN_DOCKER_VERSION, MIN_BUILDX_VERSION};
+// use crate::{MIN_DOCKER_VERSION, MIN_BUILDX_VERSION};
 use crate::errors::UtilError;
 
 
@@ -71,95 +68,95 @@ impl Error for DependencyError {}
 /// **Returns**  
 /// Nothing if the dependencies are met, a DependencyError if it wasn't, or a UtilError if we couldn't determine.
 pub async fn check_dependencies() -> Result<Result<(), DependencyError>, UtilError> {
-    /* Docker */
-    // Connect to the local instance using bollard
-    let docker = match Docker::connect_with_local_defaults() {
-        Ok(docker) => docker,
-        Err(_)     => { return Ok(Err(DependencyError::DockerNotInstalled)); }
-    };
+    // /* Docker */
+    // // Connect to the local instance using bollard
+    // let docker = match Docker::connect_with_local_defaults() {
+    //     Ok(docker) => docker,
+    //     Err(_)     => { return Ok(Err(DependencyError::DockerNotInstalled)); }
+    // };
 
-    // Get the version of information of the docker container
-    let docker_version = match docker.version().await {
-        Ok(docker_version) => match docker_version.version {
-            Some(docker_version) => docker_version,
-            None                 => { return Err(UtilError::DockerNoVersion); }
-        },
-        Err(err)           => { return Err(UtilError::DockerVersionError{ err }); }
-    };
+    // // Get the version of information of the docker container
+    // let docker_version = match docker.version().await {
+    //     Ok(docker_version) => match docker_version.version {
+    //         Some(docker_version) => docker_version,
+    //         None                 => { return Err(UtilError::DockerNoVersion); }
+    //     },
+    //     Err(err)           => { return Err(UtilError::DockerVersionError{ err }); }
+    // };
 
-    // Try to convert the version number to a semver
-    match Version::from_str(&docker_version) {
-        Ok(docker_version) => {
-            // Compare it with the required instance
-            if docker_version < MIN_DOCKER_VERSION {
-                return Ok(Err(DependencyError::DockerMinNotMet{ got: docker_version, expected: MIN_DOCKER_VERSION }));
-            }
-        },
-        Err(err) => {
-            warn!("{}", UtilError::IllegalDockerVersion{ version: docker_version, err });
-            warn!("Assuming Docker version is valid");
-        },
-    };
+    // // Try to convert the version number to a semver
+    // match Version::from_str(&docker_version) {
+    //     Ok(docker_version) => {
+    //         // Compare it with the required instance
+    //         if docker_version < MIN_DOCKER_VERSION {
+    //             return Ok(Err(DependencyError::DockerMinNotMet{ got: docker_version, expected: MIN_DOCKER_VERSION }));
+    //         }
+    //     },
+    //     Err(err) => {
+    //         warn!("{}", UtilError::IllegalDockerVersion{ version: docker_version, err });
+    //         warn!("Assuming Docker version is valid");
+    //     },
+    // };
 
 
 
-    /* Buildx */
-    // Run a command to get the buildx version
-    let mut command = Command::new("docker");
-    command.arg("buildx");
-    command.arg("version");
-    command.stdout(Stdio::piped());
-    let output = match command.output() {
-        Ok(output) => output,
-        Err(err)   => { return Err(UtilError::BuildxLaunchError{ command: format!("{:?}", command), err }); }
-    };
-    if !output.status.success() {
-        return Ok(Err(DependencyError::BuildkitNotInstalled));
-    }
-    let buildx_version = String::from_utf8_lossy(&output.stdout).to_string();
+    // /* Buildx */
+    // // Run a command to get the buildx version
+    // let mut command = Command::new("docker");
+    // command.arg("buildx");
+    // command.arg("version");
+    // command.stdout(Stdio::piped());
+    // let output = match command.output() {
+    //     Ok(output) => output,
+    //     Err(err)   => { return Err(UtilError::BuildxLaunchError{ command: format!("{:?}", command), err }); }
+    // };
+    // if !output.status.success() {
+    //     return Ok(Err(DependencyError::BuildkitNotInstalled));
+    // }
+    // let buildx_version = String::from_utf8_lossy(&output.stdout).to_string();
 
-    // Get the second when splitting on spaces
-    let buildx_version = match buildx_version.split(' ').nth(1) {
-        Some(buildx_version) => buildx_version,
-        None => {
-            warn!("{}", UtilError::BuildxVersionNoParts{ version: buildx_version });
-            warn!("Assuming Docker Buildx version is valid");
-            return Ok(Ok(()));
-        }
-    };
+    // // Get the second when splitting on spaces
+    // let buildx_version = match buildx_version.split(' ').nth(1) {
+    //     Some(buildx_version) => buildx_version,
+    //     None => {
+    //         warn!("{}", UtilError::BuildxVersionNoParts{ version: buildx_version });
+    //         warn!("Assuming Docker Buildx version is valid");
+    //         return Ok(Ok(()));
+    //     }
+    // };
 
-    // Remove the first v
-    let buildx_version = if !buildx_version.is_empty() && buildx_version.starts_with('v') {
-        &buildx_version[1..]
-    } else {
-        return Err(UtilError::BuildxVersionNoV{ version: buildx_version.to_string() });
-    };
+    // // Remove the first v
+    // let buildx_version = if !buildx_version.is_empty() && buildx_version.starts_with('v') {
+    //     &buildx_version[1..]
+    // } else {
+    //     return Err(UtilError::BuildxVersionNoV{ version: buildx_version.to_string() });
+    // };
 
-    // Consume the valid version number parts
-    let mut buildx_version_raw = String::with_capacity(5);
-    for c in buildx_version.chars() {
-        // Either consume or stop consuming
-        if (c as u32 >= '0' as u32 && c as u32 <= '9' as u32) || c == '.' {
-            buildx_version_raw.push(c);
-        } else {
-            break;
-        }
-    }
+    // // Consume the valid version number parts
+    // let mut buildx_version_raw = String::with_capacity(5);
+    // for c in buildx_version.chars() {
+    //     // Either consume or stop consuming
+    //     if (c as u32 >= '0' as u32 && c as u32 <= '9' as u32) || c == '.' {
+    //         buildx_version_raw.push(c);
+    //     } else {
+    //         break;
+    //     }
+    // }
 
-    // Finally, try to convert into a semantic version number
-    let buildx_version = match Version::from_str(&buildx_version_raw) {
-        Ok(buildx_version) => buildx_version,
-        Err(err) => {
-            warn!("{}", UtilError::IllegalBuildxVersion{ version: buildx_version_raw, err });
-            warn!("Assuming Docker Buildx version is valid");
-            return Ok(Ok(()));
-        }
-    };
+    // // Finally, try to convert into a semantic version number
+    // let buildx_version = match Version::from_str(&buildx_version_raw) {
+    //     Ok(buildx_version) => buildx_version,
+    //     Err(err) => {
+    //         warn!("{}", UtilError::IllegalBuildxVersion{ version: buildx_version_raw, err });
+    //         warn!("Assuming Docker Buildx version is valid");
+    //         return Ok(Ok(()));
+    //     }
+    // };
 
-    // With that all done, compare it with the required
-    if buildx_version < MIN_BUILDX_VERSION {
-        return Ok(Err(DependencyError::BuildKitMinNotMet{ got: buildx_version, expected: MIN_BUILDX_VERSION }));
-    }
+    // // With that all done, compare it with the required
+    // if buildx_version < MIN_BUILDX_VERSION {
+    //     return Ok(Err(DependencyError::BuildKitMinNotMet{ got: buildx_version, expected: MIN_BUILDX_VERSION }));
+    // }
 
 
 
@@ -178,9 +175,7 @@ pub async fn check_dependencies() -> Result<Result<(), DependencyError>, UtilErr
 /// 
 /// **Returns**  
 /// A PathBuf pointing to what we think is the package file, or else a CliError if we could not determine it or something went wrong.
-pub fn determine_file(
-    dir: &Path,
-) -> Result<PathBuf, UtilError> {
+pub fn determine_file(dir: &Path) -> Result<PathBuf, UtilError> {
     // Open an iterator over the directory's files
     let files = match fs::read_dir(dir) {
         Ok(files) => files,
@@ -221,9 +216,7 @@ pub fn determine_file(
 /// 
 /// **Returns**  
 /// The PackageKind if we could deduce it, or some sort of CliError if we could not or something went wrong.
-pub fn determine_kind(
-    path: &Path,
-) -> Result<PackageKind, UtilError> {
+pub fn determine_kind(path: &Path) -> Result<PackageKind, UtilError> {
     // See if the filename convention allows us to choose a package kind
     if let Some(file) = path.file_name() {
         let filename = String::from(file.to_string_lossy()).to_lowercase();
@@ -440,6 +433,54 @@ pub fn ensure_packages_dir(create: bool) -> Result<PathBuf, UtilError> {
     Ok(packages_dir)
 }
 
+/// Returns the general data directory based on the user's home folder.  
+/// Basically, tries to resolve the folder `~/.local/share/brane/data`.  
+/// Note that this does not mean that this directory exists.
+/// 
+/// # Returns
+/// A PathBuf with an absolute path to the data directory.
+/// 
+/// # Errors
+/// This functions fails if we failed to get the Brane data directory (no confusion at all lol).
+pub fn get_datasets_dir() -> Result<PathBuf, UtilError> {
+    // Get the data directory (the global one)
+    let data_dir = get_data_dir()?;
+
+    // Append the dataset directory and done is Cees.
+    Ok(data_dir.join("data"))
+}
+
+/// Makes sure that Brane's dataset directory exists, and then returns its path.  
+/// Basically, tries to resolve the folder `~/.local/share/brane/data`.
+/// 
+/// # Arguments
+/// - `create`: If set to true, creates the missing directories instead of throwing errors.
+/// 
+/// # Returns
+/// A PathBuf with the absolute path to the datasets directory that is also guaranteed to exist.
+/// 
+/// # Errors
+/// This function errors if we failed to get the Brane data directory (no confusion at all, lol) or the directory did not exist (if `create` is false) / was not accessible.
+pub fn ensure_datasets_dir(create: bool) -> Result<PathBuf, UtilError> {
+    // Get the data directory
+    let data_dir: PathBuf = get_datasets_dir()?;
+
+    // Make sure it exists
+    if !data_dir.exists() {
+        // Either create it if told to do so, or error
+        if create {
+            // Make sure the parent directory exists, then create this directory
+            ensure_data_dir(create)?;
+            if let Err(err) = fs::create_dir(&data_dir) { return Err(UtilError::BraneDatasetsDirCreateError{ path: data_dir, err }); }
+        } else {
+            return Err(UtilError::BraneDatasetsDirNotFound{ path: data_dir });
+        }
+    }
+
+    // Done, since the dataset directory is already canonicalized
+    Ok(data_dir)
+}
+
 /// **Edited: Now returning UtilErrors.**
 ///
 /// Gets the directory where we likely stored the package.  
@@ -453,10 +494,7 @@ pub fn ensure_packages_dir(create: bool) -> Result<PathBuf, UtilError> {
 /// 
 /// **Returns**  
 /// A PathBuf with the directory if successfull, or an UtilError otherwise.
-pub fn get_package_dir(
-    name: &str,
-    version: Option<&Version>,
-) -> Result<PathBuf, UtilError> {
+pub fn get_package_dir(name: &str, version: Option<&Version>) -> Result<PathBuf, UtilError> {
     // Try to get the general package directory + the name of the package
     let packages_dir = get_packages_dir()?;
     let package_dir = packages_dir.join(&name);
@@ -493,11 +531,7 @@ pub fn get_package_dir(
 /// 
 /// **Returns**  
 /// A PathBuf with the directory if successfull, or an UtilError otherwise.
-pub fn ensure_package_dir(
-    name: &str,
-    version: Option<&Version>,
-    create: bool,
-) -> Result<PathBuf, UtilError> {
+pub fn ensure_package_dir(name: &str, version: Option<&Version>, create: bool) -> Result<PathBuf, UtilError> {
     // Retrieve the path for this version
     let package_dir = get_package_dir(name, version)?;
 
@@ -545,10 +579,7 @@ pub fn ensure_package_dir(
 /// 
 /// **Returns**  
 /// The list of Versions found in the given package directory, or a PackageError if we couldn't.
-pub fn get_package_versions(
-    package_name: &str,
-    package_dir: &Path,
-) -> Result<Vec<Version>, UtilError> {
+pub fn get_package_versions(package_name: &str, package_dir: &Path) -> Result<Vec<Version>, UtilError> {
     // Get the list of available versions
     let version_dirs = match fs::read_dir(&package_dir) {
         Ok(files)   => files,
@@ -586,6 +617,85 @@ pub fn get_package_versions(
     Ok(versions)
 }
 
+/// Gets the directory where we likely stored a dataset.  
+/// Does not guarantee that the directory also exists; check `ensure_dataset_dir()` for that.
+/// 
+/// # Generic arguments
+/// - `S`: The &str-like `name` of the dataset to generate the path for.
+/// 
+/// # Arguments
+/// - `name`: The name of the dataset we want to get the path of.
+/// 
+/// # Returns
+/// A PathBuf with the (absolute path to the) directory.
+/// 
+/// # Errors
+/// This function may error if we failed to get the parent datasets directory (see `get_datasets_dir()`).
+pub fn get_dataset_dir<S: AsRef<str>>(name: S) -> Result<PathBuf, UtilError> {
+    // Try to get the general package directory + the name of the package
+    let datasets_dir = get_datasets_dir()?;
+    let dataset_dir  = datasets_dir.join(name.as_ref());
+
+    // That seems about right
+    Ok(dataset_dir)
+}
+
+/// Makes sure that the dataset directory for the given dataset exists, then returns the path to it.
+/// 
+/// # Generic arguments
+/// - `S`: The &str-like `name` of the dataset to generate the path for.
+/// 
+/// # Arguments
+/// - `name`: The name of the dataset we want to get/create the directory for.
+/// - `create`: If set to true, creates the missing directories instead of throwing errors.
+/// 
+/// # Returns
+/// A PathBuf with the directory.
+/// 
+/// # Errors
+/// This function may error if we failed to get the parent datasets directory (see `get_datasets_dir()`) or if we failed to verify/create the dataset.
+pub fn ensure_dataset_dir<S: AsRef<str>>(name: S, create: bool) -> Result<PathBuf, UtilError> {
+    // Retrieve the path for this version
+    let data_dir = get_dataset_dir(name.as_ref())?;
+
+    // Make sure it exists
+    if !data_dir.exists() {
+        // Either create it if told to do so, or error
+        if create {
+            // Make sure the parent directory exists
+            ensure_datasets_dir(create)?;
+
+            // Now create the directory
+            if let Err(err) = fs::create_dir_all(&data_dir) { return Err(UtilError::BraneDatasetDirCreateError{ name: name.as_ref().into(), path: data_dir, err }); }
+        } else {
+            return Err(UtilError::BraneDatasetDirNotFound{ name: name.as_ref().into(), path: data_dir });
+        }
+    }
+
+    // It's alright
+    Ok(data_dir)
+}
+
+
+
+/// Reads a RegistryConfig from the configuration file (`config_dir/registry.yml`).
+/// 
+/// # Returns
+/// The parsed RegistryConfig.
+/// 
+/// # Errors
+/// This function may error if we could not find, read or parse the config file that is the RegistryFile. If not found, this likely indicates the user hasn't logged-in yet.
+pub fn get_registry_file() -> Result<RegistryConfig, UtilError> {
+    // Get the configuration file path
+    let config_file = get_config_dir().unwrap().join("registry.yml");
+
+    // Attempt to load it
+    match RegistryConfig::from_path(&config_file) {
+        Ok(config) => Ok(config),
+        Err(err)   => Err(UtilError::ConfigFileError{ err }),
+    }
+}
+
 
 
 /// Returns an equivalent string to the given one, except that the first letter is capitalized.
@@ -595,9 +705,7 @@ pub fn get_package_versions(
 /// 
 /// **Returns**  
 /// A copy of the given string with the first letter in uppercase.
-pub fn uppercase_first_letter(
-    s: &str,
-) -> String {
+pub fn uppercase_first_letter(s: &str) -> String {
     let mut c = s.chars();
     match c.next() {
         None => String::new(),
@@ -614,9 +722,7 @@ pub fn uppercase_first_letter(
 /// 
 /// **Returns**  
 /// Nothing if the name is valid, or a UtilError otherwise.
-pub fn assert_valid_bakery_name(
-    name: &str,
-) -> Result<(), UtilError> {
+pub fn assert_valid_bakery_name(name: &str) -> Result<(), UtilError> {
     if name.chars().all(|c| c.is_alphanumeric() || c == '_') {
         Ok(())
     } else {

@@ -1,18 +1,30 @@
 [workspace]
 members = [
-    "brane-api",
-    "brane-bvm",
-    "brane-cfg",
-    "brane-clb",
-    "brane-cli",
+    # These crates implement services for central nodes
     "brane-drv",
-    "brane-dsl",
-    "brane-job",
-    "brane-let",
-    "brane-log",
-    "brane-net",
-    "brane-oas",
     "brane-plr",
+    "brane-api",
+
+    # These crates implement services for worker nodes
+    "brane-job",
+    "brane-reg",
+    "brane-let",
+
+    # These crates directly relate to the CLI tool
+    "brane-cli",
+    "brane-oas",
+
+    # These crates provide the full BraneScript/Bakery/... stack
+    "brane-tsk",
+    "brane-exe",
+    "brane-ast",
+    "brane-dsl",
+
+    # These crates provide specifications / general implementations
+    "brane-cfg",
     "brane-shr",
     "specifications",
+
+    # TODO
+    "brane-log",
 ]

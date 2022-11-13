@@ -1,74 +1,78 @@
-#[macro_use]
-extern crate anyhow;
-#[macro_use]
-extern crate log;
-#[macro_use]
-extern crate juniper;
+//  MAIN.rs
+//    by Lut99
+// 
+//  Created:
+//    17 Oct 2022, 15:15:36
+//  Last edited:
+//    03 Nov 2022, 20:35:07
+//  Auto updated?
+//    Yes
+// 
+//  Description:
+//!   Entrypoint to the `brane-job` service.
+// 
 
-/* TIM */
-mod errors;
-mod health;
-mod version;
-/*******/
-mod packages;
-mod schema;
-
-use anyhow::{Context as _, Result};
-// use clap::Parser;
-use crate::errors::ApiError;
-use structopt::StructOpt;
-use dotenv::dotenv;
-use juniper::EmptySubscription;
-use log::LevelFilter;
-use schema::{Mutations, Query, Schema};
-use scylla::{Session, SessionBuilder};
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
+
+use clap::Parser;
+use dotenv::dotenv;
+use juniper::EmptySubscription;
+use log::{debug, error, LevelFilter};
+use scylla::{Session, SessionBuilder};
 use warp::Filter;
 
-// #[derive(Parser)]
-// #[clap(version = env!("CARGO_PKG_VERSION"))]
-// struct Opts {
-//     /// Service address
-//     #[clap(short, long, default_value = "127.0.0.1:50051", env = "ADDRESS")]
-//     address: String,
-//     /// Print debug info
-//     #[clap(short, long, env = "DEBUG", takes_value = false)]
-//     debug: bool,
-//     /// Print debug info
-//     #[clap(short, long, default_value = "127.0.0.1:5000", env = "REGISTRY")]
-//     registry: String,
-//     /// Scylla endpoint
-//     #[clap(short, long, default_value = "127.0.0.1:9042", env = "SCYLLA")]
-//     scylla: String,
-// }
+use brane_cfg::InfraPath;
 
-#[derive(StructOpt)]
+use brane_api::errors::ApiError;
+use brane_api::spec::Context;
+use brane_api::schema::{Mutations, Query, Schema};
+use brane_api::health;
+use brane_api::version;
+use brane_api::infra;
+use brane_api::data;
+use brane_api::packages;
+
+
+/***** ARGUMENTS *****/
+#[derive(Parser)]
+#[clap(version = env!("CARGO_PKG_VERSION"))]
 struct Opts {
-    #[structopt(short, long, default_value = "127.0.0.1:50051", env = "ADDRESS")]
-    address: String,
+    /// Service address
+    #[clap(short, long, default_value = "127.0.0.1:50051", env = "ADDRESS")]
+    address  : String,
     /// Print debug info
-    #[structopt(short, long, env = "DEBUG", takes_value = false)]
-    debug: bool,
+    #[clap(short, long, env = "DEBUG", takes_value = false)]
+    debug    : bool,
     /// Print debug info
-    #[structopt(short, long, default_value = "127.0.0.1:5000", env = "REGISTRY")]
-    registry: String,
+    #[clap(short, long, default_value = "127.0.0.1:5000", env = "REGISTRY")]
+    registry : String,
     /// Scylla endpoint
-    #[structopt(short, long, default_value = "127.0.0.1:9042", env = "SCYLLA")]
-    scylla: String,
+    #[clap(long, default_value = "127.0.0.1:9042", env = "SCYLLA")]
+    scylla   : String,
+
+    /// The location of the certificates we use to connect to all domains.
+    #[clap(short, long, default_value = "/certs", env = "CERTS")]
+    certs   : PathBuf,
+    /// The location of the infrastructure file
+    #[clap(short, long, default_value = "/config/infra.yml", env = "INFRA")]
+    infra   : PathBuf,
+    /// The location of the secrets file
+    #[clap(short, long, default_value = "/config/secrets.yml", env = "SECRETS")]
+    secrets : PathBuf,
 }
 
-#[derive(Clone)]
-pub struct Context {
-    pub registry: String,
-    pub scylla: Arc<Session>,
-}
 
+
+
+
+/***** ENTRYPOINT *****/
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() {
     dotenv().ok();
-    let opts = Opts::from_args();
+    let opts = Opts::parse();
 
     // Configure logger.
     let mut logger = env_logger::builder();
@@ -93,16 +97,22 @@ async fn main() -> Result<()> {
     };
     debug!("Connected successfully.");
 
-    ensure_db_keyspace(&scylla).await?;
-    packages::ensure_db_table(&scylla).await?;
+    if let Err(err) = ensure_db_keyspace(&scylla).await { error!("Failed to ensure database keyspace: {}", err) };
+    if let Err(err) = packages::ensure_db_table(&scylla).await { error!("Failed to ensure database table: {}", err) };
 
     let scylla = Arc::new(scylla);
+    let certs = opts.certs.clone();
     let registry = opts.registry.clone();
+
+    // Merge the infrastructure and secrest file into one path
+    let infra: InfraPath = InfraPath::new(opts.infra.clone(), opts.secrets.clone());
 
     // Configure Juniper.
     let context = warp::any().map(move || Context {
-        registry: registry.clone(),
-        scylla: scylla.clone(),
+        certs    : certs.clone(),
+        registry : registry.clone(),
+        scylla   : scylla.clone(),
+        infra    : infra.clone(),
     });
 
     let schema = Schema::new(Query {}, Mutations {}, EmptySubscription::new());
@@ -110,6 +120,22 @@ async fn main() -> Result<()> {
     let graphql = warp::path("graphql").and(graphql_filter);
 
     // Configure Warp.
+    // Configure the data one
+    let list_datasets = warp::path("data")
+        .and(warp::path("info"))
+        .and(warp::path::end())
+        .and(warp::get())
+        .and(context.clone())
+        .and_then(data::list);
+    let get_dataset = warp::path("data")
+        .and(warp::path("info"))
+        .and(warp::path::param())
+        .and(warp::path::end())
+        .and(warp::get())
+        .and(context.clone())
+        .and_then(data::get);
+    let data = list_datasets.or(get_dataset);
+
     // Configure the packages one
     let download_package = warp::path("packages")
         .and(warp::get())
@@ -118,15 +144,30 @@ async fn main() -> Result<()> {
         .and(warp::path::end())
         .and(context.clone())
         .and_then(packages::download);
-
     let upload_package = warp::path("packages")
         .and(warp::path::end())
         .and(warp::post())
         .and(warp::filters::body::bytes())
         .and(context.clone())
         .and_then(packages::upload);
+    let packages = download_package.or(upload_package);
+
+    // Configure infra
+    let list_registries = warp::get()
+        .and(warp::path("infra"))
+        .and(warp::path("registries"))
+        .and(warp::path::end())
+        .and(context.clone())
+        .and_then(infra::registries);
+    let get_registry = warp::get()
+        .and(warp::path("infra"))
+        .and(warp::path("registries"))
+        .and(warp::path::param())
+        .and(warp::path::end())
+        .and(context.clone())
+        .and_then(infra::get_registry);
+    let infra = get_registry.or(list_registries);
     
-    /* TIM */
     // Configure the health & version
     let health = warp::path("health")
         .and(warp::path::end())
@@ -134,33 +175,26 @@ async fn main() -> Result<()> {
     let version = warp::path("version")
         .and(warp::path::end())
         .and_then(version::handle);
-    /*******/
 
-    let packages = download_package.or(upload_package);
-    /* TIM */
-    // let routes = graphql.or(packages).with(warp::log("brane-api"));
-    let routes = health.or(version.or(graphql.or(packages))).with(warp::log("brane-api"));
-    /*******/
+    // Construct the final routes
+    let routes = data.or(packages.or(infra.or(health.or(version.or(graphql))))).with(warp::log("brane-api"));
 
-    let address: SocketAddr = opts.address.clone().parse()?;
+    // Run the server
+    let address: SocketAddr = match opts.address.clone().parse() {
+        Ok(address) => address,
+        Err(err)    => { error!("Failed to parse given address: {}", err); std::process::exit(1); },
+    };
     warp::serve(routes).run(address).await;
-
-    Ok(())
 }
 
 ///
 ///
 ///
-pub async fn ensure_db_keyspace(scylla: &Session) -> Result<()> {
+pub async fn ensure_db_keyspace(scylla: &Session) -> Result<scylla::QueryResult, scylla::transport::errors::QueryError> {
     let query = r#"
         CREATE KEYSPACE IF NOT EXISTS brane
         WITH replication = {'class': 'SimpleStrategy', 'replication_factor' : 1};
     "#;
 
-    scylla
-        .query(query, &[])
-        .await
-        .map(|_| Ok(()))
-        .map_err(|e| anyhow!("{:?}", e))
-        .context("Failed to create 'brane' keyspace.")?
+    scylla.query(query, &[]).await
 }

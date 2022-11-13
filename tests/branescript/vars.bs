@@ -1,0 +1,11 @@
+// Test variables and assignments
+let test := 1;
+test := 2;
+test := 3;
+
+
+let abc__2 := "Hello there!";
+abc__2 := true;
+
+
+let new_test := "Keyword bug: fixed";

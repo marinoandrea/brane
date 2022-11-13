@@ -759,7 +759,12 @@ impl PackageIndex {
     ) -> Option<&PackageInfo> {
         // Resolve the package version
         let version = match version {
-            Some(version) => version,
+            Some(version) => if version.is_latest() {
+                match self.get_latest_version(name) {
+                    Some(version) => version,
+                    None          => { return None; }
+                }
+            } else { version },
             None          => match self.get_latest_version(name) {
                 Some(version) => version,
                 None          => { return None; }

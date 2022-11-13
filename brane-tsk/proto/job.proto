@@ -1,0 +1,99 @@
+syntax = "proto3";
+package job;
+
+
+
+service JobService {
+    rpc Preprocess (PreprocessRequest) returns (PreprocessReply);
+    rpc Execute (TaskRequest) returns (stream TaskReply);
+    rpc Commit (CommitRequest) returns (CommitReply);
+}
+
+
+
+enum DataKind {
+    DATA                = 0;
+    INTERMEDIATE_RESULT = 1;
+}
+
+enum PreprocessKind {
+    TRANSFER_REGISTRY_TAR = 0;
+}
+
+message PreprocessRequest {
+    DataKind data_kind   = 1;
+    string data_name     = 2;
+
+    PreprocessKind kind  = 3;
+    optional string data = 4;
+}
+
+
+
+message PreprocessReply {
+    bool ok       = 1;
+    string access = 2;
+}
+
+
+
+message TaskRequest {
+    string api      = 1;
+    string registry = 2;
+    string workflow = 3;
+
+    string name            = 4;
+    string package_name    = 5;
+    string package_version = 6;
+
+    string input           = 7;
+    optional string result = 8;
+    string args            = 9;
+}
+
+
+
+enum TaskStatus {
+    UNKNOWN     = 0;
+
+    RECEIVED    = 1;
+
+    AUTHORIZED           = 2;
+    DENIED               = 3;
+    AUTHORIZATION_FAILED = 4;
+
+    CREATED         = 5;
+    CREATION_FAILED = 6;
+
+    READY                 =  7;
+    INITIALIZED           =  8;
+    INITIALIZATION_FAILED =  9;
+    STARTED               = 10;
+    STARTING_FAILED       = 11;
+
+    HEARTBEAT         = 12;
+    COMPLETED         = 13;
+    COMPLETION_FAILED = 14;
+
+    FINISHED        = 15;
+    STOPPED         = 16;
+    DECODING_FAILED = 17;
+    FAILED          = 18;
+}
+
+message TaskReply {
+    TaskStatus status     = 1;
+    optional string value = 2;
+}
+
+
+
+message CommitRequest {
+    string name      = 1;
+    string data_name = 2;
+}
+
+message CommitReply {
+    bool ok               = 1;
+    optional string error = 2;
+}

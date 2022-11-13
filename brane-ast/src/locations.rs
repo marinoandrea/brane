@@ -1,0 +1,67 @@
+//  LOCATIONS.rs
+//    by Lut99
+// 
+//  Created:
+//    07 Sep 2022, 10:48:30
+//  Last edited:
+//    13 Sep 2022, 13:55:24
+//  Auto updated?
+//    Yes
+// 
+//  Description:
+//!   Defines a few enums that help analysing location restrictions on a
+//!   node.
+// 
+
+use brane_dsl::location::AllowedLocations;
+
+use serde::{Deserialize, Serialize};
+
+
+/***** LIBRARY *****/
+/// Defines a single location to run.
+pub type Location = String;
+
+
+
+/// Contains location restrictions for a certain node.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Locations {
+    /// All locations are allowed.
+    All,
+    /// If not all, then the following locations are allowed as a whitelist.
+    Restricted(Vec<Location>),
+}
+
+impl Locations {
+    /// Returns the restrictive list of locations if this Locations is, in fact, restrictive.
+    /// 
+    /// # Returns
+    /// A slice that to the whitelist of locations.
+    /// 
+    /// # Panics
+    /// This function panics if the Locations was not `Locations::Restricted`. Use `Locations::is_restrictive` to query beforehand.
+    #[inline]
+    pub fn restricted(&self) -> &[Location] { if let Self::Restricted(locs) = self { locs } else { panic!("Cannot unwrap Locations::{:?} as restricted", self); } }
+
+
+
+    /// Returns whether this Locations is an open-to-all kinda thing.
+    #[inline]
+    pub fn is_all(&self) -> bool { if let Self::All = self { true } else { false } }
+
+    /// Returns whether this Locations is a restrictive list.
+    #[inline]
+    pub fn is_restrictive(&self) -> bool { if let Self::Restricted(_) = self { true } else { false } }
+}
+
+impl From<AllowedLocations> for Locations {
+    #[inline]
+    fn from(value: AllowedLocations) -> Self {
+        match value {
+            AllowedLocations::All             => Self::All,
+            AllowedLocations::Exclusive(locs) => Self::Restricted(locs.into_iter().map(|l| l.into()).collect()),
+        }
+    }
+}

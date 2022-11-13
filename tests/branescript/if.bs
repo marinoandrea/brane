@@ -1,0 +1,12 @@
+// Test an if-statement
+let value := 42;
+if (value > 42) {
+    println("More than the magic number!");
+} else {
+    if (value < 42) {
+        println("Less than the magic number!");
+    }
+    if (value == 42) {
+        println("Equal to the magic number!");
+    }
+}

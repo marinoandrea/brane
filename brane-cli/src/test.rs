@@ -1,332 +1,454 @@
+//  TEST.rs
+//    by Lut99
+// 
+//  Created:
+//    21 Sep 2022, 16:23:37
+//  Last edited:
+//    03 Nov 2022, 17:25:43
+//  Auto updated?
+//    Yes
+// 
+//  Description:
+//!   Contains functions for testing package functions.
+// 
+
+use std::collections::HashMap;
+use std::fmt::{Debug, Display};
 use std::fs;
 use std::path::PathBuf;
-use std::{
-    fmt::{Debug, Display},
-    str::FromStr,
-};
+use std::str::FromStr;
 
-use anyhow::{Context, Result};
-use console::style;
+use console::{style, Term};
 use dialoguer::theme::ColorfulTheme;
-use dialoguer::{Confirm, Password};
+use dialoguer::Confirm;
 use dialoguer::{Input as Prompt, Select};
-use serde::de::DeserializeOwned;
 
-use specifications::common::{Function, Parameter, Type, Value};
-use specifications::package::{PackageKind, PackageInfo};
+use brane_ast::{DataType, ParserOptions};
+use brane_ast::spec::BuiltinClasses;
+use brane_ast::ast::{ClassDef, VarDef};
+use brane_exe::FullValue;
+use specifications::common::Function;
+use specifications::data::DataIndex;
+use specifications::package::PackageInfo;
 use specifications::version::Version;
 
-use crate::docker::{self, ExecuteInfo};
+use crate::errors::TestError;
 use crate::utils::ensure_package_dir;
+use crate::data::get_data_index;
+use crate::run::{initialize_offline_vm, run_offline_vm, OfflineVmState};
 
 
+/***** CUSTOM TYPES *****/
 type Map<T> = std::collections::HashMap<String, T>;
 
-const PACKAGE_NOT_FOUND: &str = "Package not found.";
-// const UNSUPPORTED_PACKAGE_KIND: &str = "Package kind not supported.";
 
-///
-///
-///
-pub async fn handle(
-    name: String,
-    version: Version,
-    data: Option<PathBuf>,
-) -> Result<()> {
-    let package_dir = ensure_package_dir(&name, Some(&version), false)?;
-    if !package_dir.exists() {
-        return Err(anyhow!(PACKAGE_NOT_FOUND));
-    }
 
-    let package_info = PackageInfo::from_path(package_dir.join("package.yml"))?;
-    /* TIM */
-    // let output = match package_info.kind.as_str() {
-    //     "ecu" => test_generic("code", package_dir, package_info, data).await?,
-    //     "oas" => test_generic("oas", package_dir, package_info, data).await?,
-    //     _ => {
-    //         return Err(anyhow!(UNSUPPORTED_PACKAGE_KIND));
-    //     }
-    // };
-    // TODO: Fix error handling
-    let output = test_generic(package_info.kind, package_dir, package_info, data).await?;
-    /*******/
 
-    print_output(&output);
 
-    Ok(())
-}
-
-///
-///
-///
-pub async fn test_generic(
-    /* TIM */
-    // package_kind: &str,
-    package_kind: PackageKind,
-    /*******/
-    package_dir: PathBuf,
-    package_info: PackageInfo,
-    data: Option<PathBuf>,
-) -> Result<Value> {
-    let (function, arguments) = prompt_for_input(&package_info.functions, &package_info.types)?;
-
-    let image = format!("{}:{}", package_info.name, package_info.version);
-    let image_file = Some(package_dir.join("image.tar"));
-
-    let command = vec![
-        String::from("-d"),
-        String::from("--application-id"),
-        String::from("test"),
-        String::from("--location-id"),
-        String::from("localhost"),
-        String::from("--job-id"),
-        String::from("1"),
-        package_kind.to_string(),
-        function,
-        base64::encode(serde_json::to_string(&arguments)?),
-    ];
-
-    let mounts = if let Some(data) = data {
-        let data = fs::canonicalize(data)?;
-        if data.exists() {
-            Some(vec![format!("{}:/data", data.into_os_string().into_string().unwrap())])
-        } else {
-            None
-        }
-    } else {
-        None
-    };
-
-    let exec = ExecuteInfo::new(image, image_file, mounts, Some(command));
-
-    let (code, stdout, stderr) = docker::run_and_wait(exec).await?;
-    debug!("return code: {}", code);
-    debug!("stderr:\n{}\n{}{}\n", (0..80).map(|_| '-').collect::<String>(), stderr, (0..80).map(|_| '-').collect::<String>());
-    debug!("stdout:\n{}\n{}{}\n", (0..80).map(|_| '-').collect::<String>(), stdout, (0..80).map(|_| '-').collect::<String>());
-
-    let output = stdout.lines().last().unwrap_or_default().to_string();
-    match decode_b64(output) {
-        Ok(value) => Ok(value),
-        Err(err) => {
-            println!("{:?}", err);
-            Ok(Value::Unit)
-        }
-    }
-}
-
-///
-///
-///
-fn prompt_for_input(
-    functions: &Map<Function>,
-    types: &Map<Type>,
-) -> Result<(String, Map<Value>)> {
+/***** HELPER FUNCTIONS *****/
+/// Prompts the user for input before testing the package.
+/// 
+/// Basically asks their shirt off their body in what function they want to execute and which values to execute it with.
+/// 
+/// # Arguments
+/// - `name`: The name of the package (used for debugging).
+/// - `version`: The version of the package (used for debugging).
+/// - `function`: The list of functions that may be tested (and are thus defined in the package).
+/// - `types`: The list of types defined in the package such that we may resolve them. Missing builtins will be injected.
+/// 
+/// # Returns
+/// The name of the chosen function and a map of values for the function to run with.
+/// 
+/// # Errors
+/// This function errors if querying the user failed. Additionally, if their package re-exports builtins, that's considered a grave grime and they will be shot too.
+fn prompt_for_input(name: impl AsRef<str>, version: &Version, functions: &Map<Function>, types: HashMap<String, ClassDef>) -> Result<(String, Map<FullValue>), TestError> {
+    // We get a list of functions, sorted alphabetically (but dumb)
     let mut function_list: Vec<String> = functions.keys().map(|k| k.to_string()).collect();
     function_list.sort();
-    let index = Select::with_theme(&ColorfulTheme::default())
+
+    // Insert missing builtins in the map
+    let mut types: HashMap<String, ClassDef> = types;
+    for builtin in &[ BuiltinClasses::Data ] {
+        if let Some(old) = types.insert(builtin.name().into(), ClassDef{
+            name    : builtin.name().into(),
+            package : None,
+            version : None,
+
+            props   : builtin.props().into_iter().map(|p| p.into()).collect(),
+            // We don't care for methods anyway
+            methods : vec![],
+        }) {
+            return Err(TestError::PackageDefinesBuiltin{ name: name.as_ref().into(), version: version.clone(), duplicate: old.name });
+        }
+    }
+
+    // Query the user about which of the functions they'd like
+    let index = match Select::with_theme(&ColorfulTheme::default())
         .with_prompt("The function the execute")
         .default(0)
         .items(&function_list[..])
-        .interact()?;
-
+        .interact()
+    {
+        Ok(index) => index,
+        Err(err)  => { return Err(TestError::FunctionQueryError { err }); }
+    };
     let function_name = &function_list[index];
     let function = &functions[function_name];
 
-    let mut arguments = Map::<Value>::new();
+    // Now, with the chosen function, we will collect all of the function's arguments
+    let mut args: Map<FullValue> = Map::new();
     if !function.parameters.is_empty() {
         println!("\nPlease provide input for the chosen function:\n");
         for p in &function.parameters {
-            let data_type = p.data_type.as_str();
-
-            debug!("{:?}", types);
-            let value = if let Some(input_type) = types.get(data_type) {
-                let mut properties = Map::<Value>::new();
-
-                for p in &input_type.properties {
-                    let p = p.clone().into_parameter();
-                    let data_type = p.data_type.as_str();
-
-                    let value = prompt_for_value(data_type, &p)?;
-                    properties.insert(p.name.clone(), value);
-                }
-
-                Value::Struct {
-                    data_type: input_type.name.clone(),
-                    properties,
-                }
-            } else {
-                prompt_for_value(data_type, p)?
-            };
-
-            arguments.insert(p.name.clone(), value);
+            // Prompt for that data type
+            let value: FullValue = prompt_for_param(format!("{} [{}]", p.name, p.data_type), &p.name, DataType::from(&p.data_type), p.optional.unwrap_or(false), None, &types)?;
+            args.insert(p.name.clone(), value);
         }
-
-        debug!("Arguments: {:#?}", arguments);
     }
+    debug!("Arguments: {:#?}", args);
 
+    // Print a newline after all the prompts, and then we return
     println!();
-    Ok((function_name.clone(), arguments))
+    Ok((function_name.clone(), args))
 }
 
-///
-///
-///
-fn prompt_for_value(
-    data_type: &str,
-    p: &Parameter,
-) -> Result<Value> {
-    let value = if let Some(element_data_type) = data_type.strip_suffix("[]") {
-        let mut elements = vec![];
+/// Prompts the user to enter the value for a single function argument.
+/// 
+/// # Arguments
+/// - `what`: The prompt to present the user with.
+/// - `name`: The name of the parameter to query for.
+/// - `data_type`: The DataType to query for.
+/// - `optional`: Whether this parameter is optional or not.
+/// - `default`: If any, the default value to provide the user with.
+/// - `types`: The list of ClassDefs that we use to resolve custom typenames.
+/// 
+/// # Returns
+/// The queried-for value.
+/// 
+/// # Errors
+/// This function errors if querying the user failed.
+fn prompt_for_param(what: impl AsRef<str>, name: impl AsRef<str>, data_type: DataType, optional: bool, default: Option<FullValue>, types: &HashMap<String, ClassDef>) -> Result<FullValue, TestError> {
+    let what: &str = what.as_ref();
+    let name: &str = name.as_ref();
 
-        loop {
-            let mut p = p.clone();
-            p.data_type = format!("{}[{}]", element_data_type, elements.len());
-            elements.push(prompt_for_value(element_data_type, &p)?);
+    // Switch on the expected type to determine which questions to ask
+    use DataType::*;
+    let value: FullValue = match data_type {
+        Boolean => {
+            // Fetch the default value as a bool
+            let default: Option<bool> = default.map(|d| d.bool());
+            // The prompt is what we need
+            FullValue::Boolean(prompt(what, optional, default)?)
+        },
+        Integer => {
+            // Fetch the default value as an int
+            let default: Option<i64> = default.map(|d| d.int());
+            // The prompt is what we need
+            FullValue::Integer(prompt(what, optional, default)?)
+        },
+        Real => {
+            // Fetch the default value as a real
+            let default: Option<f64> = default.map(|d| d.real());
+            // The prompt is what we need
+            FullValue::Real(prompt(what, optional, default)?)
+        },
+        String => {
+            // Fetch the default value as a string
+            let default: Option<std::string::String> = default.map(|d| d.string());
+            // The prompt is what we need
+            FullValue::String(prompt(what, optional, default)?)
+        },
 
-            if !Confirm::new()
-                .with_prompt(format!(
-                    "Do you want to more items to the {} array?",
-                    style(p.name).bold().cyan()
-                ))
-                .interact()?
-            {
-                break;
-            }
-        }
+        Array{ elem_type } => {
+            // If there is a default, we are forced to ask it beforehand.
+            if let Some(default) = default {
+                // Ensure the default has the correct value
+                if default.data_type() != (DataType::Array{ elem_type: elem_type.clone() }) { panic!("{} cannot have a value of type {} as default value", DataType::Array{ elem_type: elem_type.clone() }, default.data_type()); }
 
-        Value::Array {
-            data_type: data_type.to_string(),
-            entries: elements,
-        }
-    } else {
-        match data_type {
-            "boolean" => {
-                let default = p.clone().default.map(|d| d.as_bool().unwrap());
-                Value::Boolean(prompt(p, default)?)
-            }
-            "Directory" | "File" => {
-                let default = p.clone().default.map(|d| d.as_string().unwrap());
-                let url = Value::Unicode(format!("file:///{}", prompt(p, default)?));
-
-                let mut properties = Map::<Value>::default();
-                properties.insert(String::from("url"), url);
-
-                Value::Struct {
-                    data_type: String::from(data_type),
-                    properties,
+                // Prompt the user to use it
+                if match Confirm::new()
+                    .with_prompt(format!("{} has a default value: {}; would you like to use that?", style(name).bold().cyan(), style(format!("{}", default)).bold()))
+                    .interact() {
+                    Ok(use_default) => use_default,
+                    Err(err)        => { return Err(TestError::YesNoQueryError{ err }); },
+                } {
+                    return Ok(default);
                 }
             }
-            "integer" => {
-                let default = p.clone().default.map(|d| d.as_i64().unwrap());
-                Value::Integer(prompt(p, default)?)
-            }
-            "real" => {
-                let default = p.clone().default.map(|d| d.as_f64().unwrap());
-                Value::Real(prompt(p, default)?)
-            }
-            "string" => {
-                let default = p.clone().default.map(|d| d.as_string().unwrap());
-                let value = if p.name.to_lowercase().contains("password") {
-                    prompt_password(p, default)?
-                } else {
-                    prompt(p, default)?
-                };
 
-                Value::Unicode(value)
+            // Add as many elements as the user likes
+            let mut values: Vec<FullValue> = Vec::with_capacity(16);
+            loop {
+                // Query the user
+                let res = prompt_for_param(format!("{} [{}] <element {}>", name, elem_type, values.len()), name, *elem_type.clone(), false, None, types)?;
+                values.push(res);
+
+                // Ask if they want to ask more
+                if !match Confirm::new()
+                    .with_prompt("Add more elements?")
+                    .interact() {
+                    Ok(cont) => cont,
+                    Err(err) => { return Err(TestError::YesNoQueryError{ err }); },
+                } {
+                    break;
+                }
             }
-            _ => {
-                error!("Unreachable, because data type is '{}'", data_type);
-                unreachable!()
+
+            // Done
+            FullValue::Array(values)
+        },
+        Class{ name: c_name } => {
+            // If there is a default, we are forced to ask it beforehand.
+            if let Some(default) = default {
+                // Ensure the default has the correct value
+                if default.data_type() != (DataType::Class{ name: c_name.clone() }) { panic!("{} cannot have a value of type {} as default value", DataType::Class{ name: c_name.clone() }, default.data_type()); }
+
+                // Prompt the user to use it
+                if match Confirm::new()
+                    .with_prompt(format!("{} has a default value: {}; would you like to use that?", style(name).bold().cyan(), style(format!("{}", default)).bold()))
+                    .interact() {
+                    Ok(use_default) => use_default,
+                    Err(err)        => { return Err(TestError::YesNoQueryError{ err }); },
+                } {
+                    return Ok(default);
+                }
             }
-        }
+
+            // Resolve the class
+            let def: &ClassDef = match types.get(&c_name) {
+                Some(def) => def,
+                None      => {  return Err(TestError::UndefinedClass{ name: c_name }); },
+            };
+
+            // Sort the properties of said class alphabetically
+            let mut props: Vec<&VarDef> = def.props.iter().collect();
+            props.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+
+            // Query for them in-order
+            let mut values: HashMap<std::string::String, FullValue> = HashMap::with_capacity(props.len());
+            for p in props {
+                let res = prompt_for_param(format!("{} [{}] <field {}::{}>", name, p.data_type, c_name, p.name), name, p.data_type.clone(), false, None, types)?;
+                values.insert(p.name.clone(), res);
+            }
+
+            // Done
+            FullValue::Instance(c_name, values)
+        },
+        Data | IntermediateResult => {
+            // Collect the local data index
+            let dindex: DataIndex = match get_data_index() {
+                Ok(dindex) => dindex,
+                Err(err)   => { return Err(TestError::DataIndexError { err }); },
+            };
+            let mut items: Vec<std::string::String> = dindex.into_iter().map(|info| info.name).collect();
+            items.sort();
+
+            // Prepare the prompt with beautiful themes and such
+            let colorful = ColorfulTheme::default();
+            let mut prompt = Select::with_theme(&colorful);
+            prompt
+                .items(&items)
+                .with_prompt(what)
+                .default(0usize);
+
+            // Done
+            let res: std::string::String = match prompt.interact_on_opt(&Term::stderr()) {
+                Ok(res)  => res.map(|i| items[i].clone()).unwrap_or(items[0].clone()),
+                Err(err) => { return Err(TestError::ValueQueryError{ res_type: std::any::type_name::<std::string::String>(), err }); },
+            };
+
+            // The prompt is what we need
+            FullValue::Data(res.into())
+        },
+
+        Void => FullValue::Void,
+
+        // The rest we don't do
+        _ => { panic!("Cannot query values for parameter '{}' of type {}", name, data_type); }
     };
 
+    // Done
     Ok(value)
 }
 
-///
-///
-///
-fn prompt<T>(
-    parameter: &Parameter,
-    default: Option<T>,
-) -> std::io::Result<T>
+/// Prompts the user for a value of the given type.
+/// 
+/// # Generic arguments
+/// - `T`: The general type to query for.
+/// 
+/// # Arguments
+/// - `what`: The prompt to present the user with.
+/// - `optional`: Whether this parameter is optional or not.
+/// - `default`: If any, the default value to provide the user with.
+/// 
+/// # Returns
+/// The queried-for result.
+/// 
+/// # Errors
+/// This function errors if we could not query for the given prompt.
+fn prompt<T>(what: impl AsRef<str>, optional: bool, default: Option<T>) -> Result<T, TestError>
 where
     T: Clone + FromStr + Display,
     T::Err: Display + Debug,
 {
+    // Prepare the prompt with beautiful themes and such
     let colorful = ColorfulTheme::default();
     let mut prompt = Prompt::with_theme(&colorful);
     prompt
-        .with_prompt(&format!("{} ({})", parameter.name, parameter.data_type))
-        .allow_empty(parameter.optional.unwrap_or_default());
+        .with_prompt(what.as_ref())
+        .allow_empty(optional);
 
+    // Also add a default if that's given
     if let Some(default) = default {
         prompt.default(default);
     }
 
-    prompt.interact()
-}
-
-///
-///
-///
-fn prompt_password(
-    parameter: &Parameter,
-    _default: Option<String>,
-) -> std::io::Result<String> {
-    let colorful = ColorfulTheme::default();
-    let mut prompt = Password::with_theme(&colorful);
-    prompt
-        .with_prompt(&format!("{} ({})", parameter.name, parameter.data_type))
-        .allow_empty_password(parameter.optional.unwrap_or_default());
-
-    prompt.interact()
-}
-
-///
-///
-///
-fn print_output(value: &Value) {
-    match value {
-        Value::Array { entries, .. } => {
-            println!("{}", style("[").bold().cyan());
-            for entry in entries {
-                println!("   {}", style(entry).bold().cyan());
-            }
-            println!("{}", style("]").bold().cyan());
-        }
-        Value::Boolean(boolean) => println!("{}", style(boolean).bold().cyan()),
-        Value::Integer(integer) => println!("{}", style(integer).bold().cyan()),
-        Value::Real(real) => println!("{}", style(real).bold().cyan()),
-        Value::Unicode(unicode) => println!("{}", style(unicode).bold().cyan()),
-        Value::Unit => println!("_ (unit)"),
-        Value::Pointer { .. } => unreachable!(),
-        Value::Struct { properties, .. } => {
-            for (name, value) in properties.iter() {
-                println!("{}:", style(name).bold().cyan());
-                println!("{}\n", style(value).cyan());
-            }
-        }
-        Value::Function(_) => println!("TODO function."),
-        Value::FunctionExt(_) => println!("TODO FunctionExt."),
-        Value::Class(_) => println!("TODO class."),
+    // Alright hit it
+    match prompt.interact() {
+        Ok(res)  => Ok(res),
+        Err(err) => Err(TestError::ValueQueryError{ res_type: std::any::type_name::<T>(), err }),
     }
 }
 
-///
-///
-///
-fn decode_b64<T>(input: String) -> Result<T>
-where
-    T: DeserializeOwned,
-{
-    let input =
-        base64::decode(input).with_context(|| "Decoding failed, encoded input doesn't seem to be Base64 encoded.")?;
 
-    let input = String::from_utf8(input[..].to_vec())
-        .with_context(|| "Conversion failed, decoded input doesn't seem to be UTF-8 encoded.")?;
 
-    serde_json::from_str(&input)
-        .with_context(|| "Deserialization failed, decoded input doesn't seem to be as expected.")
+/// Writes the given FullValue to a string in such a way that it's valid BraneScript.
+/// 
+/// # Arguments
+/// - `value`: The FullValue to write.
+/// 
+/// # Returns
+/// The string that may be written to, say, phony workflow files.
+fn write_value(value: FullValue) -> String {
+    match value {
+        FullValue::Array(values) => {
+            // Write them all in an array
+            format!("[ {} ]", values.into_iter().map(|v| write_value(v)).collect::<Vec<String>>().join(", "))
+        },
+        FullValue::Instance(name, props) => {
+            // Write them all in an instance expression
+            format!("new {}{{ {} }}", name, props.into_iter().map(|(n, v)| format!("{} := {}", n, v)).collect::<Vec<String>>().join(", "))
+        },
+        FullValue::Data(name) => {
+            // Write it as a new Data declaration
+            format!("new Data{{ name := \"{}\" }}", name)
+        },
+        FullValue::IntermediateResult(name) => {
+            // Also write it as a new Data declaration
+            format!("new Data{{ name := \"{}\" }}", name)
+        },
+
+        FullValue::Boolean(value) => if value { "true".into() } else { "false".into() },
+        FullValue::Integer(value) => format!("{}", value),
+        FullValue::Real(value)    => format!("{}", value),
+        FullValue::String(value)  => format!("\"{}\"", value.replace("\\", "\\\\").replace("\"", "\\\"")),
+
+        FullValue::Void => String::new(),
+    }
+}
+
+
+
+
+
+/***** LIBRARY *****/
+/// Handles the `brane test`-command.
+/// 
+/// # Arguments
+/// - `name`: The name of the package to test.
+/// - `version`: The version of the package to test.
+/// - `show_result`: Whether or not to `cat` the resulting file if any.
+/// 
+/// # Returns
+/// Nothing, but does do a whole dance of querying the user and executing a package based on that.
+/// 
+/// # Errors
+/// This function errors if any part of that dance failed.
+pub async fn handle(name: impl Into<String>, version: Version, show_result: Option<PathBuf>) -> Result<(), TestError> {
+    let name: String = name.into();
+
+    // Read the package info of the given package
+    let package_dir = match ensure_package_dir(&name, Some(&version), false) {
+        Ok(dir)  => dir,
+        Err(err) => { return Err(TestError::PackageDirError{ name, version, err }); }
+    };
+    let package_info = match PackageInfo::from_path(package_dir.join("package.yml")) {
+        Ok(info) => info,
+        Err(err) => { return Err(TestError::PackageInfoError{ name, version, err }); }
+    };
+
+    // Run the test for this info
+    let output: FullValue = test_generic(package_info, show_result).await?;
+
+    // Print it, done
+    println!("Result: {} [{}]", style(format!("{}", output)).bold().cyan(), style(format!("{}", output.data_type())).bold());
+    Ok(())
+}
+
+
+
+/// Tests the package in the given PackageInfo.
+/// 
+/// # Arguments
+/// - `info`: The PackageInfo that describes the package to test.
+/// - `show_result`: Whether or not to `cat` the resulting file if any.
+/// 
+/// # Returns
+/// The value of the chosen function in that package (which may be Void this time).
+pub async fn test_generic(info: PackageInfo, show_result: Option<PathBuf>) -> Result<FullValue, TestError> {
+    // Query the user what they'd like to do (we quickly convert the common Type to a ClassDef)
+    let (function, mut args) = prompt_for_input(&info.name, &info.version, &info.functions, info.types.iter().map(|(n, t)| (n.clone(), ClassDef {
+        name    : t.name.clone(),
+        package : Some(info.name.clone()),
+        version : Some(info.version.clone()),
+
+        props   : t.properties.iter().map(|p| VarDef {
+            name      : p.name.clone(),
+            data_type : DataType::from(&p.data_type),
+        }).collect(),
+        methods : vec![],
+    })).collect())?;
+
+    // Build a phony workflow with that
+    let workflow: String = format!("import {}[{}]; return {}({});",
+        info.name, info.version,
+        function,
+        // We iterate over the function arguments to resolve them in the args
+        info.functions.get(&function).unwrap().parameters.iter().map(|p| {
+            write_value(args.remove(&p.name).unwrap())
+        }).collect::<Vec<String>>().join(", "),
+    );
+
+    // We run it by spinning up an offline VM
+    let mut state: OfflineVmState = match initialize_offline_vm(ParserOptions::bscript()) {
+        Ok(state) => state,
+        Err(err)  => { return Err(TestError::InitializeError{ err }); },
+    };
+    let result: FullValue = match run_offline_vm(&mut state, "<test task>", workflow).await {
+        Ok(result) => result,
+        Err(err)   => { return Err(TestError::RunError{ err }); },
+    };
+
+    // Write the intermediate result if told to do so
+    if let Some(file) = show_result {
+        if let FullValue::IntermediateResult(name) = &result {
+            let name: String = name.into();
+
+            // Write the result
+            println!();
+            println!("{}", (0..80).map(|_| '-').collect::<String>());
+            println!("Contents of intermediate result '{}':", name);
+            let path: PathBuf = state.results_dir.path().join(name).join(file);
+            let contents: String = match fs::read_to_string(&path) {
+                Ok(contents) => contents,
+                Err(err)     => { return Err(TestError::IntermediateResultFileReadError{ path, err }); },
+            };
+            if !contents.is_empty() { println!("{}", contents); }
+            println!("{}", (0..80).map(|_| '-').collect::<String>());
+            println!();
+        }
+    }
+
+    // Return the result
+    Ok(result)
 }

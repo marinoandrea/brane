@@ -2,19 +2,43 @@
 
 All notable changes to the Brane framework will be documented in this file.
 
-## [0.6.4] - 2022-07-05
+## [0.7.0] - 2022-11-13
+This release basically sees the release of an entirely rebuilt framework. Expect to find bugs and change of how you worked with it (especially as administrator).
+
 ### Added
 - Extra example code that implements more advanced filesystem features, which may be used to inspect the shared `/data` partition at runtime.
+- `brane data ...` subcommand to manage local datasets.
+- `brane-ast` crate, which provides compiler methods for transforming the BraneScript/Bakery AST to the workflow representation (see below).
+- `brane-exe` crate, which replaces `brane-bvm` to execute the workflow representation (see below).
+- `brane-tsk` crate, which collects much of the logic in `brane-plr` and `brane-job` into a new crate that builds upon `brane-exe` to execute tasks on either offline or distributed backends (see below).
+- `brane-reg` service, that is a domain-local registry of datasets (and, in the future, packages).
+- TLS to data transfers. This means that setting up a domain is now marginally more complex, since certificates have to be generated.
+- `unpack` as a new section in `container.yml` files, which replaces the semantics of the old `install` section (see below).
+- `contrib/scripts/create_certs.sh` to generate scripts in the format that Brane wants.
+- `start-central-instance.sh` and `start-worker-instance.sh` as alternative startup scripts that don't do compilation but just run already compiled images.
+- Lots of BraneScript example/test files, which may be useful for understanding the language. Check `tests/branescript`.
 
 ### Changed
+- The way that scripts are compiled. Instead of bytecode, the system now compiles to so-called Workflows, which is like bytecode but ordered in such a way that control flow information is preserved.
+- The way data is handled. Instead of a shared filesystem, there are now specialized `Data` structs that live on a certain domain and are automatically transferred. There are also `IntermediateResults` that represent results within a workflow.
 - `make.sh` into `make.py`, which is completely re-designed to be more managable and complex (especially w.r.t. deciding if recompilation is necessary or not).
-- `brane push`, `brane pull` and `brane remove` to accept multiple commands.
+- `brane push`, `brane pull` and `brane remove` to accept multiple packages to push, pull or remove respectively.
 - `specifications::version::Version` to be able to parse a given `<name>:<version>` pair (which will likely be the default way of entering versions from now on).
+- `docker-compose-*.yml` and `make.py` to make an explicit difference between a centralized, general control node and a domain-local worker node.
+- `brane-api` now needs to have knowledge about the infrastructure too (i.e., be provided with the `infra.yml` file).
+- `brane-job` to now explicitly live on a domain instead of the central node.
+- the semantics of the `install` section in `container.yml` files: now, the commands are processed _before_ the workspace is copied over instead of after in order to be much nicer to Docker caching. To emulate the old behaviour, use the new `unpack` section (see above).
 
 ### Fixed
 - `brane-api` not accepting 'latest' when pulling packages
-- the `brane` CLI failing to run a pulled package.
-- keywords in BraneScript being parsed as such when part of an identifier (i.e., 'new_a' would error because of 'new').
+- The `brane` CLI failing to run a pulled package.
+- Keywords in BraneScript being parsed as such when part of an identifier (i.e., 'new_a' would error because of 'new').
+- Lockfiles not always being removed during builds (especially things like interruptions).
+- Other BraneScript issues.
+
+### Known bugs
+- The framework cannot currently connect to domains that are accessed by IP instead of hostname (resulting in TLS errors; check [this issue](https://github.com/seanmonstar/reqwest/issues/1328)).
+- The lock file is not _always_ always removed; more work is necessary.
 
 ## [0.6.3] - 2022-05-31
 ### Added

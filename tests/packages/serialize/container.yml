@@ -1,0 +1,133 @@
+# CONTAINER.yml
+#   by Tim Müller
+#
+# This file implements a simple test package that has functions for serializing
+# any BraneScript type.
+#
+
+
+# Define the file metadata
+name: serialize
+version: 1.0.0
+kind: ecu
+
+# Specify the files that are part of the package. All entries will be resolved to relative to the container.yml file (by default)
+files:
+- serialize.py
+
+# Define the entrypoint: i.e., which file to call when the package function(s) are run
+entrypoint:
+  kind: task
+  exec: serialize.py
+
+# Define the dependencies (as Ubuntu packages)
+dependencies:
+- python3
+
+# Define the classes that this package uses
+types:
+  'Jedi':
+    name: Jedi
+    properties:
+    - name: name
+      type: string
+    - name: is_master
+      type: bool
+    - name: lightsaber_colour
+      type: string
+
+# Define the functions in this package
+actions:
+  # Primitives
+  'serialize_bool':
+    command:
+    input:
+    - name: input
+      type: bool
+    output:
+    - type: string
+      name: output
+  'serialize_int':
+    command:
+    input:
+    - name: input
+      type: int
+    output:
+    - type: string
+      name: output
+  'serialize_real':
+    command:
+    input:
+    - name: input
+      type: real
+    output:
+    - type: string
+      name: output
+  'serialize_string':
+    command:
+    input:
+    - name: input
+      type: string
+    output:
+    - type: string
+      name: output
+
+  # Arrays (one for every type + a nested one)
+  'serialize_array_bool':
+    command:
+    input:
+    - name: input
+      type: bool[]
+    output:
+    - type: string
+      name: output
+  'serialize_array_int':
+    command:
+    input:
+    - name: input
+      type: int[]
+    output:
+    - type: string
+      name: output
+  'serialize_array_real':
+    command:
+    input:
+    - name: input
+      type: real[]
+    output:
+    - type: string
+      name: output
+  'serialize_array_string':
+    command:
+    input:
+    - name: input
+      type: string[]
+    output:
+    - type: string
+      name: output
+  'serialize_array_array_int':
+    command:
+    input:
+    - name: input
+      type: int[][]
+    output:
+    - name: output
+      type: string
+
+  # Classes (one builtin and one local)
+  'serialize_data':
+    command:
+    input:
+    - name: input
+      type: Data
+    output:
+    - name: output
+      type: string
+  'serialize_jedi':
+    command:
+    input:
+    - name: input
+      type: Jedi
+    output:
+    - name: output
+      type: string
