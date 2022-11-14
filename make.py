@@ -5,7 +5,7 @@
 # Created:
 #   09 Jun 2022, 12:20:28
 # Last edited:
-#   27 Oct 2022, 16:18:18
+#   14 Nov 2022, 11:35:07
 # Auto updated?
 #   Yes
 #
@@ -3141,6 +3141,15 @@ for svc in instance_srcs:
 
 # A list of all targets in the make file.
 targets = {
+    "test" : ShellTarget("test",
+        [
+            ShellCommand("cargo", "test", "--all-targets", "--all-features"),
+            ShellCommand("cargo", "clippy", "--all-targets", "--all-features", "--", "-D", "warnings"),
+        ],
+    ),
+
+
+
     "build-image" : ImageTarget("build-image",
         "./contrib/images/Dockerfile.build", "./target/debug/build.tar",
         description="Builds the image in which some of the Brane components are build."
