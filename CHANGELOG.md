@@ -17,7 +17,7 @@ This release basically sees the release of an entirely rebuilt framework. Expect
 - TLS to data transfers. This means that setting up a domain is now marginally more complex, since certificates have to be generated.
 - `unpack` as a new section in `container.yml` files, which replaces the semantics of the old `install` section (see below).
 - `contrib/scripts/create_certs.sh` to generate scripts in the format that Brane wants.
-- `start-central-instance.sh` and `start-worker-instance.sh` as alternative startup scripts that don't do compilation but just run already compiled images.
+- `start.py` as alternative startup scripts that don't do compilation but just run already compiled images. As a consequence, `make.py` no longer offers 'start-instance' (see below).
 - Lots of BraneScript example/test files, which may be useful for understanding the language. Check `tests/branescript`.
 
 ### Changed

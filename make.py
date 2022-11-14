@@ -5,7 +5,7 @@
 # Created:
 #   09 Jun 2022, 12:20:28
 # Last edited:
-#   14 Nov 2022, 13:31:42
+#   14 Nov 2022, 17:36:54
 # Auto updated?
 #   Yes
 #
@@ -3265,66 +3265,8 @@ targets = {
         },
         description="Installs a worker node of a Brane instance by loading the compiled or downloaded images into the local Docker engine."
     ),
-
-
-
-    "ensure-docker-network": ShellTarget("ensure-docker-network",
-        [
-            ShellCommand("bash", "-c", "if [[ ! -n \"$(docker network ls -f name=brane | grep brane)\" ]]; then docker network create brane; else echo \"Docker network 'brane' already exists\"; fi", description="Ensuring Docker network 'brane' exists..."),
-        ],
-        description="Ensures that a 'brane' network exists.",
-    ),
-    "ensure-instance-configuration": ShellTarget("ensure-instance-configuration",
-        [
-            # Ensure the infra.yml exists, and error if it doesn't
-            ShellCommand("bash", "-c", "if [[ -f ./config/infra.yml ]]; then echo \"'./config/infra.yml' exists\"; else echo \"Missing './config/infra.yml'; provide one before running the Brane instance\" >&2; exit 1; fi", description="Ensuring infra.yml exists..."),
-            # Ensure the secrets.yml exists, and generate an empty one if it doesn't
-            ShellCommand("bash", "-c", "if [[ -f ./config/secrets.yml ]]; then echo \"'./config/secrets.yml' exists\"; else touch ./config/secrets.yml; echo \"Generated empty './config/secrets.yml'\"; fi", description="Ensuring secrets.yml exists..."),
-        ],
-        description="Ensures that the necessary configuration files exist for the central part of an instance.",
-    ),
-    "ensure-worker-configuration": ShellTarget("ensure-worker-configuration",
-        [
-            # Ensure the infra.yml exists, and error if it doesn't
-            ShellCommand("bash", "-c", "if [[ -f ./config/store.yml ]]; then echo \"'./config/store.yml' exists\"; else touch ./config/store.yml; echo \"Generated empty './config/store.yml'\"; fi", description="Ensuring store.yml exists..."),
-        ],
-        description="Ensures that the necessary configuration files exist for a worker node.",
-    ),
-
-
-
-    "start-instance": ShellTarget("start-instance",
-        [
-            ShellCommand("bash", "-c", "COMPOSE_IGNORE_ORPHANS=1 docker-compose -p brane-central -f docker-compose-central.yml up -d"),
-        ],
-        deps=[ "install-instance", "ensure-docker-network", "ensure-instance-configuration" ],
-        description="Starts the instance by running the compose file. Use 'stop-instance' to stop it again.",
-    ),
-    "stop-instance": ShellTarget("stop-instance",
-        [
-            ShellCommand("bash", "-c", "COMPOSE_IGNORE_ORPHANS=1 docker-compose -p brane-central -f docker-compose-central.yml down"),
-        ],
-        deps=[],
-        description="Stops the instance by running the compose file. Does nothing if 'start-instance' was not run.",
-    ),
-
-
-
-    "start-worker-instance": ShellTarget("start-worker-instance",
-        [
-            ShellCommand("bash", "-c", "COMPOSE_IGNORE_ORPHANS=1 docker-compose -p brane-worker -f docker-compose-worker.yml up -d"),
-        ],
-        deps=[ "install-worker-instance", "ensure-docker-network", "ensure-worker-configuration" ],
-        description="Starts the part of a Brane instance that runs on a local domain (i.e., a worker node). Use 'stop-worker-instance' to stop it again.",
-    ),
-    "stop-worker-instance": ShellTarget("stop-worker-instance",
-        [
-            ShellCommand("bash", "-c", "COMPOSE_IGNORE_ORPHANS=1 docker-compose -p brane-worker -f docker-compose-worker.yml down"),
-        ],
-        deps=[],
-        description="Stops the worker node by running the compose file. Does nothing if 'start-worker-instance' was not run.",
-    ),
 }
+
 # Generate some really repetitive entries
 for svc in CENTRAL_SERVICES + WORKER_SERVICES:
     # Generate the service binary targets
