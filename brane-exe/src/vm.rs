@@ -4,7 +4,7 @@
 //  Created:
 //    12 Sep 2022, 17:41:33
 //  Last edited:
-//    03 Nov 2022, 09:54:12
+//    14 Nov 2022, 11:50:36
 //  Auto updated?
 //    Yes
 // 
@@ -28,8 +28,6 @@ use crate::thread::Thread;
 /***** TESTS *****/
 #[cfg(test)]
 pub mod tests {
-    use log::LevelFilter;
-    use simplelog::{ColorChoice, TerminalMode, TermLogger};
     use brane_ast::{compile_snippet, CompileResult, ParserOptions};
     use brane_ast::state::CompileState;
     use brane_ast::traversals::print::ast;
@@ -45,7 +43,8 @@ pub mod tests {
     #[tokio::test]
     async fn test_snippets() {
         // Setup the simple logger
-        if let Err(err) = TermLogger::init(LevelFilter::Debug, Default::default(), TerminalMode::Mixed, ColorChoice::Auto) {
+        #[cfg(feature = "test_logging")]
+        if let Err(err) = simplelog::TermLogger::init(log::LevelFilter::Debug, Default::default(), simplelog::TerminalMode::Mixed, simplelog::ColorChoice::Auto) {
             eprintln!("WARNING: Failed to setup logger: {} (no logging for this session)", err);
         }
 
@@ -66,7 +65,7 @@ pub mod tests {
                 let mut source: String = String::new();
                 let mut state: CompileState = CompileState::new();
                 let vm: Arc<RwLock<DummyVm>> = Arc::new(RwLock::new(DummyVm::new()));
-                let mut iter = code.split("\n");
+                let mut iter = code.split('\n');
                 for (offset, l) in SnippetFetcher::new(|| { Ok(iter.next().map(|l| l.into())) }) {
                     // Append the source (for errors only)
                     source.push_str(&l);

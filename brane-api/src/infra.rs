@@ -4,7 +4,7 @@
 //  Created:
 //    02 Nov 2022, 16:21:33
 //  Last edited:
-//    03 Nov 2022, 11:56:17
+//    14 Nov 2022, 09:52:38
 //  Auto updated?
 //    Yes
 // 
@@ -43,7 +43,7 @@ pub async fn registries(context: Context) -> Result<impl Reply, Rejection> {
     let infra: InfraFile = match InfraFile::from_path(&context.infra) {
         Ok(infra) => infra,
         Err(err)  => {
-            error!("{}", Error::InfrastructureOpenError{ path: context.infra.infra.clone(), err });
+            error!("{}", Error::InfrastructureOpenError{ path: context.infra.infra, err });
             return Err(warp::reject::custom(Error::SecretError));
         },
     };
@@ -95,7 +95,7 @@ pub async fn get_registry(loc: String, context: Context) -> Result<impl Reply, R
     let infra: InfraFile = match InfraFile::from_path(&context.infra) {
         Ok(infra) => infra,
         Err(err)  => {
-            error!("{}", Error::InfrastructureOpenError{ path: context.infra.infra.clone(), err });
+            error!("{}", Error::InfrastructureOpenError{ path: context.infra.infra, err });
             return Err(warp::reject::custom(Error::SecretError));
         },
     };

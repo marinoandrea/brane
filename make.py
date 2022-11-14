@@ -5,7 +5,7 @@
 # Created:
 #   09 Jun 2022, 12:20:28
 # Last edited:
-#   27 Oct 2022, 16:18:18
+#   14 Nov 2022, 13:31:42
 # Auto updated?
 #   Yes
 #
@@ -3141,6 +3141,25 @@ for svc in instance_srcs:
 
 # A list of all targets in the make file.
 targets = {
+    "test-units"  : ShellTarget("test-units",
+        [ ShellCommand("cargo", "test", "--all-targets", "--all-features") ],
+        description="Runs tests on the project by running the unit tests.",
+    ),
+    "test-clippy" : ShellTarget("test-clippy",
+        [ ShellCommand("cargo", "clippy", "--all-targets", "--all-features", "--", "--allow", "clippy::manual_range_contains") ],
+        description="Runs tests on the project by running the clippy linter.",
+    ),
+    "test-security" : ShellTarget("test-security",
+        [ ShellCommand("cargo", "audit") ],
+        description="Runs tests on the project by running the clippy linter.",
+    ),
+    "test" : VoidTarget("test",
+        deps=[ "test-units", "test-clippy" ],
+        description="Runs tests on the project by running both the unit tests and the clippy linter.",
+    ),
+
+
+
     "build-image" : ImageTarget("build-image",
         "./contrib/images/Dockerfile.build", "./target/debug/build.tar",
         description="Builds the image in which some of the Brane components are build."

@@ -4,7 +4,7 @@
 //  Created:
 //    26 Aug 2022, 15:44:19
 //  Last edited:
-//    06 Sep 2022, 09:24:36
+//    14 Nov 2022, 10:00:31
 //  Auto updated?
 //    Yes
 // 
@@ -80,7 +80,7 @@ impl AllowedLocations {
         match self {
             All                  => { mem::swap(self, other); },
             Exclusive(self_locs) => {
-                match other.as_ref() {
+                match other {
                     All                   => {},
                     Exclusive(other_locs) => {
                         // Take the self_locs
@@ -105,11 +105,11 @@ impl AllowedLocations {
 
     /// Returns whether all locations are allowed right now.
     #[inline]
-    pub fn is_all(&self) -> bool { if let AllowedLocations::All = self { true } else { false } }
+    pub fn is_all(&self) -> bool { matches!(self, AllowedLocations::All) }
 
     /// Returns whether only specific locations are allowed right now.
     #[inline]
-    pub fn is_exclusive(&self) -> bool { if let AllowedLocations::Exclusive(_) = self { true } else { false } }
+    pub fn is_exclusive(&self) -> bool { matches!(self, AllowedLocations::Exclusive(_)) }
 
     /// Returns whether _no_ location is still allowed right now.
     #[inline]

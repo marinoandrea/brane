@@ -4,7 +4,7 @@
 //  Created:
 //    04 Oct 2022, 11:31:26
 //  Last edited:
-//    18 Oct 2022, 14:14:27
+//    14 Nov 2022, 09:42:11
 //  Auto updated?
 //    Yes
 // 
@@ -65,7 +65,7 @@ pub struct SecretsFile {
 /// 
 /// # Errors
 /// This function may error if we could not read or parse the secrets file, or if we could not find a secret with the appropriate ID / field.
-pub fn resolve_secrets(locs: &mut HashMap<String, InfraLocation>, path: impl AsRef<Path>) -> Result<(), Error> {
+pub fn resolve_secrets(_locs: &mut HashMap<String, InfraLocation>, path: impl AsRef<Path>) -> Result<(), Error> {
     let path : &Path = path.as_ref();
 
     // Get the secrets file, but allow for it not being there
@@ -91,10 +91,10 @@ pub fn resolve_secrets(locs: &mut HashMap<String, InfraLocation>, path: impl AsR
         }
     };
 
-    // Now iterate over the locations to find the secrets
-    for (_name, _loc) in locs {
-        /* TBD */
-    }
+    // // Now iterate over the locations to find the secrets
+    // for (_name, _loc) in locs {
+    //     /* TBD */
+    // }
 
     // Done
     Ok(())

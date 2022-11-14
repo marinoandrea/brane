@@ -4,7 +4,7 @@
 //  Created:
 //    19 Sep 2022, 14:57:17
 //  Last edited:
-//    06 Nov 2022, 18:31:18
+//    14 Nov 2022, 10:53:30
 //  Auto updated?
 //    Yes
 // 
@@ -199,12 +199,10 @@ fn preprocess_arg(data_dir: Option<impl AsRef<Path>>, results_dir: impl AsRef<Pa
             // If this is an intermediate result, patch the path with the results directory
             let src_dir: PathBuf = if data_name.is_intermediate_result() {
                 results_dir.join(path)
+            } else if let Some(data_dir) = data_dir {
+                data_dir.join(data_name.name()).join(path)
             } else {
-                if let Some(data_dir) = data_dir {
-                    data_dir.join(data_name.name()).join(path)
-                } else {
-                    path.clone()
-                }
+                path.clone()
             };
 
             // Generate the container path
@@ -317,7 +315,7 @@ async fn create_and_start_container(docker: &Docker, info: &ExecuteInfo) -> Resu
 /// This function may error for many reasons, which usually means that the container is unknown or the Docker engine is unreachable.
 async fn join_container(docker: &Docker, name: &str, keep_container: bool) -> Result<(i32, String, String), Error> {
     // Wait for the container to complete
-    if let Err(reason) = docker.wait_container(&name, None::<WaitContainerOptions<String>>).try_collect::<Vec<_>>().await {
+    if let Err(reason) = docker.wait_container(name, None::<WaitContainerOptions<String>>).try_collect::<Vec<_>>().await {
         return Err(Error::WaitError{ name: name.into(), err: reason });
     }
 
@@ -327,7 +325,7 @@ async fn join_container(docker: &Docker, name: &str, keep_container: bool) -> Re
         stderr: true,
         ..Default::default()
     });
-    let log_outputs = match docker.logs(&name, logs_options).try_collect::<Vec<LogOutput>>().await {
+    let log_outputs = match docker.logs(name, logs_options).try_collect::<Vec<LogOutput>>().await {
         Ok(out)     => out,
         Err(reason) => { return Err(Error::LogsError{ name: name.into(), err: reason }); }
     };
@@ -344,10 +342,10 @@ async fn join_container(docker: &Docker, name: &str, keep_container: bool) -> Re
     }
 
     // Get the container's exit status by inspecting it
-    let code = returncode_container(&docker, &name).await?;
+    let code = returncode_container(docker, name).await?;
 
     // Don't leave behind any waste: remove container (but only if told to do so!)
-    if !keep_container { remove_container(&docker, &name).await?; }
+    if !keep_container { remove_container(docker, name).await?; }
 
     // Return the return data of this container!
     Ok((code, stdout, stderr))
@@ -579,7 +577,7 @@ pub async fn join(name: impl AsRef<str>, path: impl AsRef<str>, version: ClientV
     };
 
     // And now wait for it
-    join_container(&docker, &name, keep_container).await
+    join_container(&docker, name, keep_container).await
 }
 
 /// Launches the given container and waits until its completed.
@@ -600,7 +598,7 @@ pub async fn run_and_wait(exec: ExecuteInfo, keep_container: bool) -> Result<(i3
     // Connect to docker
     let docker = match Docker::connect_with_local_defaults() {
         Ok(res)     => res,
-        Err(reason) => { return Err(Error::ConnectionError{ path: "/var/run/docker.sock".into(), version: API_DEFAULT_VERSION.clone(), err: reason }); }
+        Err(reason) => { return Err(Error::ConnectionError{ path: "/var/run/docker.sock".into(), version: *API_DEFAULT_VERSION, err: reason }); }
     };
 
     // Either import or pull image, if not already present
@@ -628,7 +626,7 @@ pub async fn get_container_address(name: impl AsRef<str>) -> Result<String, Erro
     // Try to connect to the local instance
     let docker = match Docker::connect_with_local_defaults() {
         Ok(conn)    => conn,
-        Err(reason) => { return Err(Error::ConnectionError{ path: "/var/run/docker.sock".into(), version: API_DEFAULT_VERSION.clone(), err: reason }); }
+        Err(reason) => { return Err(Error::ConnectionError{ path: "/var/run/docker.sock".into(), version: *API_DEFAULT_VERSION, err: reason }); }
     };
 
     // Try to inspect the container in question
@@ -669,7 +667,7 @@ pub async fn remove_image(image: &Image) -> Result<(), Error> {
     // Try to connect to the local instance
     let docker = match Docker::connect_with_local_defaults() {
         Ok(conn)    => conn,
-        Err(reason) => { return Err(Error::ConnectionError{ path: "/var/run/docker.sock".into(), version: API_DEFAULT_VERSION.clone(), err: reason }); }
+        Err(reason) => { return Err(Error::ConnectionError{ path: "/var/run/docker.sock".into(), version: *API_DEFAULT_VERSION, err: reason }); }
     };
 
     // Check if the image still exists

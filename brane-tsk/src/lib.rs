@@ -4,7 +4,7 @@
 //  Created:
 //    24 Oct 2022, 15:26:59
 //  Last edited:
-//    09 Nov 2022, 10:04:02
+//    14 Nov 2022, 11:01:20
 //  Auto updated?
 //    Yes
 // 
@@ -24,6 +24,7 @@ pub mod offline;
 pub mod instance;
 
 // The grpc module is a bit special
+#[allow(clippy::all)]
 pub mod grpc {
     tonic::include_proto!("driver");
     tonic::include_proto!("job");

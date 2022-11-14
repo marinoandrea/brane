@@ -4,7 +4,7 @@
 //  Created:
 //    14 Sep 2022, 11:32:04
 //  Last edited:
-//    21 Sep 2022, 14:45:53
+//    14 Nov 2022, 10:35:24
 //  Auto updated?
 //    Yes
 // 
@@ -24,6 +24,7 @@ use brane_dsl::TextPos;
 /// Iterator that will progressively get new lines until a parseable snippet has been reached.
 pub struct SnippetFetcher<'a> {
     /// A closure we use to get new lines.
+    #[allow(clippy::type_complexity)]
     pub get_line : Box<dyn 'a + FnMut() -> Result<Option<String>, Box<dyn Error>>>,
 }
 

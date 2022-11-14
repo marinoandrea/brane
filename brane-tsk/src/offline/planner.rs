@@ -4,7 +4,7 @@
 //  Created:
 //    24 Oct 2022, 16:40:21
 //  Last edited:
-//    27 Oct 2022, 15:44:26
+//    14 Nov 2022, 10:54:39
 //  Auto updated?
 //    Yes
 // 
@@ -41,7 +41,7 @@ use crate::spec::{self, LOCALHOST};
 /// 
 /// # Errors
 /// This function may error if the given list of edges was malformed (usually due to unknown or inaccessible datasets or results).
-fn plan_edges(table: &mut SymTable, edges: &mut Vec<Edge>, dindex: &Arc<DataIndex>) -> Result<(), PlanError> {
+fn plan_edges(table: &mut SymTable, edges: &mut [Edge], dindex: &Arc<DataIndex>) -> Result<(), PlanError> {
     for (i, e) in edges.iter_mut().enumerate() {
         if let Edge::Node{ task, at, input, result, .. } = e {
             debug!("Planning task '{}' (edge {})...", table.tasks[*task].name(), i);

@@ -4,7 +4,7 @@
 //  Created:
 //    26 Aug 2022, 18:34:47
 //  Last edited:
-//    12 Sep 2022, 14:37:00
+//    14 Nov 2022, 10:40:58
 //  Auto updated?
 //    Yes
 // 
@@ -35,15 +35,15 @@ pub enum StackSlot {
 impl StackSlot {
     /// Returns whether this StackSlot is a value or not.
     #[inline]
-    fn is_value(&self) -> bool { if let Self::Value(_) = self { true } else { false } }
+    fn is_value(&self) -> bool { matches!(self, Self::Value(_)) }
 
     /// Returns whether this StackSlot is a pop marker or not.
     #[inline]
-    fn is_pop_marker(&self) -> bool { if let Self::PopMarker = self { true } else { false } }
+    fn is_pop_marker(&self) -> bool { matches!(self, Self::PopMarker) }
 
     /// If this StackSlot is a value, returns a copy of it. Panics otherwise.
     #[inline]
-    fn to_value(self) -> Value { if let Self::Value(value) = self { value } else { panic!("Cannot get '{:?}' as a Value", self); } }
+    fn into_value(self) -> Value { if let Self::Value(value) = self { value } else { panic!("Cannot get '{:?}' as a Value", self); } }
 
     /// If this StackSlot is a value, returns a reference to it. Panics otherwise.
     #[inline]
@@ -127,11 +127,11 @@ impl StackSlice {
 
     /// Returns a reference-iterator for the slice.
     #[inline]
-    pub fn iter<'a>(&'a mut self) -> impl 'a + Iterator<Item = &'a Value> { self.slots.iter().filter_map(|s: &StackSlot| if s.is_value() { Some(s.as_value()) } else { None }) }
+    pub fn iter(&mut self) -> impl Iterator<Item = &Value> { self.slots.iter().filter_map(|s: &StackSlot| if s.is_value() { Some(s.as_value()) } else { None }) }
 
     /// Returns a muteable reference-iterator for the slice.
     #[inline]
-    pub fn iter_mut<'a>(&'a mut self) -> impl 'a + Iterator<Item = &'a mut Value> { self.slots.iter_mut().filter_map(|s: &mut StackSlot| if s.is_value() { Some(s.as_value_mut()) } else { None }) }
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Value> { self.slots.iter_mut().filter_map(|s: &mut StackSlot| if s.is_value() { Some(s.as_value_mut()) } else { None }) }
 }
 
 impl Index<usize> for StackSlice {
@@ -159,7 +159,7 @@ impl Index<RangeTo<usize>> for StackSlice {
 
     fn index(&self, index: RangeTo<usize>) -> &Self::Output {
         // If empty, we can always early quit
-        if self.slots.len() == 0 { return unsafe { Self::from_slots_unchecked(&[]) } }
+        if self.slots.is_empty() { return unsafe { Self::from_slots_unchecked(&[]) } }
         // Otherwise, bound the end if necessary
         let end: usize = if index.end <= self.slots.len() { index.end } else { self.slots.len() };
         // Return the proper slice part
@@ -204,7 +204,7 @@ impl Index<RangeToInclusive<usize>> for StackSlice {
 
     fn index(&self, index: RangeToInclusive<usize>) -> &Self::Output {
         // If empty, we can always early quit
-        if self.slots.len() == 0 { return unsafe { Self::from_slots_unchecked(&[]) } }
+        if self.slots.is_empty() { return unsafe { Self::from_slots_unchecked(&[]) } }
         // Otherwise, bound the end if necessary
         let end: usize = if index.end < self.slots.len() { index.end + 1 } else { self.slots.len() };
         // Return the proper slice part
@@ -231,7 +231,7 @@ impl IndexMut<Range<usize>> for StackSlice {
 impl IndexMut<RangeTo<usize>> for StackSlice {
     fn index_mut(&mut self, index: RangeTo<usize>) -> &mut Self::Output {
         // If empty, we can always early quit
-        if self.slots.len() == 0 { return unsafe { Self::from_slots_unchecked_mut(&mut []) } }
+        if self.slots.is_empty() { return unsafe { Self::from_slots_unchecked_mut(&mut []) } }
         // Otherwise, bound the end if necessary
         let end: usize = if index.end <= self.slots.len() { index.end } else { self.slots.len() };
         // Return the proper slice part
@@ -268,7 +268,7 @@ impl IndexMut<RangeInclusive<usize>> for StackSlice {
 impl IndexMut<RangeToInclusive<usize>> for StackSlice {
     fn index_mut(&mut self, index: RangeToInclusive<usize>) -> &mut Self::Output {
         // If empty, we can always early quit
-        if self.slots.len() == 0 { return unsafe { Self::from_slots_unchecked_mut(&mut []) } }
+        if self.slots.is_empty() { return unsafe { Self::from_slots_unchecked_mut(&mut []) } }
         // Otherwise, bound the end if necessary
         let end: usize = if index.end < self.slots.len() { index.end + 1 } else { self.slots.len() };
         // Return the proper slice part
@@ -352,7 +352,7 @@ impl Stack {
         // Pop the top value until we find a value
         while let Some(v) = self.slots.pop() {
             // Stop if it is a value
-            if v.is_value() { return Some(v.to_value()) }
+            if v.is_value() { return Some(v.into_value()) }
             // Otherwise, warn
             warn!("Popping {:?} in a non-dynamic pop situation", v);
         }
@@ -371,7 +371,7 @@ impl Stack {
         let mut res: Vec<Value> = vec![];
         while let Some(v) = self.slots.pop() {
             // Stop if it is a value
-            if v.is_value() { res.push(v.to_value()); continue; }
+            if v.is_value() { res.push(v.into_value()); continue; }
             // Otherwise, stop
             if v.is_pop_marker() { break; }
         }
@@ -537,7 +537,7 @@ impl IntoIterator for Stack {
 
     #[inline]
     fn into_iter(self) -> Self::IntoIter {
-        self.slots.into_iter().filter_map(|s: StackSlot| if s.is_value() { Some(s.to_value()) } else { None })
+        self.slots.into_iter().filter_map(|s: StackSlot| if s.is_value() { Some(s.into_value()) } else { None })
     }
 }
 impl<'a> IntoIterator for &'a Stack {

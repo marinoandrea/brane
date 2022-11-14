@@ -4,7 +4,7 @@
 //  Created:
 //    10 Aug 2022, 14:03:04
 //  Last edited:
-//    26 Oct 2022, 14:48:54
+//    14 Nov 2022, 09:59:17
 //  Auto updated?
 //    Yes
 // 
@@ -84,7 +84,7 @@ impl TextPos {
         let mut n_nls   : usize = 0;
         let mut last_nl : usize = usize::MAX;
         for (i, b) in bs.iter().enumerate() {
-            if *b == '\n' as u8 {
+            if *b == b'\n' {
                 n_nls   += 1;
                 last_nl  = i;
             }

@@ -4,7 +4,7 @@
 //  Created:
 //    24 Oct 2022, 15:42:52
 //  Last edited:
-//    26 Oct 2022, 11:54:14
+//    14 Nov 2022, 11:50:10
 //  Auto updated?
 //    Yes
 // 
@@ -258,10 +258,10 @@ impl VirtualSymTable {
 
         // The last scope cannot be shadowed
         if !self.scopes.is_empty() {
-            res.funcs.append(&mut self.scopes[self.scopes.len() - 1].funcs.iter().map(|f| f.clone()).collect());
-            res.tasks.append(&mut self.scopes[self.scopes.len() - 1].tasks.iter().map(|t| t.clone()).collect());
-            res.classes.append(&mut self.scopes[self.scopes.len() - 1].classes.iter().map(|c| c.clone()).collect());
-            res.vars.append(&mut self.scopes[self.scopes.len() - 1].vars.iter().map(|v| v.clone()).collect());
+            res.funcs.append(&mut self.scopes[self.scopes.len() - 1].funcs.iter().cloned().collect());
+            res.tasks.append(&mut self.scopes[self.scopes.len() - 1].tasks.iter().cloned().collect());
+            res.classes.append(&mut self.scopes[self.scopes.len() - 1].classes.iter().cloned().collect());
+            res.vars.append(&mut self.scopes[self.scopes.len() - 1].vars.iter().cloned().collect());
         }
 
         // Add the list of results for good measure
@@ -275,9 +275,16 @@ impl VirtualSymTable {
 
     /// Iterates over all classes in scope, in-order.
     #[inline]
-    pub fn classes<'a>(&'a self) -> VirtualSymTableIterator<'a, ClassDef> { VirtualSymTableIterator::new(&self.scopes) }
+    pub fn classes(&self) -> VirtualSymTableIterator<'_, ClassDef> { VirtualSymTableIterator::new(&self.scopes) }
 
     /// Returns the intermediate results in the scopes.
     #[inline]
-    pub fn results<'a>(&'a self) -> &'a HashMap<String, String> { if !self.scopes.is_empty() { &self.scopes[0].results } else { &*EMPTY_RESULTS } }
+    pub fn results(&self) -> &HashMap<String, String> { if !self.scopes.is_empty() { &self.scopes[0].results } else { &EMPTY_RESULTS } }
+}
+
+impl Default for VirtualSymTable {
+    #[inline]
+    fn default() -> Self {
+        Self::new()
+    }
 }

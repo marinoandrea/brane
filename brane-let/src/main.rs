@@ -4,7 +4,7 @@
 //  Created:
 //    20 Sep 2022, 13:53:43
 //  Last edited:
-//    26 Oct 2022, 17:22:35
+//    14 Nov 2022, 13:27:40
 //  Auto updated?
 //    Yes
 // 
@@ -18,18 +18,14 @@ use std::process;
 
 use clap::Parser;
 use dotenv::dotenv;
-use log::{debug, LevelFilter};
+use log::{debug, warn, LevelFilter};
 use serde::de::DeserializeOwned;
-use socksx::socks6::options::MetadataOption;
-use socksx::socks6::options::SocksOption;
 
-// use brane_let::callback::Callback;
 use brane_let::common::PackageResult;
 use brane_let::errors::LetError;
 use brane_let::exec_ecu;
 use brane_let::exec_nop;
 use brane_let::exec_oas;
-use brane_let::redirector;
 
 
 /***** ARGUMENTS *****/
@@ -91,7 +87,7 @@ enum SubCommand {
 async fn main() {
     // Parse the arguments
     dotenv().ok();
-    let Opts{ application_id, location_id, job_id, proxy_address, debug, sub_command, .. } = Opts::parse();
+    let Opts{ proxy_address, debug, sub_command, .. } = Opts::parse();
 
     // Configure logger.
     let mut logger = env_logger::builder();
@@ -127,19 +123,8 @@ async fn main() {
     // }
 
     // Start redirector in the background, if proxy address is set.
-    if let Some(proxy_address) = proxy_address {
-        debug!("Initializing proxy...");
-        let options = vec![
-            MetadataOption::new(1, application_id.clone()),
-            MetadataOption::new(2, location_id.clone()),
-            MetadataOption::new(3, job_id.clone()),
-        ];
-
-        let options = options.into_iter().map(SocksOption::Metadata).collect();
-        if let Err(err) = redirector::start(proxy_address.clone(), options).await {
-            log::error!("{}", LetError::RedirectorError{ address: proxy_address, err: format!("{}", err) });
-            std::process::exit(-1);
-        };
+    if proxy_address.is_some() {
+        warn!("Proxy is not implemented anymore");
     }
 
     // // Callbacks may be called at any time of the execution.

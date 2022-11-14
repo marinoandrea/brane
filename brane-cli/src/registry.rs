@@ -101,7 +101,7 @@ pub fn login(
     config.url = format!("{}://{}:{}", url.scheme(), host, url.port().unwrap_or(50051));
 
     // Write registry.yml to config directory
-    fs::create_dir_all(&config_file.parent().unwrap())?;
+    fs::create_dir_all(config_file.parent().unwrap())?;
     let mut buffer = File::create(config_file)?;
     write!(buffer, "{}", serde_yaml::to_string(&config)?)?;
 

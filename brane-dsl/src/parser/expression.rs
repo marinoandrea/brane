@@ -4,7 +4,7 @@
 //  Created:
 //    16 Aug &2022, 14:42:43
 //  Last edited:
-//    03 Sep 2022, 13:30:54
+//    14 Nov 2022, 09:55:36
 //  Auto updated?
 //    Yes
 // 
@@ -169,7 +169,7 @@ pub fn expr_atom<'a, E: ParseError<Tokens<'a>> + ContextError<Tokens<'a>>>(
             call_expr,
             comb::map(literal::parse,    |l| Expr::Literal{ literal: l }),
             proj_expr,
-            comb::map(identifier::parse, |i| Expr::new_varref(i)),
+            comb::map(identifier::parse, Expr::new_varref),
         ))
         .parse(input),
     "ATOM")
@@ -213,7 +213,7 @@ pub fn call_expr<'a, E: ParseError<Tokens<'a>> + ContextError<Tokens<'a>>>(
             proj_expr,
             comb::map(
                 identifier::parse,
-                |ident| Expr::new_identifier(ident),
+                Expr::new_identifier,
             ),
         )),
         seq::preceded(
@@ -232,14 +232,14 @@ pub fn call_expr<'a, E: ParseError<Tokens<'a>> + ContextError<Tokens<'a>>>(
         Some((head, rest)) => {
             let mut res: Vec<Box<Expr>> = Vec::with_capacity(rest.len());
             res.push(Box::new(head));
-            res.append(&mut rest.into_iter().map(|e| Box::new(e)).collect());
+            res.append(&mut rest.into_iter().map(Box::new).collect());
             res
         },
         None => Vec::new(),
     };
 
     // Put it in an Expr::Call and return
-    let range: TextRange = TextRange::new(at.map(|a| a.tok[0].inner().into()).unwrap_or(expr.start().clone()), TextPos::end_of(paren.tok[0].inner()));
+    let range: TextRange = TextRange::new(at.map(|a| a.tok[0].inner().into()).unwrap_or_else(|| expr.start().clone()), TextPos::end_of(paren.tok[0].inner()));
     exit_pp!(
         Ok((r, Expr::new_call(
             Box::new(expr),
@@ -325,7 +325,7 @@ fn array_expr<'a, 'b, E: ParseError<Tokens<'a>> + ContextError<Tokens<'a>>>(
         if let Some((head, entries)) = entries {
             let mut e = Vec::with_capacity(entries.len() + 1);
             e.push(Box::new(head));
-            e.append(&mut entries.into_iter().map(|e| Box::new(e)).collect());
+            e.append(&mut entries.into_iter().map(Box::new).collect());
 
             // Return it
             Ok((r, Expr::new_array(e, TextRange::new(range.start, TextPos::end_of(bracket.tok[0].inner())))))

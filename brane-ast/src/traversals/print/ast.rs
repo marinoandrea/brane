@@ -4,7 +4,7 @@
 //  Created:
 //    31 Aug 2022, 09:25:11
 //  Last edited:
-//    26 Oct 2022, 11:47:47
+//    14 Nov 2022, 10:23:06
 //  Auto updated?
 //    Yes
 // 
@@ -163,12 +163,12 @@ fn pass_edges(index: usize, edges: &[Edge], table: &VirtualSymTable, indent: usi
                     indent!(indent),
                     match &table.task(*task) {
                         TaskDef::Compute { package, version, function, .. } => format!("{}{}::{}", package, if !version.is_latest() { format!("<{}>", version) } else { String::new() }, function.name),
-                        TaskDef::Transfer {}                                => format!("__builtin::transfer"),
+                        TaskDef::Transfer {}                                => "__builtin::transfer".into(),
                     },
                     if locs.is_restrictive() { format!(" <limited to: {}>", locs.restricted().join(",")) } else { String::new() },
                     if let Some(at) = at { format!(" @{}", at) } else { String::new() },
                     if !input.is_empty() || result.is_some() { format!(" [{} -> {}]",
-                        if !input.is_empty() { format!("{}", input.iter().map(|(name, avail)| format!("'{}'{}", name, if let Some(avail) = avail { format!(" ({:?})", avail) } else { String::new() })).collect::<Vec<String>>().join(", ")) } else { "''".into() },
+                        if !input.is_empty() { input.iter().map(|(name, avail)| format!("'{}'{}", name, if let Some(avail) = avail { format!(" ({:?})", avail) } else { String::new() })).collect::<Vec<String>>().join(", ").to_string() } else { "''".into() },
                         if let Some(name) = result { format!("'{}'", name) } else { "''".into() },
                     ) } else { String::new() },
                 );
@@ -183,7 +183,7 @@ fn pass_edges(index: usize, edges: &[Edge], table: &VirtualSymTable, indent: usi
                 for i in instrs {
                     if first { first = false; }
                     else { print!("\n{} {} ", indent!(LINE_SIZE), indent!(indent)); }
-                    pass_edge_instr(&i, table);
+                    pass_edge_instr(i, table);
                 }
                 println!("]");
 
@@ -200,11 +200,7 @@ fn pass_edges(index: usize, edges: &[Edge], table: &VirtualSymTable, indent: usi
 
             Branch { true_next, false_next, merge } => {
                 // Add the merge point to the 'already done' map for this loop
-                let rem_merge: Option<bool> = if let Some(merge) = merge {
-                    Some(done.insert(*merge))
-                } else {
-                    None
-                };
+                let rem_merge: Option<bool> = merge.as_ref().map(|m| done.insert(*m));
 
                 // Write the two branches of the branch
                 print!("{} {}Branch {{", line_number!(i), indent!(indent));
@@ -334,7 +330,7 @@ fn pass_edge_instr(instr: &EdgeInstr, table: &VirtualSymTable) {
         Boolean{ value } => { print!("{} {}", instr, value); },
         Integer{ value } => { print!("{} {}", instr, value); },
         Real{ value }    => { print!("{} {}", instr, value); },
-        String{ value }  => { print!("{} \"{}\"", instr, value.replace("\\", "\\\\").replace("\n", "\\n").replace("\t", "\\t").replace("\r", "\\r").replace("\"", "\\\"")); },
+        String{ value }  => { print!("{} \"{}\"", instr, value.replace('\\', "\\\\").replace('\n', "\\n").replace('\t', "\\t").replace('\r', "\\r").replace('\"', "\\\"")); },
         Function{ def }  => { print!("{} {}", instr, table.func(*def).name); },
 
         // Any other instruction is just printing it without any value
@@ -371,14 +367,14 @@ pub fn do_traversal(root: Workflow) -> Result<Workflow, Vec<Error>> {
     // Print the main function body (and thus all function bodies)
     println!("{}<Main>", indent!(INDENT_SIZE));
     let mut table: VirtualSymTable = VirtualSymTable::with(&root.table);
-    pass_edges(0, &root.graph, &mut table, INDENT_SIZE, &mut HashSet::new());
+    pass_edges(0, &root.graph, &table, INDENT_SIZE, &mut HashSet::new());
 
     // Print the functions
     for (i, f) in root.funcs.iter() {
         println!();
         println!("{}<Function {} ({})>", indent!(INDENT_SIZE), *i, root.table.funcs[*i].name);
         table.push(&table.func(*i).table);
-        pass_edges(0, f, &mut table, INDENT_SIZE, &mut HashSet::new());
+        pass_edges(0, f, &table, INDENT_SIZE, &mut HashSet::new());
         table.pop();
     }
 

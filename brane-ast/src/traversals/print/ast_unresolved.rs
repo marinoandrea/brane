@@ -4,7 +4,7 @@
 //  Created:
 //    05 Sep 2022, 11:08:57
 //  Last edited:
-//    26 Oct 2022, 11:19:15
+//    14 Nov 2022, 10:13:04
 //  Auto updated?
 //    Yes
 // 
@@ -127,7 +127,7 @@ pub fn pass_table(table: &TableState, indent: usize) {
 pub fn pass_f_edges(workflow: &UnresolvedWorkflow, table: &mut VirtualTableState, indent: usize) {
     for (i, edges) in &workflow.f_edges {
         // Print the header, resolving it
-        let f: &FunctionState = &table.func(*i);
+        let f: &FunctionState = table.func(*i);
         println!("{}Function {}({}){} {{", indent!(indent),
             &f.name,
             f.signature.args.iter().map(|a| format!("{}", a)).collect::<Vec<String>>().join(", "),
@@ -273,7 +273,7 @@ pub fn pass_edge(edge: &Edge, table: &mut VirtualTableState, indent: usize) {
             for i in instrs {
                 if first { first = false; }
                 else { print!("\n{}", indent!(1 + indent)); }
-                pass_edge_instr(&i, table);
+                pass_edge_instr(i, table);
             }
             println!("]");
         },
@@ -322,7 +322,7 @@ pub fn pass_edge_instr(instr: &EdgeInstr, table: &mut VirtualTableState) {
         Boolean{ value } => { print!("{} {}", instr, value); },
         Integer{ value } => { print!("{} {}", instr, value); },
         Real{ value }    => { print!("{} {}", instr, value); },
-        String{ value }  => { print!("{} \"{}\"", instr, value.replace("\n", "\\n").replace("\t", "\\t").replace("\r", "\\r").replace("\\", "\\\\").replace("\"", "\\\"")); },
+        String{ value }  => { print!("{} \"{}\"", instr, value.replace('\n', "\\n").replace('\t', "\\t").replace('\r', "\\r").replace('\\', "\\\\").replace('\"', "\\\"")); },
         Function{ def }  => { print!("{} {}", instr, table.func(*def).name); },
 
         // Any other instruction is just printing it without any value

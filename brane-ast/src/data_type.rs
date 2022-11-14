@@ -4,7 +4,7 @@
 //  Created:
 //    30 Aug 2022, 12:02:57
 //  Last edited:
-//    03 Nov 2022, 17:54:15
+//    14 Nov 2022, 10:03:38
 //  Auto updated?
 //    Yes
 // 
@@ -162,7 +162,7 @@ impl DataType {
 
     /// Returns if this DataType is Void (i.e., no value).
     #[inline]
-    pub fn is_void(&self) -> bool { if let Self::Void = self { true } else { false } }
+    pub fn is_void(&self) -> bool { matches!(self, Self::Void) }
 }
 
 impl Display for DataType {
@@ -185,7 +185,7 @@ impl Display for DataType {
             Semver  => write!(f, "Semver"),
 
             Array{ elem_type }    => write!(f, "Array<{}>", elem_type),
-            Function{ args, ret } => write!(f, "Func<({}){}>", args.iter().map(|t| format!("{}", t)).collect::<Vec<std::string::String>>().join(", "), if &**ret != &DataType::Void { format!(" -> {}", ret) } else { std::string::String::new() }),
+            Function{ args, ret } => write!(f, "Func<({}){}>", args.iter().map(|t| format!("{}", t)).collect::<Vec<std::string::String>>().join(", "), if **ret != DataType::Void { format!(" -> {}", ret) } else { std::string::String::new() }),
             Class{ name }         => write!(f, "Class<{}>", name),
             Data                  => write!(f, "Data"),
             IntermediateResult    => write!(f, "IntermediateResult"),

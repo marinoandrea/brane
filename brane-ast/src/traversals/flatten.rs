@@ -4,7 +4,7 @@
 //  Created:
 //    15 Sep 2022, 08:26:20
 //  Last edited:
-//    26 Oct 2022, 11:20:08
+//    14 Nov 2022, 11:49:17
 //  Auto updated?
 //    Yes
 // 
@@ -397,6 +397,7 @@ pub fn pass_block(block: &mut Block, table: &mut TableState, errors: &mut Vec<Er
 pub fn pass_stmt(stmt: &mut Stmt, table: &mut TableState, errors: &mut Vec<Error>) {
     // Match the stmt
     use Stmt::*;
+    #[allow(clippy::collapsible_match)]
     match stmt {
         Block{ block } => {
             pass_block(block, table, errors);
@@ -416,7 +417,7 @@ pub fn pass_stmt(stmt: &mut Stmt, table: &mut TableState, errors: &mut Vec<Error
         FuncDef{ code, st_entry, .. } => {
             // Add the function with an empty table first, just so that it exists
             let entry: &Rc<RefCell<FunctionEntry>> = st_entry.as_ref().unwrap();
-            if let Err(err) = move_func(&entry, TableState::none(), table) {
+            if let Err(err) = move_func(entry, TableState::none(), table) {
                 errors.push(err);
             }
 
@@ -537,47 +538,47 @@ pub fn pass_stmt(stmt: &mut Stmt, table: &mut TableState, errors: &mut Vec<Error
 /// 
 /// # Errors
 /// This function may error in the (statistically improbable) event that two intermediate result identifiers collide.
-fn pass_expr(expr: &mut Expr, table: &mut TableState) {
+fn pass_expr(expr: &mut Expr, _table: &mut TableState) {
     use Expr::*;
     match expr {
         Cast{ expr, .. } => {
-            pass_expr(expr, table);
+            pass_expr(expr, _table);
         },
 
         Call{ expr, args, .. } => {
             // Recurse into the rest
-            pass_expr(expr, table);
+            pass_expr(expr, _table);
             for a in args {
-                pass_expr(a, table);
+                pass_expr(a, _table);
             }
         },
         Array{ values, .. } => {
             for v in values {
-                pass_expr(v, table);
+                pass_expr(v, _table);
             }
         },
         ArrayIndex{ array, index, .. } => {
-            pass_expr(array, table);
-            pass_expr(index, table);
+            pass_expr(array, _table);
+            pass_expr(index, _table);
         },
 
         UnaOp{ expr, .. } => {
-            pass_expr(expr, table);
+            pass_expr(expr, _table);
         },
         BinOp{ lhs, rhs, .. } => {
-            pass_expr(lhs, table);
-            pass_expr(rhs, table);
+            pass_expr(lhs, _table);
+            pass_expr(rhs, _table);
         },
         Proj{ lhs, rhs, .. } => {
-            pass_expr(lhs, table);
-            pass_expr(rhs, table);
+            pass_expr(lhs, _table);
+            pass_expr(rhs, _table);
         },
 
         Instance{ properties, .. } => {
             // NOTE: Adding datasets to the workflow is left for a runtime set, since we do not know yet how to access it.
             // Recurse the properties
             for p in properties {
-                pass_expr(&mut p.value, table);
+                pass_expr(&mut p.value, _table);
             }
         },
 

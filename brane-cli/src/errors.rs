@@ -4,7 +4,7 @@
 //  Created:
 //    17 Feb 2022, 10:27:28
 //  Last edited:
-//    11 Nov 2022, 11:26:13
+//    14 Nov 2022, 13:15:48
 //  Auto updated?
 //    Yes
 // 
@@ -667,6 +667,8 @@ pub enum ReplError {
     ConfigDirCreateError{ err: UtilError },
     /// Could not get the location of the REPL history file
     HistoryFileError{ err: UtilError },
+    /// Failed to create the new rustyline editor.
+    EditorCreateError{ err: rustyline::error::ReadlineError },
 
     /// Failed to initialize one of the states.
     InitializeError{ what: &'static str, err: RunError },
@@ -682,6 +684,7 @@ impl Display for ReplError {
         match self {
             ConfigDirCreateError{ err } => write!(f, "Could not create the configuration directory for the REPL history: {}", err),
             HistoryFileError{ err }     => write!(f, "Could not get REPL history file location: {}", err),
+            EditorCreateError{ err }    => write!(f, "Failed to create new rustyline editor: {}", err),
 
             InitializeError{ what, err } => write!(f, "Failed to initialize {} and associated structures: {}", what, err),
             RunError{ what, err }        => write!(f, "Failed to execute workflow on {}: {}", what, err),

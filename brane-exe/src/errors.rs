@@ -4,7 +4,7 @@
 //  Created:
 //    26 Aug 2022, 18:01:09
 //  Last edited:
-//    31 Oct 2022, 12:21:06
+//    14 Nov 2022, 10:36:55
 //  Auto updated?
 //    Yes
 // 
@@ -307,8 +307,8 @@ impl VmError {
             // CompileError{ .. }     => eprintln!("{}", self),
             GlobalStateError{ .. } => eprintln!("{}", self),
 
-            EmptyStackError { edge, instr, .. }        => prettyprint_err_instr(*edge, instr.clone(), self),
-            StackTypeError { edge, instr, .. }         => prettyprint_err_instr(*edge, instr.clone(), self),
+            EmptyStackError { edge, instr, .. }        => prettyprint_err_instr(*edge, *instr, self),
+            StackTypeError { edge, instr, .. }         => prettyprint_err_instr(*edge, *instr, self),
             StackLhsRhsTypeError { edge, instr, .. }   => prettyprint_err_instr(*edge, Some(*instr), self),
             ArrayTypeError{ edge, instr, .. }          => prettyprint_err_instr(*edge, Some(*instr), self),
             InstanceTypeError{ edge, instr, .. }       => prettyprint_err_instr(*edge, Some(*instr), self),
@@ -335,7 +335,7 @@ impl VmError {
             UnknownPackage{ edge, .. }          => prettyprint_err(*edge, self),
             ArgumentsSerializeError{ edge, .. } => prettyprint_err(*edge, self),
 
-            StackError{ edge, instr, .. } => prettyprint_err_instr(*edge, instr.clone(), self),
+            StackError{ edge, instr, .. } => prettyprint_err_instr(*edge, *instr, self),
             Custom{ edge, .. }            => prettyprint_err(*edge, self),
         }
     }

@@ -4,7 +4,7 @@
 //  Created:
 //    25 Oct 2022, 11:35:00
 //  Last edited:
-//    09 Nov 2022, 11:33:57
+//    14 Nov 2022, 11:53:13
 //  Auto updated?
 //    Yes
 // 
@@ -94,38 +94,35 @@ impl Future for WaitUntilPlanned {
         }
 
         // Otherwise, if not timed out, switch on the state
-        match self.updates.remove(&self.correlation_id) {
-            Some((_, status)) => {
-                match status {
-                    // The planning was started
-                    PlanningStatus::Started(name) => {
-                        // Log it
-                        debug!("Planning of workflow '{}' started{}",
-                            self.correlation_id,
-                            if let Some(name) = name {
-                                format!(" by planner '{}'", name)
-                            } else {
-                                String::new()
-                            }
-                        );
+        if let Some((_, status)) = self.updates.remove(&self.correlation_id) {
+            match status {
+                // The planning was started
+                PlanningStatus::Started(name) => {
+                    // Log it
+                    debug!("Planning of workflow '{}' started{}",
+                        self.correlation_id,
+                        if let Some(name) = name {
+                            format!(" by planner '{}'", name)
+                        } else {
+                            String::new()
+                        }
+                    );
 
-                        // Set the internal result, then continue being pending
-                        self.started = true;
-                    }
-
-                    // The planning was finished
-                    PlanningStatus::Success(_) |
-                    PlanningStatus::Failed(_)  |
-                    PlanningStatus::Error(_)   => {
-                        debug!("Planning of workflow '{}' completed", self.correlation_id);
-                        return Poll::Ready(Some(status));
-                    },
-
-                    // The rest means pending
-                    _ => {},
+                    // Set the internal result, then continue being pending
+                    self.started = true;
                 }
-            },
-            None => {},
+
+                // The planning was finished
+                PlanningStatus::Success(_) |
+                PlanningStatus::Failed(_)  |
+                PlanningStatus::Error(_)   => {
+                    debug!("Planning of workflow '{}' completed", self.correlation_id);
+                    return Poll::Ready(Some(status));
+                },
+
+                // The rest means pending
+                _ => {},
+            }
         }
 
         // We have to update the internal waker too
@@ -184,7 +181,7 @@ async fn send_update(producer: Arc<FutureProducer>, topic: impl AsRef<str>, corr
 
     // Construct the future record that contains the to-be-planned workflow from this
     let scorr: String = correlation_id.into();
-    let message: FutureRecord<String, [u8]> = FutureRecord::to(&topic)
+    let message: FutureRecord<String, [u8]> = FutureRecord::to(topic)
         .key(&scorr)
         .payload(&payload);
 
@@ -213,7 +210,7 @@ async fn send_update(producer: Arc<FutureProducer>, topic: impl AsRef<str>, corr
 /// 
 /// # Errors
 /// This function may error if the given list of edges was malformed (usually due to unknown or inaccessible datasets or results).
-fn plan_edges(table: &mut SymTable, edges: &mut Vec<Edge>, dindex: &DataIndex, infra: &InfraFile) -> Result<(), PlanError> {
+fn plan_edges(table: &mut SymTable, edges: &mut [Edge], dindex: &DataIndex, infra: &InfraFile) -> Result<(), PlanError> {
     for (i, e) in edges.iter_mut().enumerate() {
         if let Edge::Node{ task, locs, at, input, result, .. } = e {
             debug!("Planning task '{}' (edge {})...", table.tasks[*task].name(), i);
@@ -226,7 +223,7 @@ fn plan_edges(table: &mut SymTable, edges: &mut Vec<Edge>, dindex: &DataIndex, i
                     // We only take data into account (for now, at least)
                     if let DataName::Data(name) = d {
                         // Attempt to find it
-                        if let Some(info) = dindex.get(&name) {
+                        if let Some(info) = dindex.get(name) {
                             // Simply add all locations where it lives
                             data_locs.append(&mut info.access.keys().collect::<Vec<&String>>());
                         } else {
@@ -440,7 +437,7 @@ impl InstancePlanner {
     pub async fn planner_server(brokers: String, group_id: String, cmd_topic: String, res_topic: String, api_address: String, infra: InfraPath) -> Result<(), PlanError> {
         // Ensure that the input/output topics exists.
         if let Err(err) = ensure_topics(vec![ &cmd_topic, &res_topic ], &brokers).await {
-            return Err(PlanError::KafkaTopicError{ brokers: brokers, topics: vec![ cmd_topic, res_topic ], err });
+            return Err(PlanError::KafkaTopicError{ brokers, topics: vec![ cmd_topic, res_topic ], err });
         };
 
         // Start the producer(s) and consumer(s).
@@ -489,8 +486,8 @@ impl InstancePlanner {
                 // Parse the payload, if any
                 if let Some(payload) = owned_message.payload() {
                     // Parse as UTF-8
-                    debug!("Message: \"\"\"{}\"\"\"", String::from_utf8_lossy(&payload));
-                    let message: String = String::from_utf8_lossy(&payload).to_string();
+                    debug!("Message: \"\"\"{}\"\"\"", String::from_utf8_lossy(payload));
+                    let message: String = String::from_utf8_lossy(payload).to_string();
 
                     // Attempt to parse the workflow
                     debug!("Parsing workflow of {} characters for session '{}'", message.len(), id);
@@ -680,7 +677,7 @@ impl InstancePlanner {
                                     owned_updates.insert(msg.id, PlanningStatus::Failed(msg.result));
                                 },
                                 Some(PlanningStatusKind::Error) => {
-                                    let err: String = msg.result.unwrap_or(String::from("<unknown error>"));
+                                    let err: String = msg.result.unwrap_or_else(|| String::from("<unknown error>"));
                                     debug!("Status update: Workflow '{}' has caused errors to appear: {}", msg.id, err);
                                     owned_updates.insert(msg.id, PlanningStatus::Error(err));
                                 },

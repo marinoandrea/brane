@@ -4,7 +4,7 @@
 //  Created:
 //    12 Sep 2022, 17:39:06
 //  Last edited:
-//    09 Nov 2022, 17:02:06
+//    14 Nov 2022, 13:28:33
 //  Auto updated?
 //    Yes
 // 
@@ -149,7 +149,7 @@ pub async fn download_data(certs_dir: impl AsRef<Path>, endpoint: impl AsRef<str
     debug!("Loading certificate for location '{}'...", location);
     let (identity, ca_cert): (Identity, Certificate) = {
         // Compute the paths
-        let cert_dir : PathBuf = certs_dir.join(&location);
+        let cert_dir : PathBuf = certs_dir.join(location);
         let idfile   : PathBuf = cert_dir.join("client-id.pem");
         let cafile   : PathBuf = cert_dir.join("ca.pem");
 
@@ -376,7 +376,7 @@ pub async fn build(file: impl AsRef<Path>, workdir: impl AsRef<Path>, _keep_file
         match &mut info.access {
             AccessKind::File { ref mut path } => {
                 // Perform the copy
-                let target: PathBuf = build_dir.join(path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or("data".into()));
+                let target: PathBuf = build_dir.join(path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "data".into()));
                 if let Err(err) = copy_dir_recursively_async(&path, &target).await {
                     return Err(DataError::DataCopyError{ err });
                 }
@@ -450,7 +450,7 @@ pub async fn download(names: Vec<String>, locs: Vec<String>, certs_dir: impl AsR
         // Make sure we know it
         let info: &DataInfo = match index.get(&name) {
             Some(info) => info,
-            None       => { return Err(DataError::UnknownDataset{ name: name.into() }); },
+            None       => { return Err(DataError::UnknownDataset{ name }); },
         };
 
         debug!("Selecting download location for '{}'...", name);
@@ -464,7 +464,7 @@ pub async fn download(names: Vec<String>, locs: Vec<String>, certs_dir: impl AsR
                 // More effort is needed
 
                 // ...unless it's available locally
-                if !force && info.access.contains_key(&*LOCALHOST) {
+                if !force && info.access.contains_key(LOCALHOST) {
                     println!("Dataset {} is already locally available; not initiating a download", style(name).cyan().bold());
                     return Ok(());
                 }
@@ -484,7 +484,7 @@ pub async fn download(names: Vec<String>, locs: Vec<String>, certs_dir: impl AsR
 
                     // Ask the user
                     match prompt.interact_on_opt(&Term::stderr()) {
-                        Ok(res)  => res.map(|i| items[i].clone()).unwrap_or(items[0].clone()),
+                        Ok(res)  => res.map(|i| items[i].clone()).unwrap_or_else(|| items[0].clone()),
                         Err(err) => { return Err(DataError::DataSelectError{ err }); },
                     }
                 }
@@ -502,13 +502,13 @@ pub async fn download(names: Vec<String>, locs: Vec<String>, certs_dir: impl AsR
         }
 
         // Fetch the method of its availability
-        let access: AccessKind = match info.access.get(&*LOCALHOST) {
+        let access: AccessKind = match info.access.get(LOCALHOST) {
             Some(access) => access.clone(),
             None         => {
                 // Attempt to download it instead
-                match download_data(certs_dir, &config.url, proxy_addr, name.to_string(), &access).await? {
+                match download_data(certs_dir, &config.url, proxy_addr, &name, &access).await? {
                     Some(access) => access,
-                    None         => { return Err(DataError::UnavailableDataset{ name: name.into(), locs: info.access.keys().map(|k| k.clone()).collect() }); },
+                    None         => { return Err(DataError::UnavailableDataset{ name, locs: info.access.keys().cloned().collect() }); },
                 }
             },
         };
@@ -598,7 +598,7 @@ pub fn path(datasets: Vec<impl AsRef<str>>) -> Result<(), DataError> {
 
         // Check if the dataset exists
         if let Some(info) = index.get(d) {
-            if let Some(access) = info.access.get(&*LOCALHOST) {
+            if let Some(access) = info.access.get(LOCALHOST) {
                 // Match on the access kind
                 match access {
                     AccessKind::File { path } => {
@@ -609,7 +609,7 @@ pub fn path(datasets: Vec<impl AsRef<str>>) -> Result<(), DataError> {
                     _ => { println!("<none>") },
                 }
             } else {
-                return Err(DataError::UnavailableDataset{ name: d.into(), locs: info.access.keys().map(|k| k.clone()).collect() });
+                return Err(DataError::UnavailableDataset{ name: d.into(), locs: info.access.keys().cloned().collect() });
             }
         } else {
             return Err(DataError::UnknownDataset{ name: d.into() });
@@ -656,7 +656,7 @@ pub fn remove(datasets: Vec<impl AsRef<str>>, force: bool) -> Result<(), DataErr
 
         // Everything checks out so just delete that folder
         if let Err(err) = fs::remove_dir_all(&dir) {
-            return Err(DataError::RemoveError{ path: dir.clone(), err });
+            return Err(DataError::RemoveError{ path: dir, err });
         }
         println!("Successfully removed dataset {}", style(&d).bold().cyan());
     }

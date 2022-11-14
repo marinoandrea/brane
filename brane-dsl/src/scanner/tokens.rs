@@ -5,7 +5,7 @@ use std::str::FromStr;
 
 type Span<'a> = nom_locate::LocatedSpan<&'a str>;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Token<'a> {
     /// `&`
     And(Span<'a>),
@@ -164,7 +164,7 @@ impl<'a> Token<'a> {
     pub fn as_i64(&self) -> i64 {
         if let Token::Integer(span) = self {
             // Replace the '_' first
-            let raw: String = span.to_string().replace("_", "");
+            let raw: String = span.to_string().replace('_', "");
             // Now parse the integer
             i64::from_str(&raw).unwrap()
         } else {
@@ -209,7 +209,7 @@ impl<'a> Token<'a> {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Tokens<'a> {
     pub tok: &'a [Token<'a>],
     pub start: usize,

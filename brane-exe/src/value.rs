@@ -4,7 +4,7 @@
 //  Created:
 //    20 Sep 2022, 13:44:07
 //  Last edited:
-//    03 Nov 2022, 17:45:01
+//    14 Nov 2022, 11:50:21
 //  Auto updated?
 //    Yes
 // 
@@ -287,7 +287,7 @@ impl<'a, 'b> Display for ValueDisplay<'a, 'b> {
 
 
 /// A wrapper around the name of a data struct so that it gets parsed differently.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DataId(String);
 
 impl Display for DataId {
@@ -360,7 +360,7 @@ impl From<&mut DataId> for String {
 
 
 /// A wrapper around the name of an intermediate result struct so that it gets parsed differently.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ResultId(String);
 
 impl Display for ResultId {
@@ -587,7 +587,7 @@ impl Value {
         match (self, target) {
             (Boolean{ value }, DataType::Any)     => Ok(Self::Boolean { value }),
             (Boolean{ value }, DataType::Boolean) => Ok(Self::Boolean { value }),
-            (Boolean{ value }, DataType::Integer) => Ok(Self::Integer { value: if value { 1 } else { 0 } }),
+            (Boolean{ value }, DataType::Integer) => Ok(Self::Integer { value: i64::from(value) }),
             (Boolean{ value }, DataType::String ) => Ok(Self::String  { value: format!("{}", Self::Boolean{ value }.display(table)) }),
 
             (Integer{ value }, DataType::Any)     => Ok(Self::Integer { value }),
@@ -618,7 +618,7 @@ impl Value {
             },
 
             (Function{ def }, DataType::Any)                   => Ok(Self::Function{ def }),
-            (Function{ def }, DataType::Function{ args, ret }) => Ok(if &table.func(def).args == args && &table.func(def).ret == &**ret { Self::Function{ def } } else { return Err(Error::CastError { got: DataType::Function{ args: table.func(def).args.clone(), ret: Box::new(table.func(def).ret.clone()) }, target: target.clone() }) }),
+            (Function{ def }, DataType::Function{ args, ret }) => Ok(if &table.func(def).args == args && table.func(def).ret == **ret { Self::Function{ def } } else { return Err(Error::CastError { got: DataType::Function{ args: table.func(def).args.clone(), ret: Box::new(table.func(def).ret.clone()) }, target: target.clone() }) }),
             (Function{ def }, DataType::String)                => Ok(Self::String{ value: format!("{}", Self::Function{ def }.display(table)) }),
 
             (Instance{ values, def }, DataType::Any)           => Ok(Self::Instance{ values, def }),

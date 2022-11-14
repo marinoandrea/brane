@@ -4,7 +4,7 @@
 //  Created:
 //    24 Oct 2022, 16:42:17
 //  Last edited:
-//    06 Nov 2022, 14:01:00
+//    14 Nov 2022, 10:51:55
 //  Auto updated?
 //    Yes
 // 
@@ -87,7 +87,7 @@ macro_rules! return_status_failed {
 
 /***** LIBRARY *****/
 /// Special constant that marks it needs to be run on the local machine.
-pub const LOCALHOST: &'static str = "localhost";
+pub const LOCALHOST: &str = "localhost";
 
 
 
@@ -330,7 +330,7 @@ impl JobStatus {
 
     /// Returns whether this status is a heartbeat.
     #[inline]
-    pub fn is_heartbeat(&self) -> bool { if let Self::Heartbeat = self { true } else { false } }
+    pub fn is_heartbeat(&self) -> bool { matches!(self, Self::Heartbeat) }
 
     /// Converts the JobStatus into some 'progress index', which is a number that can be used to determine if some JobStatus logically should be send after another.
     /// 

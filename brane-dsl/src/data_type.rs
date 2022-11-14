@@ -4,7 +4,7 @@
 //  Created:
 //    23 Aug 2022, 20:34:33
 //  Last edited:
-//    03 Nov 2022, 17:44:05
+//    14 Nov 2022, 09:59:58
 //  Auto updated?
 //    Yes
 // 
@@ -186,15 +186,7 @@ impl DataType {
     #[inline]
     pub fn coercible_to_function(&self) -> bool {
         use DataType::*;
-        match self {
-            // Allow Any
-            Any => true,
-            // Allow functions, obviously
-            Function(_) => true,
-
-            // The rest, not so much
-            _ => false,
-        }
+        matches!(self, Any | Function(_))
     }
 }
 

@@ -4,7 +4,7 @@
 //  Created:
 //    12 Sep 2022, 10:45:50
 //  Last edited:
-//    24 Oct 2022, 15:44:56
+//    14 Nov 2022, 10:42:01
 //  Auto updated?
 //    Yes
 // 
@@ -152,7 +152,7 @@ impl FrameStack {
         // Push the table of the given function on top of the virtual table
         let ftable: SymTable = self.table.func(def).table.clone();
         let offset: usize    = ftable.vars.offset();
-        self.table.push(Arc::new(ftable.clone()));
+        self.table.push(Arc::new(ftable));
 
         // Create the new Frame & insert it
         self.data.push(Frame::new(def, offset, ret));
@@ -254,6 +254,9 @@ impl FrameStack {
     #[inline]
     pub fn capacity(&self) -> usize { self.data.capacity() }
 
+    /// Returns if the framestack is currently empty.
+    #[inline]
+    pub fn is_empty(&self) -> bool { self.data.is_empty() }
     /// Returns the number of frames currently on the FrameStack.
     #[inline]
     pub fn len(&self) -> usize { self.data.len() }

@@ -38,14 +38,14 @@ fn param_required_is_preserved() -> Result<()> {
     assert!(function
         .parameters
         .iter()
-        .filter(|p| p.name == String::from("1"))
-        .any(|p| p.optional.unwrap() == false));
+        .filter(|p| p.name == "1")
+        .any(|p| !p.optional.unwrap()));
 
     assert!(function
         .parameters
         .iter()
-        .filter(|p| p.name == String::from("2"))
-        .any(|p| p.optional.unwrap() == true));
+        .filter(|p| p.name == "2")
+        .any(|p| p.optional.unwrap()));
 
     // For >=4 parameters, the parameters are grouped into a input type.
     let (function, types) = common::build_oas_function_param("/param-required-count-4", "onlyPathParameters")?;

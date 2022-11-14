@@ -2,7 +2,9 @@
 
 All notable changes to the Brane framework will be documented in this file.
 
-## [0.7.0] - 2022-11-13
+## [1.0.0] - 2022-11-14
+**IMPORTANT NOTICE**: From now on, the framework will stick to [semantic versioning](https://semver.org). Because we are still in development, however, we will consider any API-breaking change to be any change relating to the _usage_ of the program, not to any Rust-API the library provides. However, that will likely change once the framework is more mature.
+
 This release basically sees the release of an entirely rebuilt framework. Expect to find bugs and change of how you worked with it (especially as administrator).
 
 ### Added

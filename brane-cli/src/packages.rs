@@ -154,7 +154,7 @@ pub fn inspect(
         // Now print the types
         println!("Classes provided by this package:");
         let mut types: Vec<&String> = info.types.keys().collect();
-        types.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
+        types.sort_by_key(|t| t.to_lowercase());
         for name in types {
             let info = info.types.get(name).unwrap();
             match syntax.as_str() {
@@ -186,7 +186,7 @@ pub fn inspect(
         // Now print the list of functions
         println!("Functions provided by this package:");
         let mut funcs: Vec<&String> = info.functions.keys().collect();
-        funcs.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
+        funcs.sort_by_key(|t| t.to_lowercase());
         for name in funcs {
             let func = info.functions.get(name).unwrap();
             match syntax.as_str() {

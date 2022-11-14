@@ -4,7 +4,7 @@
 //  Created:
 //    21 Feb 2022, 14:43:30
 //  Last edited:
-//    03 Nov 2022, 11:42:20
+//    14 Nov 2022, 13:29:51
 //  Auto updated?
 //    Yes
 // 
@@ -497,7 +497,7 @@ pub fn ensure_datasets_dir(create: bool) -> Result<PathBuf, UtilError> {
 pub fn get_package_dir(name: &str, version: Option<&Version>) -> Result<PathBuf, UtilError> {
     // Try to get the general package directory + the name of the package
     let packages_dir = get_packages_dir()?;
-    let package_dir = packages_dir.join(&name);
+    let package_dir = packages_dir.join(name);
 
     // If there is no version, call it quits here
     if version.is_none() { return Ok(package_dir); }
@@ -581,7 +581,7 @@ pub fn ensure_package_dir(name: &str, version: Option<&Version>, create: bool) -
 /// The list of Versions found in the given package directory, or a PackageError if we couldn't.
 pub fn get_package_versions(package_name: &str, package_dir: &Path) -> Result<Vec<Version>, UtilError> {
     // Get the list of available versions
-    let version_dirs = match fs::read_dir(&package_dir) {
+    let version_dirs = match fs::read_dir(package_dir) {
         Ok(files)   => files,
         Err(reason) => { return Err(UtilError::PackageDirReadError{ path: package_dir.to_path_buf(), err: reason }); }
     };

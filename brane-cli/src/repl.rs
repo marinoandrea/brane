@@ -4,7 +4,7 @@
 //  Created:
 //    12 Sep 2022, 16:42:47
 //  Last edited:
-//    06 Nov 2022, 16:51:33
+//    14 Nov 2022, 13:15:54
 //  Auto updated?
 //    Yes
 // 
@@ -18,7 +18,6 @@ use std::path::Path;
 
 use log::warn;
 use rustyline::completion::{Completer, FilenameCompleter, Pair};
-use rustyline::config::OutputStreamType;
 use rustyline::error::ReadlineError;
 use rustyline::highlight::{Highlighter, MatchingBracketHighlighter};
 use rustyline::hint::{Hinter, HistoryHinter};
@@ -189,7 +188,6 @@ pub async fn start(certs_dir: impl AsRef<Path>, proxy_addr: Option<String>, remo
         .history_ignore_space(true)
         .completion_type(CompletionType::Circular)
         .edit_mode(EditMode::Emacs)
-        .output_stream(OutputStreamType::Stdout)
         .build();
 
     // Build the helper for the REPL
@@ -214,7 +212,10 @@ pub async fn start(certs_dir: impl AsRef<Path>, proxy_addr: Option<String>, remo
     }
 
     // Create the REPL
-    let mut rl = Editor::with_config(config);
+    let mut rl = match Editor::with_config(config) {
+        Ok(rl)   => rl,
+        Err(err) => { return Err(Error::EditorCreateError{ err }); },
+    };
     rl.set_helper(Some(repl_helper));
     if let Err(err) = rl.load_history(&history_file) { warn!("Could not load REPL history from '{}': {}", history_file.display(), err); }
 
@@ -275,7 +276,7 @@ async fn remote_repl(rl: &mut Editor<ReplHelper>, certs_dir: impl AsRef<Path>, p
         match rl.readline(&p) {
             Ok(line) => {
                 // The command checked out, so add it to the history
-                rl.add_history_entry(&line.replace("\n", " "));
+                rl.add_history_entry(&line.replace('\n', " "));
 
                 // Fetch REPL magicks
                 if let Some(quit) = repl_magicks(&line) { if quit { break; } else { continue; } }
@@ -344,7 +345,7 @@ async fn local_repl(rl: &mut Editor<ReplHelper>, options: ParserOptions) -> Resu
         match rl.readline(&p) {
             Ok(line) => {
                 // The command checked out, so add it to the history
-                rl.add_history_entry(&line.replace("\n", " "));
+                rl.add_history_entry(&line.replace('\n', " "));
 
                 // Fetch REPL magicks
                 if let Some(quit) = repl_magicks(&line) { if quit { break; } else { continue; } }

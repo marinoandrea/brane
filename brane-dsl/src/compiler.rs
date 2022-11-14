@@ -4,7 +4,7 @@
 //  Created:
 //    18 Aug 2022, 09:51:07
 //  Last edited:
-//    21 Sep 2022, 14:19:11
+//    14 Nov 2022, 10:21:22
 //  Auto updated?
 //    Yes
 // 
@@ -158,7 +158,7 @@ pub fn parse<S: AsRef<str>>(source: S, pindex: &PackageIndex, options: &ParserOp
     // Run that through the scanner
     let (remain, tokens): (Span, Vec<Token>) = match scanner::scan_tokens(Span::from(source)) {
         Ok(res)                                             => res,
-        Err(nom::Err::Error(e)) | Err(nom::Err::Failure(e)) => { return Err(Error::ScanError{ err: format!("{}", errors::convert_scanner_error(Span::from(source), e)) }); },
+        Err(nom::Err::Error(e)) | Err(nom::Err::Failure(e)) => { return Err(Error::ScanError{ err: errors::convert_scanner_error(Span::from(source), e) }); },
         Err(err)                                            => { return Err(Error::ScannerError{ err: format!("{}", err) }); },
     };
     if remain.input_len() > 0 && !remain.fragment().to_string().trim().is_empty() { return Err(Error::LeftoverSourceError); }
@@ -166,24 +166,24 @@ pub fn parse<S: AsRef<str>>(source: S, pindex: &PackageIndex, options: &ParserOp
     // Run the tokens through the parser (depending on the selected language)
     let tks = Tokens::new(&tokens);
     let (remain, ast): (Tokens, Program) = match options.lang {
-        Language::BraneScript => match bscript::parse_ast(tks.clone()) {
+        Language::BraneScript => match bscript::parse_ast(tks) {
             Ok(ast) => ast,
 
             Err(nom::Err::Error(e)) | Err(nom::Err::Failure(e)) => {
                 // Match the EOF-error
-                if e.errors[0].1 == VerboseErrorKind::Nom(nom::error::ErrorKind::Eof) { return Err(Error::Eof { lang: Language::BraneScript, err: format!("{}", errors::convert_parser_error(tks, e)) }); }
-                return Err(Error::ParseError{ lang: Language::BraneScript, err: format!("{}", errors::convert_parser_error(tks, e)) });
+                if e.errors[0].1 == VerboseErrorKind::Nom(nom::error::ErrorKind::Eof) { return Err(Error::Eof { lang: Language::BraneScript, err: errors::convert_parser_error(tks, e) }); }
+                return Err(Error::ParseError{ lang: Language::BraneScript, err: errors::convert_parser_error(tks, e) });
             },
             Err(err) => { return Err(Error::ParserError { lang: Language::BraneScript, err: format!("{}", err) }); },
         },
 
-        Language::Bakery => match bakery::parse_ast(tks.clone(), pindex.clone()) {
+        Language::Bakery => match bakery::parse_ast(tks, pindex.clone()) {
             Ok(ast) => ast,
 
             Err(nom::Err::Error(e)) | Err(nom::Err::Failure(e)) => {
                 // Match the EOF-error
-                if e.errors[0].1 == VerboseErrorKind::Nom(nom::error::ErrorKind::Eof) { return Err(Error::Eof { lang: Language::BraneScript, err: format!("{}", errors::convert_parser_error(tks, e)) }); }
-                return Err(Error::ParseError{ lang: Language::Bakery, err: format!("{}", errors::convert_parser_error(tks, e)) });
+                if e.errors[0].1 == VerboseErrorKind::Nom(nom::error::ErrorKind::Eof) { return Err(Error::Eof { lang: Language::BraneScript, err: errors::convert_parser_error(tks, e) }); }
+                return Err(Error::ParseError{ lang: Language::Bakery, err: errors::convert_parser_error(tks, e) });
             },
             Err(err) => { return Err(Error::ParserError{ lang: Language::Bakery, err: format!("{}", err) }); },
         },
