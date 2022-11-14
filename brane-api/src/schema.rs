@@ -4,7 +4,7 @@
 //  Created:
 //    17 Oct 2022, 15:17:39
 //  Last edited:
-//    17 Oct 2022, 15:18:15
+//    14 Nov 2022, 13:27:21
 //  Auto updated?
 //    Yes
 // 
@@ -40,7 +40,7 @@ pub struct Package {
 
 impl From<PackageUdt> for Package {
     fn from(row: PackageUdt) -> Self {
-        let created = Utc.timestamp_millis(row.created);
+        let created = Utc.timestamp_millis_opt(row.created).unwrap();
 
         Package {
             created,

@@ -4,7 +4,7 @@
 //  Created:
 //    12 Sep 2022, 17:39:06
 //  Last edited:
-//    14 Nov 2022, 13:04:50
+//    14 Nov 2022, 13:28:33
 //  Auto updated?
 //    Yes
 // 
@@ -506,7 +506,7 @@ pub async fn download(names: Vec<String>, locs: Vec<String>, certs_dir: impl AsR
             Some(access) => access.clone(),
             None         => {
                 // Attempt to download it instead
-                match download_data(certs_dir, &config.url, proxy_addr, name.to_string(), &access).await? {
+                match download_data(certs_dir, &config.url, proxy_addr, &name, &access).await? {
                     Some(access) => access,
                     None         => { return Err(DataError::UnavailableDataset{ name, locs: info.access.keys().cloned().collect() }); },
                 }

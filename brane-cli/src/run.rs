@@ -4,7 +4,7 @@
 //  Created:
 //    12 Sep 2022, 16:42:57
 //  Last edited:
-//    14 Nov 2022, 11:04:54
+//    14 Nov 2022, 13:29:01
 //  Auto updated?
 //    Yes
 // 
@@ -523,7 +523,7 @@ pub async fn process_instance_result(certs_dir: impl AsRef<Path>, proxy_addr: &O
                     Some(access) => access.clone(),
                     None         => {
                         // Attempt to download it instead
-                        match data::download_data(certs_dir, &config.url, proxy_addr, name.to_string(), &info.access).await {
+                        match data::download_data(certs_dir, &config.url, proxy_addr, &name, &info.access).await {
                             Ok(Some(access)) => access,
                             Ok(None)         => { return Err(Error::UnavailableDataset{ name: name.into(), locs: info.access.keys().cloned().collect() }); },
                             Err(err)         => { return Err(Error::DataDownloadError{ err }); },
