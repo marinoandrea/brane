@@ -4,7 +4,7 @@
 //  Created:
 //    12 Sep 2022, 17:41:33
 //  Last edited:
-//    03 Nov 2022, 09:54:12
+//    14 Nov 2022, 09:36:07
 //  Auto updated?
 //    Yes
 // 
@@ -28,8 +28,6 @@ use crate::thread::Thread;
 /***** TESTS *****/
 #[cfg(test)]
 pub mod tests {
-    use log::LevelFilter;
-    use simplelog::{ColorChoice, TerminalMode, TermLogger};
     use brane_ast::{compile_snippet, CompileResult, ParserOptions};
     use brane_ast::state::CompileState;
     use brane_ast::traversals::print::ast;
@@ -45,7 +43,8 @@ pub mod tests {
     #[tokio::test]
     async fn test_snippets() {
         // Setup the simple logger
-        if let Err(err) = TermLogger::init(LevelFilter::Debug, Default::default(), TerminalMode::Mixed, ColorChoice::Auto) {
+        #[cfg(feature = "test_logging")]
+        if let Err(err) = simplelog::TermLogger::init(log::LevelFilter::Debug, Default::default(), simplelog::TerminalMode::Mixed, simplelog::ColorChoice::Auto) {
             eprintln!("WARNING: Failed to setup logger: {} (no logging for this session)", err);
         }
 

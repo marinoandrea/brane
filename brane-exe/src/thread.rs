@@ -4,7 +4,7 @@
 //  Created:
 //    09 Sep 2022, 13:23:41
 //  Last edited:
-//    06 Nov 2022, 19:51:47
+//    14 Nov 2022, 09:35:37
 //  Auto updated?
 //    Yes
 // 
@@ -42,8 +42,6 @@ use crate::frame_stack::FrameStack;
 #[cfg(test)]
 mod tests {
     use std::sync::Mutex;
-    use log::LevelFilter;
-    use simplelog::{ColorChoice, TerminalMode, TermLogger};
     use brane_ast::{compile_program, CompileResult, ParserOptions};
     use brane_ast::traversals::print::ast;
     use brane_shr::utilities::{create_data_index, create_package_index, test_on_dsl_files_async};
@@ -57,7 +55,8 @@ mod tests {
     #[tokio::test]
     async fn test_thread() {
         // Setup the simple logger
-        if let Err(err) = TermLogger::init(LevelFilter::Debug, Default::default(), TerminalMode::Mixed, ColorChoice::Auto) {
+        #[cfg(feature = "test_logging")]
+        if let Err(err) = simplelog::TermLogger::init(log::LevelFilter::Debug, Default::default(), simplelog::TerminalMode::Mixed, simplelog::ColorChoice::Auto) {
             eprintln!("WARNING: Failed to setup logger: {} (no logging for this session)", err);
         }
 

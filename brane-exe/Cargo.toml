@@ -30,3 +30,4 @@ brane-shr = { path = "../brane-shr" }
 print_scanner_path = [ "brane-ast/print_scanner_path" ]
 print_parser_path  = [ "brane-ast/print_parser_path" ]
 print_exec_path    = []
+test_logging       = []

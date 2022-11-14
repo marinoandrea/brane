@@ -4,7 +4,7 @@
 //  Created:
 //    13 Sep 2022, 16:43:11
 //  Last edited:
-//    03 Nov 2022, 09:47:59
+//    14 Nov 2022, 09:33:16
 //  Auto updated?
 //    Yes
 // 
@@ -12,6 +12,7 @@
 //!   Implements a Dummy virtual machine for unit test purposes only.
 // 
 
+use std::collections::HashMap;
 use std::mem;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -21,8 +22,8 @@ use log::info;
 
 use brane_ast::Workflow;
 use brane_ast::locations::Location;
-use brane_ast::ast::{DataName, Edge};
-use specifications::data::AccessKind;
+use brane_ast::ast::{DataName, Edge, SymTable};
+use specifications::data::{AccessKind, AvailabilityKind};
 
 pub use crate::errors::VmError as Error;
 use crate::spec::{CustomGlobalState, RunState, TaskInfo, VmPlugin};
@@ -122,6 +123,41 @@ impl VmPlugin for DummyPlugin {
 pub struct DummyPlanner {}
 
 impl DummyPlanner {
+    /// Helper function that plans the given list of edges for the dummy VM.
+    /// 
+    /// This function cannot fail, since it just basically plans anything to have the AST be in a valid state.
+    /// 
+    /// # Arguments
+    /// - `table`: The SymbolTable where this edge lives in.
+    /// - `edges`: The given list to plan.
+    /// 
+    /// # Returns
+    /// Nothing, but does change the given list.
+    fn plan_edges(table: &mut SymTable, edges: &mut Vec<Edge>) {
+        for e in edges {
+            if let Edge::Node{ at, input, result, .. } = e {
+                // We simply assign all locations to localhost
+                *at = Some("localhost".into());
+
+                // For all dataset/intermediate result inputs, we assert they are available on the local location
+                for (name, avail) in input {
+                    // Just set it as available to _something_, for testing purposes.
+                    *avail = Some(AvailabilityKind::Available { how: AccessKind::File{ path: PathBuf::from(name.name()) } });
+                }
+
+                // Then, we make the intermediate result available at the location where the function is being run (if there is any)
+                if let Some(name) = result {
+                    // Insert an entry in the list detailling where to access it and how
+                    table.results.insert(name.clone(), "localhost".into());
+                }
+            }
+        }
+
+        // Done
+    }
+
+
+
     /// Plans the given workflow by assigning `localhost` to every task it can find.
     /// 
     /// # Arguments
@@ -135,22 +171,46 @@ impl DummyPlanner {
     pub fn plan(workflow: Workflow) -> Workflow {
         let mut workflow: Workflow = workflow;
 
-        // Snatch the list of edges from the workflow (we take to handle the Arc)
-        let mut edges: Arc<Vec<Edge>> = Arc::new(vec![]);
-        mem::swap(&mut workflow.graph, &mut edges);
-        let mut edges: Vec<Edge>      = Arc::try_unwrap(edges).unwrap();
+        // Get the symbol table muteable, so we can... mutate... it
+        let mut table: Arc<SymTable> = Arc::new(SymTable::new());
+        mem::swap(&mut workflow.table, &mut table);
+        let mut table: SymTable      = Arc::try_unwrap(table).unwrap();
 
-        // Iterate through all the edges
-        for e in &mut edges {
-            // If we find a Node, annotate it
-            if let Edge::Node{ at, .. } = e {
-                *at = Some("localhost".into());
-            }
+        // Do the main edges first
+        {
+            // Start by getting a list of all the edges
+            let mut edges: Arc<Vec<Edge>> = Arc::new(vec![]);
+            mem::swap(&mut workflow.graph, &mut edges);
+            let mut edges: Vec<Edge>      = Arc::try_unwrap(edges).unwrap();
+
+            // Plan them
+            Self::plan_edges(&mut table, &mut edges);
+
+            // Move the edges back
+            let mut edges: Arc<Vec<Edge>> = Arc::new(edges);
+            mem::swap(&mut edges, &mut workflow.graph);
         }
 
-        // Swap the edges back
-        let mut edges: Arc<Vec<Edge>> = Arc::new(edges);
-        mem::swap(&mut edges, &mut workflow.graph);
+        // Then we do the function edges
+        {
+            // Start by getting the map
+            let mut funcs: Arc<HashMap<usize, Vec<Edge>>> = Arc::new(HashMap::new());
+            mem::swap(&mut workflow.funcs, &mut funcs);
+            let mut funcs: HashMap<usize, Vec<Edge>>      = Arc::try_unwrap(funcs).unwrap();
+
+            // Iterate through all of the edges
+            for (_, edges) in &mut funcs {
+                Self::plan_edges(&mut table, edges);
+            }
+
+            // Put the map back
+            let mut funcs: Arc<HashMap<usize, Vec<Edge>>> = Arc::new(funcs);
+            mem::swap(&mut funcs, &mut workflow.funcs);
+        }
+
+        // Then, put the table back
+        let mut table: Arc<SymTable> = Arc::new(table);
+        mem::swap(&mut table, &mut workflow.table);
 
         // Done
         workflow
