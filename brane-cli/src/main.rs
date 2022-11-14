@@ -4,7 +4,7 @@
 //  Created:
 //    21 Sep 2022, 14:34:28
 //  Last edited:
-//    11 Nov 2022, 11:34:50
+//    14 Nov 2022, 11:06:49
 //  Auto updated?
 //    Yes
 // 
@@ -398,7 +398,7 @@ async fn run(options: Cli) -> Result<(), CliError> {
             use DataSubcommand::*;
             match subcommand {
                 Build { file, workdir, keep_files, no_links } => {
-                    if let Err(err) = data::build(&file, workdir.unwrap_or(file.parent().map(|p| p.into()).unwrap_or(PathBuf::from("./"))), keep_files, no_links).await { return Err(CliError::DataError { err }); }
+                    if let Err(err) = data::build(&file, workdir.unwrap_or_else(|| file.parent().map(|p| p.into()).unwrap_or_else(|| PathBuf::from("./"))), keep_files, no_links).await { return Err(CliError::DataError { err }); }
                 },
                 Download{ names, locs, certs_dir, proxy_addr, force } => {
                     if let Err(err) = data::download(names, locs, certs_dir, &proxy_addr, force).await { return Err(CliError::DataError { err }); }
@@ -507,7 +507,7 @@ async fn run(options: Cli) -> Result<(), CliError> {
             if packages.is_empty() { println!("Nothing to do."); return Ok(()); }
             let mut parsed: Vec<(String, SemVersion)> = Vec::with_capacity(packages.len());
             for package in &packages {
-                parsed.push(match SemVersion::from_package_pair(&package) {
+                parsed.push(match SemVersion::from_package_pair(package) {
                     Ok(pair) => pair,
                     Err(err) => { return Err(CliError::PackagePairParseError{ raw: package.into(), err }); }
                 })

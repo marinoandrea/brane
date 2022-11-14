@@ -2,7 +2,7 @@ use prost::{Enumeration, Message};
 use std::fmt;
 use time::OffsetDateTime;
 
-#[derive(Clone, PartialEq, Message)]
+#[derive(Clone, Eq, Message, PartialEq)]
 pub struct Callback {
     #[prost(tag = "1", enumeration = "CallbackKind")]
     pub kind: i32,
@@ -66,7 +66,7 @@ impl fmt::Display for CallbackKind {
     }
 }
 
-#[derive(Clone, PartialEq, Message)]
+#[derive(Clone, Eq, PartialEq, Message)]
 pub struct Command {
     #[prost(tag = "1", enumeration = "CommandKind")]
     pub kind: i32,
@@ -122,7 +122,7 @@ impl fmt::Display for CommandKind {
     }
 }
 
-#[derive(Clone, PartialEq, Message)]
+#[derive(Clone, Eq, Message, PartialEq)]
 pub struct Event {
     #[prost(tag = "1", enumeration = "EventKind")]
     pub kind: i32,
@@ -172,7 +172,7 @@ impl Event {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Enumeration)]
+#[derive(Clone, Copy, Debug, Enumeration, Eq, PartialEq)]
 pub enum EventKind {
     Unknown = -1,
     Created = 0,
@@ -196,7 +196,7 @@ impl fmt::Display for EventKind {
     }
 }
 
-#[derive(Clone, PartialEq, Message)]
+#[derive(Clone, Eq, Message, PartialEq)]
 pub struct Mount {
     #[prost(tag = "1", string)]
     pub source: String,

@@ -4,7 +4,7 @@
 //  Created:
 //    19 Aug 2022, 16:34:16
 //  Last edited:
-//    03 Nov 2022, 17:43:46
+//    14 Nov 2022, 11:07:21
 //  Auto updated?
 //    Yes
 // 
@@ -141,6 +141,7 @@ fn force_cast(expr: Expr, target: DataType, symbol_table: &Rc<RefCell<SymbolTabl
 /// Nothing, but does wrap the expressions of nested return statements in casts.
 fn insert_casts_at_returns(s: &mut Stmt, target: &DataType) {
     // Match the statement
+    #[allow(clippy::collapsible_match)]
     match s {
         // Most blocks are just recursion
         Stmt::Block{ block } => {
@@ -175,7 +176,7 @@ fn insert_casts_at_returns(s: &mut Stmt, target: &DataType) {
         },
 
         // The return is the interesting one, obviously
-        Stmt::Return{ ref mut expr, .. } => {
+        Stmt::Return{ expr, .. } => {
             // Wrap it in a cast to the target type if there is a return statement
             if let Some(expr) = expr {
                 let range: TextRange = expr.range().clone();
@@ -389,15 +390,16 @@ fn pass_stmt(stmt: &mut Stmt, symbol_table: &Rc<RefCell<SymbolTable>>, warnings:
         Parallel{ result, blocks, merge, st_entry, range } => {
             // First, examine the result types of each of the blocks and make sure they evaluate to the same
             let mut ret_type: Option<(DataType, TextRange)> = None;
-            for (i, mut b) in blocks.iter_mut().enumerate() {
+            for (i, b) in blocks.iter_mut().enumerate() {
                 // Get the return type of the statement (if any)
-                let ret: Option<(DataType, TextRange)> = pass_stmt(&mut b, symbol_table, warnings, errors);
+                let ret: Option<(DataType, TextRange)> = pass_stmt(b, symbol_table, warnings, errors);
 
                 // Check if there is at least something if we expect it to
                 if result.is_some() && (ret.is_none() || ret.as_ref().unwrap().0 == DataType::Void) {
                     errors.push(Error::ParallelNoReturn{ block: i, range: b.range().clone() });
                     return None;
                 }
+                #[allow(clippy::unnecessary_unwrap)]
                 if result.is_none() && (ret.is_some() && ret.as_ref().unwrap().0 != DataType::Void) {
                     errors.push(Error::ParallelUnexpectedReturn{ block: i, got: ret.unwrap().0, range: b.range().clone() });
                     return None;
@@ -566,7 +568,7 @@ fn pass_expr(expr: &mut Expr, symbol_table: &Rc<RefCell<SymbolTable>>, errors: &
                 Expr::Identifier { name, .. } => {
                     // Search the symbol table for this identifier
                     match st.get_func(&name.value) {
-                        Some(entry) => entry.clone(),
+                        Some(entry) => entry,
                         None        => {
                             errors.push(Error::UndefinedFunctionCall{ name: name.value.clone(), range: name.range.clone() });
                             return DataType::Any;

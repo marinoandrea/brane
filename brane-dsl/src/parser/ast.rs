@@ -4,7 +4,7 @@
 //  Created:
 //    10 Aug 2022, 14:00:59
 //  Last edited:
-//    27 Oct 2022, 10:12:59
+//    14 Nov 2022, 09:57:14
 //  Auto updated?
 //    Yes
 // 
@@ -560,7 +560,7 @@ impl Property {
     #[inline]
     pub fn new(name: Identifier, data_type: DataType, range: TextRange) -> Self {
         Self {
-            name : name.into(),
+            name,
             data_type,
 
             st_entry : None,
@@ -1721,7 +1721,7 @@ impl Literal {
     pub fn as_version(&self) -> Result<Version, ParseError> {
         use Literal::*;
         if let Semver{ value, .. } = self {
-            Version::from_str(&value)
+            Version::from_str(value)
         } else {
             panic!("Attempted to get Literal of type '{}' as 'Semver'", self.data_type());
         }

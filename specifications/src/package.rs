@@ -192,7 +192,7 @@ struct DockerImageManifest {
 
 /***** SPECIFICATIONS *****/
 /// Enum that lists possible package types
-#[derive(Debug, Deserialize, Clone, Copy, EnumIter, PartialEq, Serialize)]
+#[derive(Debug, Deserialize, Clone, Copy, EnumIter, Eq, PartialEq, Serialize)]
 pub enum PackageKind {
     /// The package is an executable package (wrapping some other language or code)
     #[serde(rename = "ecu")]

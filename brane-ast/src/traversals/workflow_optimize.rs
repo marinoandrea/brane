@@ -4,7 +4,7 @@
 //  Created:
 //    19 Oct 2022, 11:19:39
 //  Last edited:
-//    19 Oct 2022, 14:13:17
+//    14 Nov 2022, 10:33:28
 //  Auto updated?
 //    Yes
 // 
@@ -128,7 +128,7 @@ pub fn do_traversal(root: UnresolvedWorkflow) -> Result<UnresolvedWorkflow, Vec<
 
     // Pass over each of the buffers
     root.main_edges.merge_linear();
-    for (_, edges) in &mut root.f_edges {
+    for edges in root.f_edges.values_mut() {
         edges.merge_linear();
     }
 

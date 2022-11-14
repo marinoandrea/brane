@@ -4,7 +4,7 @@
 //  Created:
 //    05 Sep 2022, 16:27:08
 //  Last edited:
-//    06 Nov 2022, 14:26:22
+//    14 Nov 2022, 11:07:37
 //  Auto updated?
 //    Yes
 // 
@@ -100,6 +100,7 @@ mod tests {
 fn pass_stmt(stmt: &mut Stmt, locations: AllowedLocations, reasons: Vec<TextRange>, errors: &mut Vec<Error>) {
     // Match on the exact statement
     use Stmt::*;
+    #[allow(clippy::collapsible_match)]
     match stmt {
         Block{ block, .. } => {
             pass_block(block, locations, reasons, errors);
@@ -126,11 +127,11 @@ fn pass_stmt(stmt: &mut Stmt, locations: AllowedLocations, reasons: Vec<TextRang
             pass_stmt(initializer, locations.clone(), reasons.clone(), errors);
             pass_expr(condition, locations.clone(), reasons.clone(), errors);
             pass_stmt(increment, locations.clone(), reasons.clone(), errors);
-            pass_block(consequent, locations.clone(), reasons.clone(), errors);
+            pass_block(consequent, locations, reasons, errors);
         },
         While{ condition, consequent, .. } => {
             pass_expr(condition, locations.clone(), reasons.clone(), errors);
-            pass_block(consequent, locations.clone(), reasons.clone(), errors);
+            pass_block(consequent, locations, reasons, errors);
         },
         On{ location, block, range, .. } => {
             // Enfore the location to be a string constant (we do always expect a cast due to type analysis).
@@ -235,11 +236,7 @@ fn pass_expr(expr: &mut Expr, on_locations: AllowedLocations, on_reasons: Vec<Te
             // Take the union of the already imposed restrictions + those imposed by On-blocks
             let mut on_locations: AllowedLocations = on_locations;
             locations.intersection(&mut on_locations);
-            if locations.is_empty() {
-                // Add the current location reason if restricted
-                errors.push(Error::NoLocation { range: range.clone(), reasons: on_reasons });
-                return;
-            }
+            if locations.is_empty() { errors.push(Error::NoLocation { range: range.clone(), reasons: on_reasons }); }
         },
         Array{ values, .. } => {
             for v in values {
@@ -256,11 +253,11 @@ fn pass_expr(expr: &mut Expr, on_locations: AllowedLocations, on_reasons: Vec<Te
         },
         BinOp{ lhs, rhs, .. } => {
             pass_expr(lhs, on_locations.clone(), on_reasons.clone(), errors);
-            pass_expr(rhs, on_locations.clone(), on_reasons.clone(), errors);
+            pass_expr(rhs, on_locations, on_reasons, errors);
         },
         Proj{ lhs, rhs, .. } => {
             pass_expr(lhs, on_locations.clone(), on_reasons.clone(), errors);
-            pass_expr(rhs, on_locations.clone(), on_reasons.clone(), errors);
+            pass_expr(rhs, on_locations, on_reasons, errors);
         },
 
         Instance{ properties, .. } => {

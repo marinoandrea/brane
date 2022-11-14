@@ -4,7 +4,7 @@
 //  Created:
 //    23 Mar 2022, 15:15:12
 //  Last edited:
-//    22 Sep 2022, 10:14:12
+//    14 Nov 2022, 09:47:49
 //  Auto updated?
 //    Yes
 // 
@@ -327,7 +327,7 @@ impl Version {
     /// This function may error if parsing failed, somehow.
     pub fn from_package_pair(package: &str) -> Result<(String, Self), ParseError> {
         // Get the number of colons in the string
-        let colons: usize = package.matches(":").count();
+        let colons: usize = package.matches(':').count();
 
         // Switch on version present or not
         if colons == 0 {

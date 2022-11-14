@@ -1,9 +1,24 @@
-/* TIM */
+//  JOBS.rs
+//    by Lut99
+// 
+//  Created:
+//    14 Nov 2022, 09:50:29
+//  Last edited:
+//    14 Nov 2022, 09:50:30
+//  Auto updated?
+//    Yes
+// 
+//  Description:
+//!   Implements some public interfaces & definitions for working with
+//!   jobs.
+// 
+
+
 /// **Edited: added comments + synced with new events.**
 /// 
 /// Lists the possible states that a job can have from the brane-drv perspective.
 #[repr(u8)]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum JobStatus {
     // Meta states
     /// Meta state for undefined states

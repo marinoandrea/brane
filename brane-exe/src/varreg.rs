@@ -4,7 +4,7 @@
 //  Created:
 //    09 Sep 2022, 16:35:48
 //  Last edited:
-//    14 Sep 2022, 15:53:39
+//    14 Nov 2022, 10:41:18
 //  Auto updated?
 //    Yes
 // 
@@ -151,5 +151,12 @@ impl VariableRegister {
             Some((_, data_type, _)) => Ok(data_type),
             None                    => Err(Error::UndeclaredVariable{ id }),
         }
+    }
+}
+
+impl Default for VariableRegister {
+    #[inline]
+    fn default() -> Self {
+        Self::new()
     }
 }

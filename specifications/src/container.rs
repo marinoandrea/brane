@@ -132,7 +132,7 @@ pub enum VolumeBindOption {
 impl VolumeBindOption {
     /// Returns a formatter that writes a Docker-compatible version of this VolumeBindOption.
     #[inline]
-    pub fn docker<'a>(&'a self) -> VolumeBindOptionDockerDisplay<'a> {
+    pub fn docker(&self) -> VolumeBindOptionDockerDisplay {
         VolumeBindOptionDockerDisplay {
             option : self,
         }
@@ -231,7 +231,7 @@ impl VolumeBind {
 
     /// Returns a formatter that writes a Docker-compatible version of this VolumeBindOption.
     #[inline]
-    pub fn docker<'a>(&'a self) -> VolumeBindDockerDisplay<'a> {
+    pub fn docker(&self) -> VolumeBindDockerDisplay {
         VolumeBindDockerDisplay {
             bind : self,
         }
@@ -278,7 +278,7 @@ impl Image {
 
     /// Returns the digest-part of the Image.
     #[inline]
-    pub fn digest(&self) -> Option<&str> { self.digest.as_ref().map(|s| s.as_str()) }
+    pub fn digest(&self) -> Option<&str> { self.digest.as_deref() }
 }
 
 impl Display for Image {
@@ -321,7 +321,7 @@ impl From<&str> for Image {
         };
 
         // Next, search if there is a version or something
-        let (name, version): (&str, Option<&str>) = if let Some(idx) = s.rfind(":") {
+        let (name, version): (&str, Option<&str>) = if let Some(idx) = s.rfind(':') {
             (&rest[..idx], Some(&rest[idx + 1..]))
         } else {
             (rest, None)

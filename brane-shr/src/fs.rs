@@ -4,7 +4,7 @@
 //  Created:
 //    09 Nov 2022, 11:12:06
 //  Last edited:
-//    10 Nov 2022, 18:23:33
+//    14 Nov 2022, 09:49:01
 //  Auto updated?
 //    Yes
 // 
@@ -399,7 +399,7 @@ pub async fn archive_async(source: impl AsRef<Path>, tarball: impl AsRef<Path>, 
 
     // Now add the source recursively
     let mut is_root_dir: bool = true;
-    let mut todo: Vec<(PathBuf, OsString)> = vec![ (source.into(), source.file_name().map(|f| f.into()).unwrap_or(OsString::from("."))) ];
+    let mut todo: Vec<(PathBuf, OsString)> = vec![ (source.into(), source.file_name().map(|f| f.into()).unwrap_or_else(|| OsString::from("."))) ];
     while let Some((path, name)) = todo.pop() {
         // Switch on the file type
         if path.is_file() {

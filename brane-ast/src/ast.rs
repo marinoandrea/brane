@@ -4,7 +4,7 @@
 //  Created:
 //    30 Aug 2022, 11:55:49
 //  Last edited:
-//    31 Oct 2022, 10:44:12
+//    14 Nov 2022, 10:06:27
 //  Auto updated?
 //    Yes
 // 
@@ -149,6 +149,13 @@ impl SymTable {
     }
 }
 
+impl Default for SymTable {
+    #[inline]
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 
 
 /// Defines a function that is referenced in the edges.
@@ -188,7 +195,7 @@ pub enum TaskDef {
 
         /// The definition of the function that this package implements.
         #[serde(rename = "d")]
-        function   : FunctionDef,
+        function   : Box<FunctionDef>,
         /// A list of names for every argument.
         #[serde(rename = "a")]
         args_names : Vec<String>,
@@ -421,11 +428,11 @@ pub enum DataName {
 impl DataName {
     /// Returns whether this is a dataset.
     #[inline]
-    pub fn is_data(&self) -> bool { if let Self::Data(_) = self { true } else { false } }
+    pub fn is_data(&self) -> bool { matches!(self, Self::Data(_)) }
 
     /// Returns whether this is a result.
     #[inline]
-    pub fn is_intermediate_result(&self) -> bool { if let Self::IntermediateResult(_) = self { true } else { false } }
+    pub fn is_intermediate_result(&self) -> bool { matches!(self, Self::IntermediateResult(_)) }
 
 
 

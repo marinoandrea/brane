@@ -4,7 +4,7 @@
 //  Created:
 //    26 Sep 2022, 12:15:06
 //  Last edited:
-//    28 Oct 2022, 16:12:53
+//    14 Nov 2022, 10:54:06
 //  Auto updated?
 //    Yes
 // 
@@ -90,8 +90,8 @@ pub async fn get_package_index(endpoint: impl AsRef<str>) -> Result<PackageIndex
     let mut infos: Vec<PackageInfo> = Vec::with_capacity(packages.len());
     for (i, p) in packages.into_iter().enumerate() {
         // Parse some elements of the PackageInfo
-        let functions : HashMap<String, Function> = p.functions_as_json.map(|f| serde_json::from_str(&f).unwrap()).unwrap_or(HashMap::new());
-        let types     : HashMap<String, Type>     = p.types_as_json.map(|t| serde_json::from_str(&t).unwrap()).unwrap_or(HashMap::new());
+        let functions : HashMap<String, Function> = p.functions_as_json.map(|f| serde_json::from_str(&f).unwrap()).unwrap_or_default();
+        let types     : HashMap<String, Type>     = p.types_as_json.map(|t| serde_json::from_str(&t).unwrap()).unwrap_or_default();
         let kind      : PackageKind               = match PackageKind::from_str(&p.kind) {
             Ok(kind) => kind,
             Err(err) => { return Err(Error::PackageKindParseError{ address: endpoint.into(), index: i, raw: p.kind, err }); }
@@ -111,7 +111,7 @@ pub async fn get_package_index(endpoint: impl AsRef<str>) -> Result<PackageIndex
             version,
             kind,
             owners      : p.owners,
-            description : p.description.unwrap_or(String::new()),
+            description : p.description.unwrap_or_default(),
 
             detached : p.detached,
             functions,

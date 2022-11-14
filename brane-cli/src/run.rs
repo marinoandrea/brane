@@ -4,7 +4,7 @@
 //  Created:
 //    12 Sep 2022, 16:42:57
 //  Last edited:
-//    06 Nov 2022, 21:32:11
+//    14 Nov 2022, 11:04:54
 //  Auto updated?
 //    Yes
 // 
@@ -452,9 +452,9 @@ pub fn process_offline_result(result: FullValue) -> Result<(), Error> {
                     Some(info) => info,
                     None       => { return Err(Error::UnknownDataset{ name: name.into() }); },
                 };
-                let access: &AccessKind = match info.access.get(&*LOCALHOST) {
+                let access: &AccessKind = match info.access.get(LOCALHOST) {
                     Some(access) => access,
-                    None         => { return Err(Error::UnavailableDataset{ name: name.into(), locs: info.access.keys().map(|k| k.clone()).collect() }); },
+                    None         => { return Err(Error::UnavailableDataset{ name: name.into(), locs: info.access.keys().cloned().collect() }); },
                 };
 
                 // Write the method of access
@@ -519,13 +519,13 @@ pub async fn process_instance_result(certs_dir: impl AsRef<Path>, proxy_addr: &O
                     Some(info) => info,
                     None       => { return Err(Error::UnknownDataset{ name: name.into() }); },
                 };
-                let access: AccessKind = match info.access.get(&*LOCALHOST) {
+                let access: AccessKind = match info.access.get(LOCALHOST) {
                     Some(access) => access.clone(),
                     None         => {
                         // Attempt to download it instead
                         match data::download_data(certs_dir, &config.url, proxy_addr, name.to_string(), &info.access).await {
                             Ok(Some(access)) => access,
-                            Ok(None)         => { return Err(Error::UnavailableDataset{ name: name.into(), locs: info.access.keys().map(|k| k.clone()).collect() }); },
+                            Ok(None)         => { return Err(Error::UnavailableDataset{ name: name.into(), locs: info.access.keys().cloned().collect() }); },
                             Err(err)         => { return Err(Error::DataDownloadError{ err }); },
                         }
                     },

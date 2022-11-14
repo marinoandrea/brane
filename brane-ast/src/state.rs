@@ -4,7 +4,7 @@
 //  Created:
 //    16 Sep 2022, 08:22:47
 //  Last edited:
-//    31 Oct 2022, 10:30:39
+//    14 Nov 2022, 10:10:44
 //  Auto updated?
 //    Yes
 // 
@@ -633,6 +633,13 @@ impl TableState {
     pub fn n_vars(&self) -> usize { self.vars.offset() + self.vars.len() }
 }
 
+impl Default for TableState {
+    #[inline]
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl From<TableState> for SymTable {
     fn from(value: TableState) -> Self {
         // Functions
@@ -770,13 +777,13 @@ impl From<TaskState> for TaskDef {
             package : value.package_name,
             version : value.package_version,
 
-            function   : FunctionDef {
+            function   : Box::new(FunctionDef {
                 name : value.name,
                 args : value.signature.args.into_iter().map(|d| d.into()).collect(),
                 ret  : value.signature.ret.into(),
 
                 table : SymTable::new(),
-            },
+            }),
             args_names : value.arg_names,
         }
     }
@@ -1048,6 +1055,13 @@ impl DataState {
     }
 }
 
+impl Default for DataState {
+    #[inline]
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 
 
 /// Defines whatever we need to remember w.r.t. compile-time in between two submissions of part of a workflow (i.e., repl-runs).
@@ -1080,5 +1094,12 @@ impl CompileState {
 
             data : DataState::new(),
         }
+    }
+}
+
+impl Default for CompileState {
+    #[inline]
+    fn default() -> Self {
+        Self::new()
     }
 }

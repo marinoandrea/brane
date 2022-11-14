@@ -4,7 +4,7 @@
 //  Created:
 //    05 Sep 2022, 17:36:21
 //  Last edited:
-//    25 Oct 2022, 12:45:40
+//    14 Nov 2022, 10:34:27
 //  Auto updated?
 //    Yes
 // 
@@ -186,7 +186,7 @@ fn pass_edges(edges: EdgeBuffer, target: &mut Vec<Edge>, map: &mut HashMap<EdgeB
 
                     // Resolve the index of this next one (either already defined or the next edge)
                     let next_idx: usize = match &next {
-                        Some(next) => match map.get(&next) {
+                        Some(next) => match map.get(next) {
                             Some(idx) => *idx,
                             None      => offset + target.len() + 1,
                         },
@@ -220,7 +220,7 @@ fn pass_edges(edges: EdgeBuffer, target: &mut Vec<Edge>, map: &mut HashMap<EdgeB
 
                     // Resolve the index of this next one (either already defined or the next edge)
                     let next_idx: usize = match &next {
-                        Some(next) => match map.get(&next) {
+                        Some(next) => match map.get(next) {
                             Some(idx) => *idx,
                             None      => offset + target.len() + 1,
                         },
@@ -361,7 +361,7 @@ fn pass_edges(edges: EdgeBuffer, target: &mut Vec<Edge>, map: &mut HashMap<EdgeB
 
                     // Resolve the index of this next one (either already defined or the next edge)
                     let next_idx: usize = match &next {
-                        Some(next) => match map.get(&next) {
+                        Some(next) => match map.get(next) {
                             Some(idx) => *idx,
                             None      => offset + target.len() + 1,
                         },
@@ -416,7 +416,7 @@ fn pass_edges(edges: EdgeBuffer, target: &mut Vec<Edge>, map: &mut HashMap<EdgeB
                         update_link(&mut cond_edges[cond_edges_len - 1], cond_idx + cond_edges_len);
 
                         // Write the branch itself
-                        write_edge!(&mut cond_edges, Edge::Branch {
+                        write_edge!(cond_edges, Edge::Branch {
                             true_next  : body_idx,
                             false_next : next_idx,
                             merge      : next_idx,
@@ -456,7 +456,7 @@ fn pass_edges(edges: EdgeBuffer, target: &mut Vec<Edge>, map: &mut HashMap<EdgeB
 
                     // Resolve the index of this next one (either already defined or the next edge)
                     let next_idx: usize = match &next {
-                        Some(next) => match map.get(&next) {
+                        Some(next) => match map.get(next) {
                             Some(idx) => *idx,
                             None      => offset + target.len() + 1,
                         },

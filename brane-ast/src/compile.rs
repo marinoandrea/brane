@@ -4,7 +4,7 @@
 //  Created:
 //    12 Sep 2022, 18:12:44
 //  Last edited:
-//    06 Nov 2022, 14:20:36
+//    14 Nov 2022, 10:34:40
 //  Auto updated?
 //    Yes
 // 
@@ -275,7 +275,7 @@ pub fn compile_snippet_to<R: std::io::Read>(state: &mut CompileState, reader: R,
     let mut source: String = String::new();
     if let Err(err) = reader.read_to_string(&mut source) { return CompileResult::Err(vec![ Error::ReaderReadError{ err } ]); }
     // ...and compile it to a program
-    let mut program: Program = match brane_dsl::parse(source, &package_index, options) {
+    let mut program: Program = match brane_dsl::parse(source, package_index, options) {
         Ok(program)                       => program,
         Err(ParseError::Eof{ lang, err }) => { return CompileResult::Eof(Error::ParseError{ err: ParseError::Eof { lang, err } }); },
         Err(err)                          => { return CompileResult::Err(vec![ Error::ParseError{ err } ]); },

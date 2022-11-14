@@ -4,7 +4,7 @@
 //  Created:
 //    10 Aug 2022, 17:16:11
 //  Last edited:
-//    07 Sep 2022, 16:42:12
+//    14 Nov 2022, 09:56:21
 //  Auto updated?
 //    Yes
 // 
@@ -34,8 +34,8 @@ pub fn parse<'a, E: ParseError<Tokens<'a>> + ContextError<Tokens<'a>>>(
 ) -> IResult<Tokens, Operator, E> {
     wrap_pp!(
         branch::alt((
-            comb::map(binary_operator, |o| Operator::Binary(o)),
-            comb::map(unary_operator,  |o| Operator::Unary(o)),
+            comb::map(binary_operator, Operator::Binary),
+            comb::map(unary_operator,  Operator::Unary),
         ))
         .parse(input),
     "OPERATOR")

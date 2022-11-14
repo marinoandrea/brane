@@ -4,7 +4,7 @@
 //  Created:
 //    26 Aug 2022, 18:26:40
 //  Last edited:
-//    31 Oct 2022, 12:18:16
+//    14 Nov 2022, 10:47:19
 //  Auto updated?
 //    Yes
 // 
@@ -45,9 +45,7 @@ pub trait CustomLocalState: 'static + Send + Sync {
 }
 impl CustomLocalState for () {
     #[inline]
-    fn new(_global: &Arc<RwLock<impl CustomGlobalState>>) -> Self {
-        ()
-    }
+    fn new(_global: &Arc<RwLock<impl CustomGlobalState>>) -> Self {}
 }
 
 

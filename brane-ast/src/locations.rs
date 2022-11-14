@@ -4,7 +4,7 @@
 //  Created:
 //    07 Sep 2022, 10:48:30
 //  Last edited:
-//    13 Sep 2022, 13:55:24
+//    14 Nov 2022, 10:04:13
 //  Auto updated?
 //    Yes
 // 
@@ -49,11 +49,11 @@ impl Locations {
 
     /// Returns whether this Locations is an open-to-all kinda thing.
     #[inline]
-    pub fn is_all(&self) -> bool { if let Self::All = self { true } else { false } }
+    pub fn is_all(&self) -> bool { matches!(self, Self::All) }
 
     /// Returns whether this Locations is a restrictive list.
     #[inline]
-    pub fn is_restrictive(&self) -> bool { if let Self::Restricted(_) = self { true } else { false } }
+    pub fn is_restrictive(&self) -> bool { matches!(self, Self::Restricted(_)) }
 }
 
 impl From<AllowedLocations> for Locations {

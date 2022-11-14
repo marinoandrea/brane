@@ -4,7 +4,7 @@
 //  Created:
 //    17 Aug 2022, 16:01:41
 //  Last edited:
-//    06 Sep 2022, 15:26:35
+//    14 Nov 2022, 09:59:01
 //  Auto updated?
 //    Yes
 // 
@@ -148,7 +148,7 @@ fn class_stmt<'a, E: ParseError<Tokens<'a>> + ContextError<Tokens<'a>>>(
         branch::alt((
             comb::map(
                 property,
-                |p| ClassStmt::Property(p),
+                ClassStmt::Property,
             ),
             comb::map(
                 declare_func_stmt,
@@ -180,7 +180,7 @@ pub fn parse_ast(input: Tokens) -> IResult<Tokens, Program, VerboseError<Tokens>
     let (r, stmts) = comb::all_consuming(multi::many0(parse_stmt))(input)?;
 
     // Wrap it in a program and done
-    let start_pos : TextPos = stmts.iter().next().map(|s| s.start().clone()).unwrap_or(TextPos::none());
+    let start_pos : TextPos = stmts.first().map(|s| s.start().clone()).unwrap_or(TextPos::none());
     let end_pos   : TextPos = stmts.iter().last().map(|s| s.end().clone()).unwrap_or(TextPos::none());
     exit_pp!(
         Ok((r, Program {
@@ -435,7 +435,7 @@ pub fn parallel_stmt<'a, E: ParseError<Tokens<'a>> + ContextError<Tokens<'a>>>(
     let blocks = blocks.map(|(h, e)| {
         let mut res: Vec<Box<Stmt>> = Vec::with_capacity(1 + e.len());
         res.push(Box::new(h));
-        res.append(&mut e.into_iter().map(|e| Box::new(e)).collect());
+        res.append(&mut e.into_iter().map(Box::new).collect());
         res
     }).unwrap_or_default();
 
@@ -622,12 +622,12 @@ pub fn if_stmt<'a, E: ParseError<Tokens<'a>> + ContextError<Tokens<'a>>>(
     ))).parse(r)?;
 
     // Put it in a Stmt::If and done
-    let range: TextRange = TextRange::new(f.tok[0].inner().into(), alternative.as_ref().map(|b| b.end().clone()).unwrap_or(consequent.end().clone()));
+    let range: TextRange = TextRange::new(f.tok[0].inner().into(), alternative.as_ref().map(|b| b.end().clone()).unwrap_or_else(|| consequent.end().clone()));
     exit_pp!(
         Ok((r, Stmt::If {
             cond,
             consequent  : Box::new(consequent),
-            alternative : alternative.map(|b| Box::new(b)),
+            alternative : alternative.map(Box::new),
 
             range,
         })),

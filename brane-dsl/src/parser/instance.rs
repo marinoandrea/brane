@@ -4,7 +4,7 @@
 //  Created:
 //    10 Aug 2022, 17:20:47
 //  Last edited:
-//    25 Aug 2022, 11:24:32
+//    14 Nov 2022, 10:44:25
 //  Auto updated?
 //    Yes
 // 
@@ -45,7 +45,7 @@ pub fn instance_property<'a, E: ParseError<Tokens<'a>> + ContextError<Tokens<'a>
     let (r, c) = comb::opt(tag_token!(Token::Comma)).parse(r)?;
 
     // Return and put it in a PropertyExpr
-    let range: TextRange = TextRange::new(name.start().clone(), c.map(|t| TextPos::end_of(t.tok[0].inner())).unwrap_or(value.end().clone()));
+    let range: TextRange = TextRange::new(name.start().clone(), c.map(|t| TextPos::end_of(t.tok[0].inner())).unwrap_or_else(|| value.end().clone()));
     exit_pp!(
         Ok((r, PropertyExpr {
             name,
@@ -92,7 +92,7 @@ pub fn parse<'a, E: ParseError<Tokens<'a>> + ContextError<Tokens<'a>>>(input: To
     exit_pp!(
         Ok((r, Expr::new_instance(
             class,
-            properties.unwrap_or(Vec::new()),
+            properties.unwrap_or_default(),
 
             TextRange::from((n.tok[0].inner(), b.tok[0].inner())),
         ))),

@@ -4,7 +4,7 @@
 //  Created:
 //    05 Sep 2022, 09:27:32
 //  Last edited:
-//    19 Oct 2022, 14:15:30
+//    14 Nov 2022, 10:22:52
 //  Auto updated?
 //    Yes
 // 
@@ -153,7 +153,7 @@ impl EdgeBufferNodeLink {
 
     /// Returns whether this EdgeBufferNodeLink is _not_ a link (i.e., is `EdgeBufferNodeLink::None`).
     #[inline]
-    pub fn is_none(&self) -> bool { if let EdgeBufferNodeLink::None = self { true } else { false } }
+    pub fn is_none(&self) -> bool { matches!(self, Self::None) }
 }
 
 
@@ -213,6 +213,7 @@ impl EdgeBufferNode {
     /// 
     /// # Returns
     /// An EdgeBufferNodePtr that refers to the newly instantiated object.
+    #[allow(clippy::new_ret_no_self)]
     #[inline]
     fn new(edge: Edge) -> EdgeBufferNodePtr {
         EdgeBufferNodePtr(Rc::new(RefCell::new(Self {
@@ -518,7 +519,7 @@ impl EdgeBufferNode {
 
     /// Returns whether this node is connect by end.
     #[inline]
-    pub fn is_end(&self) -> bool { if let EdgeBufferNodeLink::Stop = &self.next { true } else { false } }
+    pub fn is_end(&self) -> bool { matches!(self.next, EdgeBufferNodeLink::Stop) }
 }
 
 
@@ -643,7 +644,7 @@ impl EdgeBuffer {
         branch.borrow_mut().connect_branch(true_start, false_start, next.clone());
 
         // Finally, add it as linear to the end of this buffer
-        let next: EdgeBufferNodePtr = next.unwrap_or(branch.clone());
+        let next: EdgeBufferNodePtr = next.unwrap_or_else(|| branch.clone());
         match &self.end {
             Some(end) => {
                 end.borrow_mut().connect_linear(branch);
@@ -685,11 +686,11 @@ impl EdgeBuffer {
         // Finally, add it as linear to the end of this buffer
         match &self.end {
             Some(end) => {
-                end.borrow_mut().connect_linear(parallel.clone());
+                end.borrow_mut().connect_linear(parallel);
                 self.end = Some(next);
             },
             None => {
-                self.start = Some(parallel.clone());
+                self.start = Some(parallel);
                 self.end   = Some(next);
             },
         }
@@ -737,7 +738,7 @@ impl EdgeBuffer {
         eloop.borrow_mut().connect_loop(cond_start, cons_start, next.clone());
 
         // Finally, add it as linear to the end of this buffer
-        let next: EdgeBufferNodePtr = next.unwrap_or(eloop.clone());
+        let next: EdgeBufferNodePtr = next.unwrap_or_else(|| eloop.clone());
         match &self.end {
             Some(end) => {
                 end.borrow_mut().connect_linear(eloop);
@@ -899,7 +900,7 @@ impl EdgeBuffer {
                 match &node.next {
                     EdgeBufferNodeLink::Linear(next) => {
                         // Make sure we did not do the next yet
-                        if done.contains(&next) { return false; }
+                        if done.contains(next) { return false; }
                         done.insert(next.clone());
                         this_next = Some(next.clone());
                     },
@@ -907,7 +908,7 @@ impl EdgeBuffer {
                         // If 'next' is none, then it returns; otherwise, we know both of the branches don't, so continue with next
                         match next {
                             Some(next) => {
-                                if done.contains(&next) { return false; }
+                                if done.contains(next) { return false; }
                                 done.insert(next.clone());
                                 this_next = Some(next.clone());
                             },
@@ -916,7 +917,7 @@ impl EdgeBuffer {
                     },
                     EdgeBufferNodeLink::Parallel(_, next) => {
                         // Always continue since parallels cannot return
-                        if done.contains(&next) { return false; }
+                        if done.contains(next) { return false; }
                         done.insert(next.clone());
                         this_next = Some(next.clone());
                     },
@@ -924,7 +925,7 @@ impl EdgeBuffer {
                         // If 'next' is none, then it returns; otherwise, we know the loop doesn't, so continue
                         match next {
                             Some(next) => {
-                                if done.contains(&next) { return false; }
+                                if done.contains(next) { return false; }
                                 done.insert(next.clone());
                                 this_next = Some(next.clone());
                             },
@@ -957,6 +958,13 @@ impl EdgeBuffer {
 
     /// Returns the start node of the EdgeBuffer, if any. This may be used for iteration.
     pub fn start(&self) -> &Option<EdgeBufferNodePtr> { &self.start }
+}
+
+impl Default for EdgeBuffer {
+    #[inline]
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl From<EdgeBufferNodePtr> for EdgeBuffer {

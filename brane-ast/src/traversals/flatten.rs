@@ -4,7 +4,7 @@
 //  Created:
 //    15 Sep 2022, 08:26:20
 //  Last edited:
-//    26 Oct 2022, 11:20:08
+//    14 Nov 2022, 10:46:59
 //  Auto updated?
 //    Yes
 // 
@@ -397,6 +397,7 @@ pub fn pass_block(block: &mut Block, table: &mut TableState, errors: &mut Vec<Er
 pub fn pass_stmt(stmt: &mut Stmt, table: &mut TableState, errors: &mut Vec<Error>) {
     // Match the stmt
     use Stmt::*;
+    #[allow(clippy::collapsible_match)]
     match stmt {
         Block{ block } => {
             pass_block(block, table, errors);
@@ -416,7 +417,7 @@ pub fn pass_stmt(stmt: &mut Stmt, table: &mut TableState, errors: &mut Vec<Error
         FuncDef{ code, st_entry, .. } => {
             // Add the function with an empty table first, just so that it exists
             let entry: &Rc<RefCell<FunctionEntry>> = st_entry.as_ref().unwrap();
-            if let Err(err) = move_func(&entry, TableState::none(), table) {
+            if let Err(err) = move_func(entry, TableState::none(), table) {
                 errors.push(err);
             }
 

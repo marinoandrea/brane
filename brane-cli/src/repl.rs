@@ -4,7 +4,7 @@
 //  Created:
 //    12 Sep 2022, 16:42:47
 //  Last edited:
-//    06 Nov 2022, 16:51:33
+//    14 Nov 2022, 11:08:21
 //  Auto updated?
 //    Yes
 // 
@@ -275,7 +275,7 @@ async fn remote_repl(rl: &mut Editor<ReplHelper>, certs_dir: impl AsRef<Path>, p
         match rl.readline(&p) {
             Ok(line) => {
                 // The command checked out, so add it to the history
-                rl.add_history_entry(&line.replace("\n", " "));
+                rl.add_history_entry(&line.replace('\n', " "));
 
                 // Fetch REPL magicks
                 if let Some(quit) = repl_magicks(&line) { if quit { break; } else { continue; } }
@@ -344,7 +344,7 @@ async fn local_repl(rl: &mut Editor<ReplHelper>, options: ParserOptions) -> Resu
         match rl.readline(&p) {
             Ok(line) => {
                 // The command checked out, so add it to the history
-                rl.add_history_entry(&line.replace("\n", " "));
+                rl.add_history_entry(&line.replace('\n', " "));
 
                 // Fetch REPL magicks
                 if let Some(quit) = repl_magicks(&line) { if quit { break; } else { continue; } }

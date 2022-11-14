@@ -4,7 +4,7 @@
 //  Created:
 //    25 Aug 2022, 11:12:17
 //  Last edited:
-//    12 Sep 2022, 16:10:18
+//    14 Nov 2022, 09:52:02
 //  Auto updated?
 //    Yes
 // 
@@ -68,7 +68,7 @@ fn integer<'a, E: ParseError<Span<'a>> + ContextError<Span<'a>>>(input: Span<'a>
 /// # Errors
 /// This function errors if we could not parse the literal token.
 fn semver<'a, E: ParseError<Span<'a>> + ContextError<Span<'a>>>(input: Span<'a>) -> IResult<Span<'a>, Span<'a>, E> {
-    const NUMBERS: &'static str = "0123456789";
+    const NUMBERS: &str = "0123456789";
 
     wrap_pp!(
         comb::recognize(seq::tuple((

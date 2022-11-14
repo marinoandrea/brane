@@ -4,7 +4,7 @@
 //  Created:
 //    25 Oct 2022, 13:34:31
 //  Last edited:
-//    14 Nov 2022, 09:27:01
+//    14 Nov 2022, 10:30:17
 //  Auto updated?
 //    Yes
 // 
@@ -360,8 +360,8 @@ fn pass_expr(expr: &mut Expr, table: &DataState) -> HashSet<Data> {
             // Note down whether this happens to be a Data or an IntermediateResult
             let is_data: bool = {
                 let entry: Ref<ClassEntry> = st_entry.as_ref().unwrap().borrow();
-                if &entry.signature.name == BuiltinClasses::IntermediateResult.name() { panic!("Didn't expect an explicit IntermediateResult instantiation"); }
-                &entry.signature.name == BuiltinClasses::Data.name()
+                if entry.signature.name == BuiltinClasses::IntermediateResult.name() { panic!("Didn't expect an explicit IntermediateResult instantiation"); }
+                entry.signature.name == BuiltinClasses::Data.name()
             };
 
             // Recurse into the properties to traverse the expressions there

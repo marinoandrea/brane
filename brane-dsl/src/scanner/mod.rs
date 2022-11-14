@@ -4,7 +4,7 @@
 //  Created:
 //    25 Aug 2022, 11:01:39
 //  Last edited:
-//    25 Aug 2022, 11:17:25
+//    14 Nov 2022, 09:54:22
 //  Auto updated?
 //    Yes
 // 
@@ -16,11 +16,11 @@
 pub mod tokens;
 pub mod comments;
 pub mod literal;
-pub mod scanner;
+pub mod scanning;
 
 // Bring some stuff into this namespace
 pub use tokens::{Token, Tokens};
-pub use scanner::scan_tokens;
+pub use scanning::scan_tokens;
 
 
 // Define some useful types for this module

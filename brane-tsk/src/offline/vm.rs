@@ -4,7 +4,7 @@
 //  Created:
 //    24 Oct 2022, 15:34:05
 //  Last edited:
-//    09 Nov 2022, 11:37:11
+//    14 Nov 2022, 10:55:44
 //  Auto updated?
 //    Yes
 // 
@@ -94,7 +94,7 @@ impl VmPlugin for OfflinePlugin {
         };
 
         // Resolve the input arguments, generating the folders we have to bind
-        let binds  : Vec<VolumeBind> = docker::preprocess_args(&mut info.args, &info.input, &info.result, None::<String>, results_dir).await?;
+        let binds  : Vec<VolumeBind> = docker::preprocess_args(&mut info.args, &info.input, info.result, None::<String>, results_dir).await?;
         let params : String          = match serde_json::to_string(&info.args) {
             Ok(params) => params,
             Err(err)   => { return Err(ExecuteError::ArgsEncodeError{ err }); },
@@ -186,7 +186,7 @@ impl VmPlugin for OfflinePlugin {
         // Check the data index to check if it exists or not
         let (results_dir, dataset_dir, info): (PathBuf, PathBuf, Option<DataInfo>) = {
             let state: RwLockReadGuard<GlobalState> = global.read().unwrap();
-            (state.results_dir.clone(), state.dataset_dir.clone(), state.dindex.get(data_name).map(|i| i.clone()))
+            (state.results_dir.clone(), state.dataset_dir.clone(), state.dindex.get(data_name).cloned())
         };
 
         // Match on whether it already exists or not
@@ -204,7 +204,7 @@ impl VmPlugin for OfflinePlugin {
                 }
 
             } else {
-                return Err(CommitError::UnavailableDataError{ name: data_name.into(), locs: info.access.keys().map(|s| s.clone()).collect() });
+                return Err(CommitError::UnavailableDataError{ name: data_name.into(), locs: info.access.keys().cloned().collect() });
             }
 
         } else {

@@ -4,7 +4,7 @@
 //  Created:
 //    09 Sep 2022, 13:23:41
 //  Last edited:
-//    14 Nov 2022, 09:35:37
+//    14 Nov 2022, 10:49:24
 //  Auto updated?
 //    Yes
 // 
@@ -165,7 +165,7 @@ fn exec_instr(edge: usize, idx: usize, instr: &EdgeInstr, stack: &mut Stack, fst
         Cast{ res_type } => {
             // Get the top value off the stack
             let value: Value = match stack.pop() {
-                Some(value) => value.into(),
+                Some(value) => value,
                 None        => { return Err(Error::EmptyStackError { edge, instr: Some(idx), expected: DataType::Any }) },
             };
 
@@ -243,7 +243,7 @@ fn exec_instr(edge: usize, idx: usize, instr: &EdgeInstr, stack: &mut Stack, fst
         Not{} => {
             // Get the top value off the stack
             let value: Value = match stack.pop() {
-                Some(value) => value.into(),
+                Some(value) => value,
                 None        => { return Err(Error::EmptyStackError { edge, instr: Some(idx), expected: DataType::Numeric }) },
             };
             // Get it as a boolean
@@ -260,7 +260,7 @@ fn exec_instr(edge: usize, idx: usize, instr: &EdgeInstr, stack: &mut Stack, fst
         Neg{} => {
             // Get the top value off the stack
             let value: Value = match stack.pop() {
-                Some(value) => value.into(),
+                Some(value) => value,
                 None        => { return Err(Error::EmptyStackError { edge, instr: Some(idx), expected: DataType::Numeric }) },
             };
 
@@ -284,11 +284,11 @@ fn exec_instr(edge: usize, idx: usize, instr: &EdgeInstr, stack: &mut Stack, fst
         And{} => {
             // Pop the lhs and rhs off the stack (reverse order)
             let rhs: Value = match stack.pop() {
-                Some(value) => value.into(),
+                Some(value) => value,
                 None        => { return Err(Error::EmptyStackError { edge, instr: Some(idx), expected: DataType::Boolean }) },
             };
             let lhs: Value = match stack.pop() {
-                Some(value) => value.into(),
+                Some(value) => value,
                 None        => { return Err(Error::EmptyStackError { edge, instr: Some(idx), expected: DataType::Boolean }) },
             };
             // Get them both as boolean values
@@ -305,11 +305,11 @@ fn exec_instr(edge: usize, idx: usize, instr: &EdgeInstr, stack: &mut Stack, fst
         Or{} => {
             // Pop the lhs and rhs off the stack (reverse order)
             let rhs: Value = match stack.pop() {
-                Some(value) => value.into(),
+                Some(value) => value,
                 None        => { return Err(Error::EmptyStackError { edge, instr: Some(idx), expected: DataType::Boolean }) },
             };
             let lhs: Value = match stack.pop() {
-                Some(value) => value.into(),
+                Some(value) => value,
                 None        => { return Err(Error::EmptyStackError { edge, instr: Some(idx), expected: DataType::Boolean }) },
             };
             // Get them both as boolean values
@@ -327,11 +327,11 @@ fn exec_instr(edge: usize, idx: usize, instr: &EdgeInstr, stack: &mut Stack, fst
         Add{} => {
             // Pop the lhs and rhs off the stack (reverse order)
             let rhs: Value = match stack.pop() {
-                Some(value) => value.into(),
+                Some(value) => value,
                 None        => { return Err(Error::EmptyStackError { edge, instr: Some(idx), expected: DataType::Addable }) },
             };
             let lhs: Value = match stack.pop() {
-                Some(value) => value.into(),
+                Some(value) => value,
                 None        => { return Err(Error::EmptyStackError { edge, instr: Some(idx), expected: DataType::Addable }) },
             };
 
@@ -359,11 +359,11 @@ fn exec_instr(edge: usize, idx: usize, instr: &EdgeInstr, stack: &mut Stack, fst
         Sub{} => {
             // Pop the lhs and rhs off the stack (reverse order)
             let rhs: Value = match stack.pop() {
-                Some(value) => value.into(),
+                Some(value) => value,
                 None        => { return Err(Error::EmptyStackError { edge, instr: Some(idx), expected: DataType::Numeric }) },
             };
             let lhs: Value = match stack.pop() {
-                Some(value) => value.into(),
+                Some(value) => value,
                 None        => { return Err(Error::EmptyStackError { edge, instr: Some(idx), expected: DataType::Numeric }) },
             };
 
@@ -386,11 +386,11 @@ fn exec_instr(edge: usize, idx: usize, instr: &EdgeInstr, stack: &mut Stack, fst
         Mul{} => {
             // Pop the lhs and rhs off the stack (reverse order)
             let rhs: Value = match stack.pop() {
-                Some(value) => value.into(),
+                Some(value) => value,
                 None        => { return Err(Error::EmptyStackError { edge, instr: Some(idx), expected: DataType::Numeric }) },
             };
             let lhs: Value = match stack.pop() {
-                Some(value) => value.into(),
+                Some(value) => value,
                 None        => { return Err(Error::EmptyStackError { edge, instr: Some(idx), expected: DataType::Numeric }) },
             };
 
@@ -413,11 +413,11 @@ fn exec_instr(edge: usize, idx: usize, instr: &EdgeInstr, stack: &mut Stack, fst
         Div{} => {
             // Pop the lhs and rhs off the stack (reverse order)
             let rhs: Value = match stack.pop() {
-                Some(value) => value.into(),
+                Some(value) => value,
                 None        => { return Err(Error::EmptyStackError { edge, instr: Some(idx), expected: DataType::Numeric }) },
             };
             let lhs: Value = match stack.pop() {
-                Some(value) => value.into(),
+                Some(value) => value,
                 None        => { return Err(Error::EmptyStackError { edge, instr: Some(idx), expected: DataType::Numeric }) },
             };
 
@@ -440,11 +440,11 @@ fn exec_instr(edge: usize, idx: usize, instr: &EdgeInstr, stack: &mut Stack, fst
         Mod{} => {
             // Pop the lhs and rhs off the stack (reverse order)
             let rhs: Value = match stack.pop() {
-                Some(value) => value.into(),
+                Some(value) => value,
                 None        => { return Err(Error::EmptyStackError { edge, instr: Some(idx), expected: DataType::Integer }) },
             };
             let lhs: Value = match stack.pop() {
-                Some(value) => value.into(),
+                Some(value) => value,
                 None        => { return Err(Error::EmptyStackError { edge, instr: Some(idx), expected: DataType::Integer }) },
             };
             // Get them both as integer values
@@ -462,11 +462,11 @@ fn exec_instr(edge: usize, idx: usize, instr: &EdgeInstr, stack: &mut Stack, fst
         Eq{} => {
             // Pop the lhs and rhs off the stack (reverse order)
             let rhs: Value = match stack.pop() {
-                Some(value) => value.into(),
+                Some(value) => value,
                 None        => { return Err(Error::EmptyStackError { edge, instr: Some(idx), expected: DataType::Numeric }) },
             };
             let lhs: Value = match stack.pop() {
-                Some(value) => value.into(),
+                Some(value) => value,
                 None        => { return Err(Error::EmptyStackError { edge, instr: Some(idx), expected: DataType::Numeric }) },
             };
 
@@ -477,11 +477,11 @@ fn exec_instr(edge: usize, idx: usize, instr: &EdgeInstr, stack: &mut Stack, fst
         Ne{} => {
             // Pop the lhs and rhs off the stack (reverse order)
             let rhs: Value = match stack.pop() {
-                Some(value) => value.into(),
+                Some(value) => value,
                 None        => { return Err(Error::EmptyStackError { edge, instr: Some(idx), expected: DataType::Numeric }) },
             };
             let lhs: Value = match stack.pop() {
-                Some(value) => value.into(),
+                Some(value) => value,
                 None        => { return Err(Error::EmptyStackError { edge, instr: Some(idx), expected: DataType::Numeric }) },
             };
 
@@ -492,11 +492,11 @@ fn exec_instr(edge: usize, idx: usize, instr: &EdgeInstr, stack: &mut Stack, fst
         Lt{} => {
             // Pop the lhs and rhs off the stack (reverse order)
             let rhs: Value = match stack.pop() {
-                Some(value) => value.into(),
+                Some(value) => value,
                 None        => { return Err(Error::EmptyStackError { edge, instr: Some(idx), expected: DataType::Numeric }) },
             };
             let lhs: Value = match stack.pop() {
-                Some(value) => value.into(),
+                Some(value) => value,
                 None        => { return Err(Error::EmptyStackError { edge, instr: Some(idx), expected: DataType::Numeric }) },
             };
 
@@ -519,11 +519,11 @@ fn exec_instr(edge: usize, idx: usize, instr: &EdgeInstr, stack: &mut Stack, fst
         Le{} => {
             // Pop the lhs and rhs off the stack (reverse order)
             let rhs: Value = match stack.pop() {
-                Some(value) => value.into(),
+                Some(value) => value,
                 None        => { return Err(Error::EmptyStackError { edge, instr: Some(idx), expected: DataType::Numeric }) },
             };
             let lhs: Value = match stack.pop() {
-                Some(value) => value.into(),
+                Some(value) => value,
                 None        => { return Err(Error::EmptyStackError { edge, instr: Some(idx), expected: DataType::Numeric }) },
             };
 
@@ -546,11 +546,11 @@ fn exec_instr(edge: usize, idx: usize, instr: &EdgeInstr, stack: &mut Stack, fst
         Gt{} => {
             // Pop the lhs and rhs off the stack (reverse order)
             let rhs: Value = match stack.pop() {
-                Some(value) => value.into(),
+                Some(value) => value,
                 None        => { return Err(Error::EmptyStackError { edge, instr: Some(idx), expected: DataType::Numeric }) },
             };
             let lhs: Value = match stack.pop() {
-                Some(value) => value.into(),
+                Some(value) => value,
                 None        => { return Err(Error::EmptyStackError { edge, instr: Some(idx), expected: DataType::Numeric }) },
             };
 
@@ -573,11 +573,11 @@ fn exec_instr(edge: usize, idx: usize, instr: &EdgeInstr, stack: &mut Stack, fst
         Ge{} => {
             // Pop the lhs and rhs off the stack (reverse order)
             let rhs: Value = match stack.pop() {
-                Some(value) => value.into(),
+                Some(value) => value,
                 None        => { return Err(Error::EmptyStackError { edge, instr: Some(idx), expected: DataType::Numeric }) },
             };
             let lhs: Value = match stack.pop() {
-                Some(value) => value.into(),
+                Some(value) => value,
                 None        => { return Err(Error::EmptyStackError { edge, instr: Some(idx), expected: DataType::Numeric }) },
             };
 
@@ -657,7 +657,7 @@ fn exec_instr(edge: usize, idx: usize, instr: &EdgeInstr, stack: &mut Stack, fst
             1
         },
         Instance{ def } => {
-            let class: &ClassDef = &fstack.table().class(*def);
+            let class: &ClassDef = fstack.table().class(*def);
 
             // Pop as many elements as are required (wow)
             let mut fields: Vec<Value> = Vec::with_capacity(class.props.len());
@@ -678,7 +678,7 @@ fn exec_instr(edge: usize, idx: usize, instr: &EdgeInstr, stack: &mut Stack, fst
 
             // Map them with the class names (alphabetically)
             let mut field_names: Vec<std::string::String> = class.props.iter().map(|v| v.name.clone()).collect();
-            field_names.sort_by(|n1, n2| n1.to_lowercase().cmp(&n2.to_lowercase()));
+            field_names.sort_by_key(|n| n.to_lowercase());
             let mut values: HashMap<std::string::String, Value> = field_names.into_iter().zip(fields.into_iter()).collect();
 
             // Push an instance with those values - unless it's a specific builtin
@@ -893,7 +893,7 @@ impl<G: CustomGlobalState, L: CustomLocalState> Thread<G, L> {
 
     /// Saves the important bits of this Thread for a next execution round.
     #[inline]
-    fn to_state(self) -> RunState<G> {
+    fn into_state(self) -> RunState<G> {
         RunState {
             fstack : self.fstack,
 
@@ -1023,7 +1023,7 @@ impl<G: CustomGlobalState, L: CustomLocalState> Thread<G, L> {
                         if function.ret == DataType::IntermediateResult && (res.is_none() || res.as_ref().unwrap() == &Value::Void) {
                             // Make the intermediate result available for next steps by possible pushing it to the next registry
                             let name: &str = result.as_ref().unwrap();
-                            if let Err(err) = P::publicize(&self.global, &self.local, at, name, &PathBuf::from(format!("{}", name))).await {
+                            if let Err(err) = P::publicize(&self.global, &self.local, at, name, &PathBuf::from(name)).await {
                                 return EdgeResult::Err(Error::Custom{ edge: pc.1, err: Box::new(err) });
                             }
 
@@ -1039,9 +1039,7 @@ impl<G: CustomGlobalState, L: CustomLocalState> Thread<G, L> {
 
                             // If we have it anyway, might as well push it onto the stack
                             if let Err(err) = self.stack.push(res) { return EdgeResult::Err(Error::StackError { edge: pc.1, instr: None, err }); }
-                        } else {
-                            if function.ret != DataType::Void { return EdgeResult::Err(Error::ReturnTypeError { edge: pc.1, got: DataType::Void, expected: function.ret.clone() }); }
-                        }
+                        } else if function.ret != DataType::Void { return EdgeResult::Err(Error::ReturnTypeError { edge: pc.1, got: DataType::Void, expected: function.ret.clone() }); }
                     },
 
                     TaskDef::Transfer {  } => {
@@ -1332,7 +1330,7 @@ impl<G: CustomGlobalState, L: CustomLocalState> Thread<G, L> {
             Call{ next } => {
                 // Get the top value off the stack
                 let value: Value = match self.stack.pop() {
-                    Some(value) => value.into(),
+                    Some(value) => value,
                     None        => { return EdgeResult::Err(Error::EmptyStackError { edge: pc.1, instr: None, expected: DataType::Numeric }) },
                 };
                 // Get it as a function index
@@ -1420,8 +1418,8 @@ impl<G: CustomGlobalState, L: CustomLocalState> Thread<G, L> {
             Return{} => {
                 // Attempt to pop the top frame off the frame stack
                 let (ret, ret_type): ((usize, usize), DataType) = match self.fstack.pop() {
-                    Ok((ret, ret_type)) => (ret, ret_type.clone()),
-                    Err(err)            => { return EdgeResult::Err(Error::FrameStackPopError { edge: pc.1, err }); }
+                    Ok(res)  => res,
+                    Err(err) => { return EdgeResult::Err(Error::FrameStackPopError { edge: pc.1, err }); }
                 };
 
                 // Check if the top value on the stack has this value
@@ -1491,7 +1489,7 @@ impl<G: CustomGlobalState, L: CustomLocalState> Thread<G, L> {
                 // Run the edge
                 self.pc = match self.exec_edge::<P>(self.pc).await {
                     // Return not just the value, but also the VmState part of this thread to keep.
-                    EdgeResult::Ok(value)     => { return Ok((value, self.to_state())); },
+                    EdgeResult::Ok(value)     => { return Ok((value, self.into_state())); },
                     EdgeResult::Pending(next) => next,
                     EdgeResult::Err(err)      => { return Err(err); },
                 };

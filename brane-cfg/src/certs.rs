@@ -4,7 +4,7 @@
 //  Created:
 //    02 Nov 2022, 11:47:55
 //  Last edited:
-//    02 Nov 2022, 13:54:25
+//    14 Nov 2022, 09:41:29
 //  Auto updated?
 //    Yes
 // 
@@ -53,7 +53,7 @@ pub fn load_cert(certfile: impl AsRef<Path>) -> Result<Vec<Certificate>, Error> 
     debug!("Found {} certificate(s) in '{}'", certs.len(), certfile.display());
 
     // Done, return
-    Ok(certs.into_iter().map(|c| Certificate(c)).collect())
+    Ok(certs.into_iter().map(Certificate).collect())
 }
 
 /// Loads a given key file.
@@ -84,7 +84,7 @@ pub fn load_key(keyfile: impl AsRef<Path>) -> Result<Vec<PrivateKey>, Error> {
     debug!("Found {} key(s) in '{}'", keys.len(), keyfile.display());
 
     // Done, return
-    Ok(keys.into_iter().map(|k| PrivateKey(k)).collect())
+    Ok(keys.into_iter().map(PrivateKey).collect())
 }
 
 

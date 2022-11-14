@@ -4,7 +4,7 @@
 //  Created:
 //    14 Feb 2022, 14:21:21
 //  Last edited:
-//    03 Nov 2022, 18:00:25
+//    14 Nov 2022, 10:51:19
 //  Auto updated?
 //    Yes
 // 
@@ -80,7 +80,7 @@ fn assert_type(got: &DataType, expected: &DataType) -> bool {
         (DataType::String, DataType::IntermediateResult) => true,
 
         // Recursive cases
-        (DataType::Array{ elem_type: got }, DataType::Array{ elem_type: expected }) => assert_type(&*got, &*expected),
+        (DataType::Array{ elem_type: got }, DataType::Array{ elem_type: expected }) => assert_type(&**got, &**expected),
 
         // General cases
         (_, DataType::Any) => true,

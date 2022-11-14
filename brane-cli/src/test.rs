@@ -4,7 +4,7 @@
 //  Created:
 //    21 Sep 2022, 16:23:37
 //  Last edited:
-//    03 Nov 2022, 17:25:43
+//    14 Nov 2022, 11:06:02
 //  Auto updated?
 //    Yes
 // 
@@ -163,7 +163,7 @@ fn prompt_for_param(what: impl AsRef<str>, name: impl AsRef<str>, data_type: Dat
             // If there is a default, we are forced to ask it beforehand.
             if let Some(default) = default {
                 // Ensure the default has the correct value
-                if default.data_type() != (DataType::Array{ elem_type: elem_type.clone() }) { panic!("{} cannot have a value of type {} as default value", DataType::Array{ elem_type: elem_type.clone() }, default.data_type()); }
+                if default.data_type() != (DataType::Array{ elem_type: elem_type.clone() }) { panic!("{} cannot have a value of type {} as default value", DataType::Array{ elem_type }, default.data_type()); }
 
                 // Prompt the user to use it
                 if match Confirm::new()
@@ -201,7 +201,7 @@ fn prompt_for_param(what: impl AsRef<str>, name: impl AsRef<str>, data_type: Dat
             // If there is a default, we are forced to ask it beforehand.
             if let Some(default) = default {
                 // Ensure the default has the correct value
-                if default.data_type() != (DataType::Class{ name: c_name.clone() }) { panic!("{} cannot have a value of type {} as default value", DataType::Class{ name: c_name.clone() }, default.data_type()); }
+                if default.data_type() != (DataType::Class{ name: c_name.clone() }) { panic!("{} cannot have a value of type {} as default value", DataType::Class{ name: c_name }, default.data_type()); }
 
                 // Prompt the user to use it
                 if match Confirm::new()
@@ -253,7 +253,7 @@ fn prompt_for_param(what: impl AsRef<str>, name: impl AsRef<str>, data_type: Dat
 
             // Done
             let res: std::string::String = match prompt.interact_on_opt(&Term::stderr()) {
-                Ok(res)  => res.map(|i| items[i].clone()).unwrap_or(items[0].clone()),
+                Ok(res)  => res.map(|i| items[i].clone()).unwrap_or_else(|| items[0].clone()),
                 Err(err) => { return Err(TestError::ValueQueryError{ res_type: std::any::type_name::<std::string::String>(), err }); },
             };
 
@@ -323,7 +323,7 @@ fn write_value(value: FullValue) -> String {
     match value {
         FullValue::Array(values) => {
             // Write them all in an array
-            format!("[ {} ]", values.into_iter().map(|v| write_value(v)).collect::<Vec<String>>().join(", "))
+            format!("[ {} ]", values.into_iter().map(write_value).collect::<Vec<String>>().join(", "))
         },
         FullValue::Instance(name, props) => {
             // Write them all in an instance expression
@@ -341,7 +341,7 @@ fn write_value(value: FullValue) -> String {
         FullValue::Boolean(value) => if value { "true".into() } else { "false".into() },
         FullValue::Integer(value) => format!("{}", value),
         FullValue::Real(value)    => format!("{}", value),
-        FullValue::String(value)  => format!("\"{}\"", value.replace("\\", "\\\\").replace("\"", "\\\"")),
+        FullValue::String(value)  => format!("\"{}\"", value.replace('\\', "\\\\").replace('\"', "\\\"")),
 
         FullValue::Void => String::new(),
     }

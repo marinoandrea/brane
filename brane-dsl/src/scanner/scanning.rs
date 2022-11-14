@@ -1,10 +1,10 @@
-//  SCANNER.rs
+//  SCANNING.rs
 //    by Lut99
 // 
 //  Created:
 //    25 Aug 2022, 11:01:54
 //  Last edited:
-//    20 Sep 2022, 13:22:48
+//    14 Nov 2022, 09:54:18
 //  Auto updated?
 //    Yes
 // 
@@ -24,7 +24,7 @@ use super::literal;
 
 /***** CONSTANTS *****/
 /// Define characters that separate tokens
-const SEPARATORS: &'static str = " \n\t\r{}[]()-=+;:'\"\\|/?>.<,`~*&^%$#@!";
+const SEPARATORS: &str = " \n\t\r{}[]()-=+;:'\"\\|/?>.<,`~*&^%$#@!";
 
 
 

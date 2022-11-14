@@ -4,7 +4,7 @@
 //  Created:
 //    26 Aug 2022, 15:53:28
 //  Last edited:
-//    09 Nov 2022, 09:55:33
+//    14 Nov 2022, 09:47:06
 //  Auto updated?
 //    Yes
 // 
@@ -224,10 +224,10 @@ pub enum AvailabilityKind {
 impl AvailabilityKind {
     /// Returns if this AvailabilityKind is an `AvailabilityKind::Available`.
     #[inline]
-    pub fn is_available(&self) -> bool { if let Self::Available { .. } = self { true } else { false } }
+    pub fn is_available(&self) -> bool { matches!(self, Self::Available { .. }) }
     /// Returns if this AvailabilityKind is an `AvailabilityKind::Unvailable`.
     #[inline]
-    pub fn is_unavailable(&self) -> bool { if let Self::Unavailable { .. } = self { true } else { false } }
+    pub fn is_unavailable(&self) -> bool { matches!(self, Self::Unavailable { .. }) }
 
     /// Returns the internal AccessKind is this AvailabilityKind is `AvailabilityKind::Available`.
     /// 
@@ -347,7 +347,7 @@ impl DataIndex {
             if let Some(einfo) = index.get_mut(&info.name) {
                 einfo.access.reserve(info.access.len());
                 for (l, a) in info.access {
-                    if einfo.access.contains_key(&l) { return Err(DataIndexError::DuplicateAsset { location: l.clone(), name: info.name }); }
+                    if einfo.access.contains_key(&l) { return Err(DataIndexError::DuplicateAsset { location: l, name: info.name }); }
                     einfo.access.insert(l, a);
                 }
                 break;
@@ -534,6 +534,13 @@ impl RuntimeDataIndex {
     }
 }
 
+impl Default for RuntimeDataIndex {
+    #[inline]
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 
 
 /// Defines a single DataInfo file that describes a dataset and how to access it.
@@ -645,7 +652,7 @@ impl DataInfo {
     pub fn to_writer(&self, writer: impl Write) -> Result<(), DataInfoError> {
         match serde_yaml::to_writer(writer, self) {
             Ok(_)    => Ok(()),
-            Err(err) => { return Err(DataInfoError::WriterWriteError{ err }); },
+            Err(err) => Err(DataInfoError::WriterWriteError{ err }),
         }
     }
 }

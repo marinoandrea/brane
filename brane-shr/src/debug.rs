@@ -4,7 +4,7 @@
 //  Created:
 //    26 Oct 2022, 14:47:11
 //  Last edited:
-//    11 Nov 2022, 11:25:49
+//    14 Nov 2022, 09:48:34
 //  Auto updated?
 //    Yes
 // 
@@ -55,7 +55,7 @@ pub trait Capitalizeable: AsRef<str> {
     /// # Returns
     /// A new CapitalizeFormatter that implements `Display` (only).
     #[inline]
-    fn capitalize<'a>(&'a self) -> CapitalizeFormatter<'a> {
+    fn capitalize(&self) -> CapitalizeFormatter {
         CapitalizeFormatter::new(self)
     }
 }
@@ -243,7 +243,7 @@ pub trait EnumDebug {
     /// # Returns
     /// A new EnumDebugFormatter that implements Debug and can thus write to stdout.
     #[inline]
-    fn variant<'a>(&'a self) -> EnumDebugFormatter<'a, Self> {
+    fn variant(&self) -> EnumDebugFormatter<'_, Self> {
         EnumDebugFormatter {
             reference : self,
         }

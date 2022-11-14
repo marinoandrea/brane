@@ -4,7 +4,7 @@
 //  Created:
 //    18 Aug 2022, 14:58:16
 //  Last edited:
-//    11 Nov 2022, 11:25:17
+//    14 Nov 2022, 10:19:48
 //  Auto updated?
 //    Yes
 // 
@@ -57,7 +57,7 @@ mod tests {
 
 /***** TEST HELPERS *****/
 /// Defines the path of the tests folder.
-pub const TESTS_DIR: &'static str = "../tests";
+pub const TESTS_DIR: &str = "../tests";
 
 
 
@@ -81,7 +81,7 @@ pub fn create_package_index() -> PackageIndex {
     // Start a 'recursive' process where we run all '*.bscript' files.
     let mut infos: Vec<PackageInfo> = vec![];
     let mut todo: Vec<(PathBuf, ReadDir)> = vec![ (tests_dir, dir) ];
-    while todo.len() > 0 {
+    while !todo.is_empty() {
         // Get the next directory to search
         let (path, dir): (PathBuf, ReadDir) = todo.pop().unwrap();
         // Iterate through it
@@ -112,7 +112,7 @@ pub fn create_package_index() -> PackageIndex {
                     Err(err) => { panic!("Failed to list nested tests directory '{}': {}", entry.path().display(), err); }
                 };
                 if todo.len() == todo.capacity() { todo.reserve(todo.capacity()); }
-                todo.push((entry.path().into(), new_dir));
+                todo.push((entry.path(), new_dir));
 
             } else {
                 // Dunno what to do with it
@@ -148,7 +148,7 @@ pub fn create_data_index() -> DataIndex {
     // Start a 'recursive' process where we run all '*.bscript' files.
     let mut infos: Vec<DataInfo> = vec![];
     let mut todo: Vec<(PathBuf, ReadDir)> = vec![ (tests_dir, dir) ];
-    while todo.len() > 0 {
+    while !todo.is_empty() {
         // Get the next directory to search
         let (path, dir): (PathBuf, ReadDir) = todo.pop().unwrap();
         // Iterate through it
@@ -180,7 +180,7 @@ pub fn create_data_index() -> DataIndex {
                     Err(err) => { panic!("Failed to list nested tests directory '{}': {}", entry.path().display(), err); }
                 };
                 if todo.len() == todo.capacity() { todo.reserve(todo.capacity()); }
-                todo.push((entry.path().into(), new_dir));
+                todo.push((entry.path(), new_dir));
 
             } else {
                 // Dunno what to do with it
@@ -259,7 +259,7 @@ where
     // Start a 'recursive' process where we run all '*.bscript' files.
     let mut todo: Vec<(PathBuf, ReadDir)> = vec![ (tests_dir, dir) ];
     let mut counter = 0;
-    while todo.len() > 0 {
+    while !todo.is_empty() {
         // Get the next directory to search
         let (path, dir): (PathBuf, ReadDir) = todo.pop().unwrap();
 
@@ -299,7 +299,7 @@ where
                     Err(err) => { panic!("Failed to list nested tests directory '{}': {}", entry.path().display(), err); }
                 };
                 if todo.len() == todo.capacity() { todo.reserve(todo.capacity()); }
-                todo.push((entry.path().into(), new_dir));
+                todo.push((entry.path(), new_dir));
 
             } else {
                 // Dunno what to do with it

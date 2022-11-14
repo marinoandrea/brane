@@ -4,7 +4,7 @@
 //  Created:
 //    23 Aug 2022, 18:04:09
 //  Last edited:
-//    25 Oct 2022, 15:38:18
+//    14 Nov 2022, 10:20:49
 //  Auto updated?
 //    Yes
 // 
@@ -210,7 +210,7 @@ impl FunctionEntry {
             params : vec![],
 
             package_name    : Some(package.into()),
-            package_version : Some(package_version.into()),
+            package_version : Some(package_version),
             class_name      : None,
 
             arg_names,
@@ -611,10 +611,7 @@ impl SymbolTable {
             Some(entry) => Some(entry.into()),
             None        => match self.get_class(name.as_ref()) {
                 Some(entry) => Some(entry.into()),
-                None        => match self.get_var(name) {
-                    Some(entry) => Some(entry.into()),
-                    None        => None,
-                }
+                None        => self.get_var(name).map(|entry| entry.into()),
             }
         }
     }

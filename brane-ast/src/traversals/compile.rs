@@ -4,7 +4,7 @@
 //  Created:
 //    31 Aug 2022, 11:32:04
 //  Last edited:
-//    26 Oct 2022, 11:48:08
+//    14 Nov 2022, 10:46:50
 //  Auto updated?
 //    Yes
 // 
@@ -507,6 +507,7 @@ fn pass_stmt(stmt: dsl::Stmt, edges: &mut EdgeBuffer, f_edges: &mut HashMap<usiz
 fn pass_expr(expr: dsl::Expr, edges: &mut EdgeBuffer, table: &TableState) {
     // Switch on the type of expression
     use dsl::Expr::*;
+    #[allow(clippy::collapsible_match)]
     match expr {
         Cast{ expr, target, .. } => {
             // Write the expression first
@@ -529,6 +530,7 @@ fn pass_expr(expr: dsl::Expr, edges: &mut EdgeBuffer, table: &TableState) {
             pass_expr(*expr, edges, table);
 
             // We now switch depending on the type of function called
+            #[allow(clippy::unnecessary_unwrap)]
             if st_entry.is_some() && st_entry.as_ref().unwrap().borrow().package_name.is_some() {
                 // It's an external call; replace with a Node edge (so sorry everyone)
                 edges.write(ast::Edge::Node {
@@ -536,7 +538,7 @@ fn pass_expr(expr: dsl::Expr, edges: &mut EdgeBuffer, table: &TableState) {
                     locs   : locations.into(),
                     at     : None,
                     input  : input.into_iter().map(|d| (d.into(), None)).collect(),
-                    result : result.as_ref().map(|r| r.clone()),
+                    result : result.as_ref().cloned(),
                     next   : usize::MAX,
                 });
             } else {

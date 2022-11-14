@@ -4,7 +4,7 @@
 //  Created:
 //    31 Oct 2022, 11:21:14
 //  Last edited:
-//    11 Nov 2022, 16:48:17
+//    14 Nov 2022, 11:00:31
 //  Auto updated?
 //    Yes
 // 
@@ -54,7 +54,7 @@ use crate::docker::{self, ExecuteInfo, Network};
 
 /***** CONSTANTS *****/
 /// Path to the temporary folder.
-pub const TEMPORARY_DIR: &'static str = "/tmp";
+pub const TEMPORARY_DIR: &str = "/tmp";
 
 
 
@@ -127,6 +127,7 @@ impl EnvironmentInfo {
     /// # Returns
     /// A new EnvironmentInfo instance.
     #[inline]
+    #[allow(clippy::too_many_arguments)]
     pub fn new(location_id: impl Into<String>, creds_path: impl Into<PathBuf>, certs_path: impl Into<PathBuf>, data_path: impl Into<PathBuf>, results_path: impl Into<PathBuf>, temp_data_path: impl Into<PathBuf>, temp_results_path: impl Into<PathBuf>, checker_endpoint: impl Into<String>, proxy_address: Option<impl Into<String>>, keep_container: bool) -> Self {
         Self {
             location_id : location_id.into(),
@@ -564,7 +565,7 @@ async fn execute_task_local(socket_path: impl AsRef<str>, client_version: Client
             "--application-id".into(),
             "unspecified".into(),
             "--location-id".into(),
-            einfo.location_id.into(),
+            einfo.location_id,
             "--job-id".into(),
             "unspecified".into(),
             tinfo.kind.unwrap().into(),
@@ -688,7 +689,7 @@ async fn execute_task(tx: Sender<Result<TaskReply, Status>>, einfo: EnvironmentI
     // Match on the specific type to find the specific backend
     let value: FullValue = match creds.method {
         Credentials::Local { path, version } => {
-            match execute_task_local(path.unwrap_or(PathBuf::from("/var/run/docker.sock")).to_string_lossy(), version.map(|(major, minor)| ClientVersion{ major_version: major, minor_version: minor }).unwrap_or(*API_DEFAULT_VERSION), &tx, einfo, tinfo).await {
+            match execute_task_local(path.unwrap_or_else(|| PathBuf::from("/var/run/docker.sock")).to_string_lossy(), version.map(|(major, minor)| ClientVersion{ major_version: major, minor_version: minor }).unwrap_or(*API_DEFAULT_VERSION), &tx, einfo, tinfo).await {
                 Ok(value)   => value,
                 Err(status) => {
                     error!("Job failed with status: {:?}", status);
@@ -700,18 +701,18 @@ async fn execute_task(tx: Sender<Result<TaskReply, Status>>, einfo: EnvironmentI
 
         Credentials::Ssh { .. } => {
             error!("SSH backend is not yet supported");
-            if let Err(err) = update_client(&tx, JobStatus::CreationFailed(format!("SSH backend is not yet supported"))).await { error!("{}", err); }
+            if let Err(err) = update_client(&tx, JobStatus::CreationFailed("SSH backend is not yet supported".into())).await { error!("{}", err); }
             return Ok(())
         },
 
         Credentials::Kubernetes { .. } => {
             error!("Kubernetes backend is not yet supported");
-            if let Err(err) = update_client(&tx, JobStatus::CreationFailed(format!("Kubernetes backend is not yet supported"))).await { error!("{}", err); }
+            if let Err(err) = update_client(&tx, JobStatus::CreationFailed("Kubernetes backend is not yet supported".into())).await { error!("{}", err); }
             return Ok(())
         },
         Credentials::Slurm { .. } => {
             error!("Slurm backend is not yet supported");
-            if let Err(err) = update_client(&tx, JobStatus::CreationFailed(format!("Slurm backend is not yet supported"))).await { error!("{}", err); }
+            if let Err(err) = update_client(&tx, JobStatus::CreationFailed("Slurm backend is not yet supported".into())).await { error!("{}", err); }
             return Ok(())
         },
     };
@@ -940,12 +941,12 @@ impl JobService for WorkerServer {
                         Ok(res)  => res,
                         Err(err) => {
                             debug!("Incoming request has invalid (location, address) pair: {} (dropping it)", err);
-                            return Err(Status::invalid_argument(format!("Illegal data field for TransferRegistryTar")));
+                            return Err(Status::invalid_argument("Illegal data field for TransferRegistryTar".to_string()));
                         },
                     },
                     None => {
                         debug!("Incoming request missing data field (dropping it)");
-                        return Err(Status::invalid_argument(format!("Missing data field for TransferRegistryTar")));
+                        return Err(Status::invalid_argument("Missing data field for TransferRegistryTar".to_string()));
                     },
                 };
 
