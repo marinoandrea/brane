@@ -5,7 +5,7 @@
 # Created:
 #   09 Jun 2022, 12:20:28
 # Last edited:
-#   14 Nov 2022, 11:35:07
+#   14 Nov 2022, 11:46:43
 # Auto updated?
 #   Yes
 #
@@ -3141,11 +3141,17 @@ for svc in instance_srcs:
 
 # A list of all targets in the make file.
 targets = {
-    "test" : ShellTarget("test",
-        [
-            ShellCommand("cargo", "test", "--all-targets", "--all-features"),
-            ShellCommand("cargo", "clippy", "--all-targets", "--all-features", "--", "-D", "warnings"),
-        ],
+    "test-units"  : ShellTarget("test-units",
+        [ ShellCommand("cargo", "test", "--all-targets", "--all-features") ],
+        description="Runs tests on the project by running the unit tests.",
+    ),
+    "test-clippy" : ShellTarget("test-clippy",
+        [ ShellCommand("cargo", "clippy", "--all-targets", "--all-features", "--", "--allow", "clippy::manual_range_contains") ],
+        description="Runs tests on the project by running the clippy linter.",
+    ),
+    "test" : VoidTarget("test",
+        deps=[ "test-units", "test-clippy" ],
+        description="Runs tests on the project by running both the unit tests and the clippy linter.",
     ),
 
 

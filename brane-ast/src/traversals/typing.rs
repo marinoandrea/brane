@@ -4,7 +4,7 @@
 //  Created:
 //    19 Aug 2022, 16:34:16
 //  Last edited:
-//    14 Nov 2022, 11:07:21
+//    14 Nov 2022, 11:48:44
 //  Auto updated?
 //    Yes
 // 
@@ -582,7 +582,7 @@ fn pass_expr(expr: &mut Expr, symbol_table: &Rc<RefCell<SymbolTable>>, errors: &
             // Check if the number of arguments matches the expected amount
             let fe: Ref<FunctionEntry> = f_entry.borrow();
             // Don't forget to compensate for the implicit 'self'
-            if fe.signature.args.len() - if fe.class_name.is_some() { 1 } else { 0 } != args.len() {
+            if fe.signature.args.len() - usize::from(fe.class_name.is_some()) != args.len() {
                 errors.push(Error::FunctionArityError { name: fe.name.clone(), got: args.len(), expected: fe.signature.args.len(), got_range: TextRange::new(
                     args.iter().next().map(|a| a.start().clone()).unwrap_or(TextPos::none()),
                     args.iter().last().map(|a| a.end().clone()).unwrap_or(TextPos::none()),

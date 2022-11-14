@@ -4,7 +4,7 @@
 //  Created:
 //    09 Nov 2022, 11:12:06
 //  Last edited:
-//    14 Nov 2022, 09:49:01
+//    14 Nov 2022, 11:37:37
 //  Auto updated?
 //    Yes
 // 
@@ -87,12 +87,12 @@ pub mod tests {
             // Check if the directory exists
             if let Some(dir) = path.parent() {
                 if !dir.exists() {
-                    if let Err(err) = fs::create_dir_all(&dir) { panic!("Failed to create directory '{}': {}", dir.display(), err); }
+                    if let Err(err) = fs::create_dir_all(dir) { panic!("Failed to create directory '{}': {}", dir.display(), err); }
                 }
             }
 
             // Generate the file
-            let mut handle: fs::File = match fs::File::create(&path) {
+            let mut handle: fs::File = match fs::File::create(path) {
                 Ok(handle) => handle,
                 Err(err)   => { panic!("Failed to create file '{}': {}", path.display(), err); },
             };
@@ -150,7 +150,7 @@ pub mod tests {
                 };
 
                 // Compare it
-                if &contents != file1 { panic!("Contents of '{}' (pre-archivation) VS '{}' (post-archivation) don't actually match;\n\n'{}':\n{}\n\n'{}':\n{}\n\n", source_path1.display(), path.display(), source_path1.display(), BlockFormatter::new(file1), path.display(), BlockFormatter::new(contents)); }
+                if contents != file1 { panic!("Contents of '{}' (pre-archivation) VS '{}' (post-archivation) don't actually match;\n\n'{}':\n{}\n\n'{}':\n{}\n\n", source_path1.display(), path.display(), source_path1.display(), BlockFormatter::new(file1), path.display(), BlockFormatter::new(contents)); }
 
             } else if path == &target_path2 {
                 // Load it as bytes
@@ -170,7 +170,7 @@ pub mod tests {
                 };
 
                 // Compare it
-                if &contents != file3 { panic!("Contents of '{}' (pre-archivation) VS '{}' (post-archivation) don't actually match;\n\n'{}':\n{}\n\n'{}':\n{}\n\n", source_path3.display(), path.display(), source_path3.display(), BlockFormatter::new(file3), path.display(), BlockFormatter::new(contents)); }
+                if contents != file3 { panic!("Contents of '{}' (pre-archivation) VS '{}' (post-archivation) don't actually match;\n\n'{}':\n{}\n\n'{}':\n{}\n\n", source_path3.display(), path.display(), source_path3.display(), BlockFormatter::new(file3), path.display(), BlockFormatter::new(contents)); }
 
             } else {
                 panic!("Path is '{}', but that can never be?", path.display());

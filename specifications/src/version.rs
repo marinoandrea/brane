@@ -4,7 +4,7 @@
 //  Created:
 //    23 Mar 2022, 15:15:12
 //  Last edited:
-//    14 Nov 2022, 09:47:49
+//    14 Nov 2022, 11:37:56
 //  Auto updated?
 //    Yes
 // 
@@ -160,7 +160,7 @@ mod tests {
 
         // Check for the same errors as test_parse()
         assert_de_tokens_error::<Version>(&[
-            Token::Str(&ACCIDENTAL_LATEST_STRING),
+            Token::Str(ACCIDENTAL_LATEST_STRING),
         ], &format!("{}", ParseError::AccidentalLatest));
         assert_de_tokens_error::<Version>(&[
             Token::Str("a"),

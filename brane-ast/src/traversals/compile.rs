@@ -4,7 +4,7 @@
 //  Created:
 //    31 Aug 2022, 11:32:04
 //  Last edited:
-//    14 Nov 2022, 10:46:50
+//    14 Nov 2022, 11:49:45
 //  Auto updated?
 //    Yes
 // 
@@ -504,14 +504,14 @@ fn pass_stmt(stmt: dsl::Stmt, edges: &mut EdgeBuffer, f_edges: &mut HashMap<usiz
 /// 
 /// # Returns
 /// Nothing, but does add the edges in the `edges` structure.
-fn pass_expr(expr: dsl::Expr, edges: &mut EdgeBuffer, table: &TableState) {
+fn pass_expr(expr: dsl::Expr, edges: &mut EdgeBuffer, _table: &TableState) {
     // Switch on the type of expression
     use dsl::Expr::*;
     #[allow(clippy::collapsible_match)]
     match expr {
         Cast{ expr, target, .. } => {
             // Write the expression first
-            pass_expr(*expr, edges, table);
+            pass_expr(*expr, edges, _table);
 
             // Insert a linear edge with the cast instruction
             edges.write(ast::Edge::Linear {
@@ -525,9 +525,9 @@ fn pass_expr(expr: dsl::Expr, edges: &mut EdgeBuffer, table: &TableState) {
         Call{ expr, args, locations, input, result, st_entry, .. } => {
             // First, write the arguments followed by the call expression
             for a in args {
-                pass_expr(*a, edges, table);
+                pass_expr(*a, edges, _table);
             }
-            pass_expr(*expr, edges, table);
+            pass_expr(*expr, edges, _table);
 
             // We now switch depending on the type of function called
             #[allow(clippy::unnecessary_unwrap)]
@@ -552,7 +552,7 @@ fn pass_expr(expr: dsl::Expr, edges: &mut EdgeBuffer, table: &TableState) {
             // Compute all of the expressions first
             let values_len: usize = values.len();
             for v in values {
-                pass_expr(*v, edges, table);
+                pass_expr(*v, edges, _table);
             }
 
             // Now add the Array instruction in a linear edge
@@ -566,8 +566,8 @@ fn pass_expr(expr: dsl::Expr, edges: &mut EdgeBuffer, table: &TableState) {
         },
         ArrayIndex{ array, index, data_type, .. } => {
             // Write the array, then the index
-            pass_expr(*array, edges, table);
-            pass_expr(*index, edges, table);
+            pass_expr(*array, edges, _table);
+            pass_expr(*index, edges, _table);
 
             // Write the index instruction in a linear edge
             edges.write(ast::Edge::Linear {
@@ -580,7 +580,7 @@ fn pass_expr(expr: dsl::Expr, edges: &mut EdgeBuffer, table: &TableState) {
 
         UnaOp{ op, expr, .. } => {
             // We can always write the expression first
-            pass_expr(*expr, edges, table);
+            pass_expr(*expr, edges, _table);
 
             // Match on the operator to write the proper instruction
             match op {
@@ -599,8 +599,8 @@ fn pass_expr(expr: dsl::Expr, edges: &mut EdgeBuffer, table: &TableState) {
         },
         BinOp{ op, lhs, rhs, .. } => {
             // We can always write the lefthand-side followed by the righthand-side first
-            pass_expr(*lhs, edges, table);
-            pass_expr(*rhs, edges, table);
+            pass_expr(*lhs, edges, _table);
+            pass_expr(*rhs, edges, _table);
 
             // Match the operator to write the proper instruction
             match op {
@@ -662,7 +662,7 @@ fn pass_expr(expr: dsl::Expr, edges: &mut EdgeBuffer, table: &TableState) {
         },
         Proj{ lhs, rhs, .. } => {
             // We resolve at runtime; push the lefthand-side...
-            pass_expr(*lhs, edges, table);
+            pass_expr(*lhs, edges, _table);
 
             // ...get the name in the righthand-side...
             let field: String = if let dsl::Expr::Identifier { name, .. } = *rhs {
@@ -682,7 +682,7 @@ fn pass_expr(expr: dsl::Expr, edges: &mut EdgeBuffer, table: &TableState) {
             // We always order the properties alphabetically to push them
             properties.sort_by(|p1, p2| p1.name.value.to_lowercase().cmp(&p2.name.value.to_lowercase()));
             for p in properties {
-                pass_expr(*p.value, edges, table);
+                pass_expr(*p.value, edges, _table);
             }
 
             // Bundle them in the instance

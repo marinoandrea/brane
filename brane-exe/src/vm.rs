@@ -4,7 +4,7 @@
 //  Created:
 //    12 Sep 2022, 17:41:33
 //  Last edited:
-//    14 Nov 2022, 09:36:07
+//    14 Nov 2022, 11:50:36
 //  Auto updated?
 //    Yes
 // 
@@ -65,7 +65,7 @@ pub mod tests {
                 let mut source: String = String::new();
                 let mut state: CompileState = CompileState::new();
                 let vm: Arc<RwLock<DummyVm>> = Arc::new(RwLock::new(DummyVm::new()));
-                let mut iter = code.split("\n");
+                let mut iter = code.split('\n');
                 for (offset, l) in SnippetFetcher::new(|| { Ok(iter.next().map(|l| l.into())) }) {
                     // Append the source (for errors only)
                     source.push_str(&l);

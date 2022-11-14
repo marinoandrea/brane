@@ -4,7 +4,7 @@
 //  Created:
 //    24 Oct 2022, 15:34:05
 //  Last edited:
-//    14 Nov 2022, 10:55:44
+//    14 Nov 2022, 11:52:49
 //  Auto updated?
 //    Yes
 // 
@@ -105,7 +105,7 @@ impl VmPlugin for OfflinePlugin {
         let einfo: ExecuteInfo = ExecuteInfo {
             name       : info.name.into(),
             image      : image.clone(),
-            image_file : Some(package_dir.join(&info.package_name).join(info.package_version.to_string()).join("image.tar")),
+            image_file : Some(package_dir.join(info.package_name).join(info.package_version.to_string()).join("image.tar")),
 
             command : vec![
                 "-d".into(),

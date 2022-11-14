@@ -4,7 +4,7 @@
 //  Created:
 //    18 Aug 2022, 15:24:54
 //  Last edited:
-//    14 Nov 2022, 10:44:47
+//    14 Nov 2022, 11:47:56
 //  Auto updated?
 //    Yes
 // 
@@ -749,7 +749,7 @@ fn pass_expr(state: &CompileState, data_index: &DataIndex, expr: &mut Expr, symb
                 }
 
                 // Now traverse
-                pass_expr(state, data_index, &mut *p.value, symbol_table, errors);
+                pass_expr(state, data_index, &mut p.value, symbol_table, errors);
             }
 
             // Finally, check if this dataset exists

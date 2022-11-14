@@ -4,7 +4,7 @@
 //  Created:
 //    12 Sep 2022, 17:39:06
 //  Last edited:
-//    14 Nov 2022, 11:03:18
+//    14 Nov 2022, 13:04:50
 //  Auto updated?
 //    Yes
 // 
@@ -149,7 +149,7 @@ pub async fn download_data(certs_dir: impl AsRef<Path>, endpoint: impl AsRef<str
     debug!("Loading certificate for location '{}'...", location);
     let (identity, ca_cert): (Identity, Certificate) = {
         // Compute the paths
-        let cert_dir : PathBuf = certs_dir.join(&location);
+        let cert_dir : PathBuf = certs_dir.join(location);
         let idfile   : PathBuf = cert_dir.join("client-id.pem");
         let cafile   : PathBuf = cert_dir.join("ca.pem");
 

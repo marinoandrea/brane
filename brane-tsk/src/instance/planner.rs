@@ -4,7 +4,7 @@
 //  Created:
 //    25 Oct 2022, 11:35:00
 //  Last edited:
-//    14 Nov 2022, 11:07:58
+//    14 Nov 2022, 11:53:13
 //  Auto updated?
 //    Yes
 // 
@@ -223,7 +223,7 @@ fn plan_edges(table: &mut SymTable, edges: &mut [Edge], dindex: &DataIndex, infr
                     // We only take data into account (for now, at least)
                     if let DataName::Data(name) = d {
                         // Attempt to find it
-                        if let Some(info) = dindex.get(&name) {
+                        if let Some(info) = dindex.get(name) {
                             // Simply add all locations where it lives
                             data_locs.append(&mut info.access.keys().collect::<Vec<&String>>());
                         } else {

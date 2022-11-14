@@ -144,7 +144,7 @@ async fn build(
             
             // Remove the build files if not told to keep them
             if !keep_files {
-                if let Err(err) = fs::remove_dir_all(&package_dir) { return Err(BuildError::CleanupError{ path: package_dir.to_path_buf(), err }); }
+                if let Err(err) = fs::remove_dir_all(package_dir) { return Err(BuildError::CleanupError{ path: package_dir.to_path_buf(), err }); }
             }
         }
     }

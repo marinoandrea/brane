@@ -4,7 +4,7 @@
 //  Created:
 //    18 Aug 2022, 13:46:22
 //  Last edited:
-//    14 Nov 2022, 10:12:03
+//    14 Nov 2022, 11:47:36
 //  Auto updated?
 //    Yes
 // 
@@ -112,7 +112,7 @@ pub fn pass_stmt(stmt: &Stmt, indent: usize) {
         Block{ block } => {
             // Pass over the block instead, but do print the indentation first.
             print!("{}", indent!(indent));
-            pass_block(&**block, indent);
+            pass_block(block, indent);
             println!();
         },
 
@@ -191,11 +191,11 @@ pub fn pass_stmt(stmt: &Stmt, indent: usize) {
             pass_expr(cond, indent);
             print!(") ");
             // Print the if-block
-            pass_block(&**consequent, indent);
+            pass_block(consequent, indent);
             // If there is an else, do that
             if let Some(alternative) = alternative {
                 print!(" else ");
-                pass_block(&**alternative, indent);
+                pass_block(alternative, indent);
             }
             println!();
         },
@@ -209,7 +209,7 @@ pub fn pass_stmt(stmt: &Stmt, indent: usize) {
             pass_stmt(increment, indent);
             print!(") ");
             // Print the block
-            pass_block(&**consequent, indent);
+            pass_block(consequent, indent);
             println!();
         },
         While{ condition, consequent, .. } => {
@@ -218,7 +218,7 @@ pub fn pass_stmt(stmt: &Stmt, indent: usize) {
             pass_expr(condition, indent);
             print!(") ");
             // Print the block
-            pass_block(&**consequent, indent);
+            pass_block(consequent, indent);
             println!();
         },
         On{ location, block, .. } => {
@@ -227,7 +227,7 @@ pub fn pass_stmt(stmt: &Stmt, indent: usize) {
             pass_expr(location, indent);
             // Print the block
             print!(" ");
-            pass_block(&**block, indent);
+            pass_block(block, indent);
             println!();  
         },
         Parallel{ result, blocks, .. } => {
@@ -242,7 +242,7 @@ pub fn pass_stmt(stmt: &Stmt, indent: usize) {
             println!("parallel [");
             // Print the blocks
             for b in blocks {
-                pass_stmt(&**b, indent + 3);
+                pass_stmt(b, indent + 3);
             }
             println!("{}]", indent!(indent));
         },

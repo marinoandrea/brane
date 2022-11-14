@@ -4,7 +4,7 @@
 //  Created:
 //    24 Oct 2022, 15:42:52
 //  Last edited:
-//    14 Nov 2022, 10:38:04
+//    14 Nov 2022, 11:50:10
 //  Auto updated?
 //    Yes
 // 
@@ -279,7 +279,7 @@ impl VirtualSymTable {
 
     /// Returns the intermediate results in the scopes.
     #[inline]
-    pub fn results(&self) -> &HashMap<String, String> { if !self.scopes.is_empty() { &self.scopes[0].results } else { &*EMPTY_RESULTS } }
+    pub fn results(&self) -> &HashMap<String, String> { if !self.scopes.is_empty() { &self.scopes[0].results } else { &EMPTY_RESULTS } }
 }
 
 impl Default for VirtualSymTable {

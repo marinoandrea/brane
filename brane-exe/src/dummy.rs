@@ -4,7 +4,7 @@
 //  Created:
 //    13 Sep 2022, 16:43:11
 //  Last edited:
-//    14 Nov 2022, 09:33:16
+//    14 Nov 2022, 11:51:12
 //  Auto updated?
 //    Yes
 // 
@@ -199,7 +199,7 @@ impl DummyPlanner {
             let mut funcs: HashMap<usize, Vec<Edge>>      = Arc::try_unwrap(funcs).unwrap();
 
             // Iterate through all of the edges
-            for (_, edges) in &mut funcs {
+            for edges in funcs.values_mut() {
                 Self::plan_edges(&mut table, edges);
             }
 
@@ -249,6 +249,13 @@ impl DummyVm {
         let mut text : MutexGuard<String>           = state.text.lock().unwrap();
         print!("{}", text);
         *text = String::new();
+    }
+}
+
+impl Default for DummyVm {
+    #[inline]
+    fn default() -> Self {
+        Self::new()
     }
 }
 

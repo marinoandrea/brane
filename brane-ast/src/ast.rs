@@ -4,7 +4,7 @@
 //  Created:
 //    30 Aug 2022, 11:55:49
 //  Last edited:
-//    14 Nov 2022, 10:06:27
+//    14 Nov 2022, 11:42:49
 //  Auto updated?
 //    Yes
 // 
@@ -213,7 +213,7 @@ impl TaskDef {
         use TaskDef::*;
         match self {
             Compute{ function, .. } => &function.name,
-            Transfer{ .. }          => &(*TRANSFER_FUNC).name,
+            Transfer{ .. }          => &TRANSFER_FUNC.name,
         }
     }
 
@@ -223,7 +223,7 @@ impl TaskDef {
         use TaskDef::*;
         match self {
             Compute{ function, .. } => function,
-            Transfer{ .. }          => &*TRANSFER_FUNC,
+            Transfer{ .. }          => &TRANSFER_FUNC,
         }
     }
 }

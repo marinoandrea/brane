@@ -4,7 +4,7 @@
 //  Created:
 //    20 Sep 2022, 13:44:07
 //  Last edited:
-//    14 Nov 2022, 10:39:00
+//    14 Nov 2022, 11:50:21
 //  Auto updated?
 //    Yes
 // 
@@ -587,7 +587,7 @@ impl Value {
         match (self, target) {
             (Boolean{ value }, DataType::Any)     => Ok(Self::Boolean { value }),
             (Boolean{ value }, DataType::Boolean) => Ok(Self::Boolean { value }),
-            (Boolean{ value }, DataType::Integer) => Ok(Self::Integer { value: if value { 1 } else { 0 } }),
+            (Boolean{ value }, DataType::Integer) => Ok(Self::Integer { value: i64::from(value) }),
             (Boolean{ value }, DataType::String ) => Ok(Self::String  { value: format!("{}", Self::Boolean{ value }.display(table)) }),
 
             (Integer{ value }, DataType::Any)     => Ok(Self::Integer { value }),
