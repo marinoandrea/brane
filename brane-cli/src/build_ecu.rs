@@ -109,8 +109,9 @@ async fn build(
 
             // Create a PackageInfo and resolve the hash
             let mut package_info = PackageInfo::from(document);
-            if let Err(err) = package_info.resolve_digest(package_dir.join("image.tar")) {
-                return Err(BuildError::DigestError{ err });
+            match brane_tsk::docker::get_digest(package_dir.join("image.tar")).await {
+                Ok(digest) => { package_info.digest = Some(digest); },
+                Err(err)   => { return Err(BuildError::DigestError{ err }); }
             }
 
             // Write it to package directory

@@ -41,12 +41,14 @@ services:
       ADDRESS: "0.0.0.0:${JOB_PORT:-50052}"
       KEEP_CONTAINERS: ${KEEP_CONTAINERS:-}
       LOCATION_ID: ${LOCATION_ID}
+      PACKAGES_PATH: ${PACKAGES:-./packages}
       DATA_PATH: ${DATA:-./data}
       RESULTS_PATH: ${RESULTS:-./results}
       TEMP_DATA_PATH: ${TEMP_DATA:-/tmp/brane_data}
       TEMP_RESULTS_PATH: ${TEMP_RESULTS:-/tmp/brane_results}
     volumes:
     - ${CONFIG:-./config}:/config
+    - ${PACKAGES:-./packages}:${PACKAGES:-./packages}
     - ${DATA:-./data}:${DATA:-./data}
     - ${RESULTS:-./results}:${RESULTS:-./results}
     - ${TEMP_DATA:-/tmp/brane_data}:${TEMP_DATA:-/tmp/brane_data}

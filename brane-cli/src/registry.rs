@@ -141,7 +141,10 @@ pub async fn pull(
 
     // Iterate over the packages
     for (name, version) in packages {
+        debug!("Pulling package '{}' version {}", name, version);
+
         // Get the package directory
+        debug!("Downloading container...");
         let packages_dir = match get_packages_dir() {
             Ok(packages_dir) => packages_dir,
             Err(err)         => { return Err(RegistryError::PackagesDirError{ err }); }
@@ -194,6 +197,7 @@ pub async fn pull(
         // Retreive package information from API.
         let client = reqwest::Client::new();
         let graphql_endpoint = get_graphql_endpoint()?;
+        debug!("Fetching package metadata from '{}'...", graphql_endpoint);
 
         // Prepare GraphQL query.
         let variables = get_package::Variables {
@@ -311,9 +315,7 @@ pub async fn pull(
 /// 
 /// **Returns**  
 /// Nothing on success, or an anyhow error on failure.
-pub async fn push(
-    packages: Vec<(String, Version)>,
-) -> Result<(), RegistryError> {
+pub async fn push(packages: Vec<(String, Version)>) -> Result<(), RegistryError> {
     // Try to get the general package directory
     let packages_dir = match ensure_packages_dir(false) {
         Ok(dir)  => dir,
@@ -347,10 +349,12 @@ pub async fn push(
             Ok(dir)  => dir,
             Err(err) => { return Err(RegistryError::PackageDirError{ name, version, err }); }
         };
-        let temp_file = match tempfile::NamedTempFile::new() {
-            Ok(file) => file,
-            Err(err) => { return Err(RegistryError::TempFileError{ err }); }
-        };
+        // let temp_file = match tempfile::NamedTempFile::new() {
+        //     Ok(file) => file,
+        //     Err(err) => { return Err(RegistryError::TempFileError{ err }); }
+        // };
+        let temp_path: std::path::PathBuf = std::path::PathBuf::from("/tmp/temp.tar.gz");
+        let temp_file: File = File::create(&temp_path).unwrap();
 
         // We do a nice progressbar while compressing the package
         let progress = ProgressBar::new(0);
@@ -360,11 +364,17 @@ pub async fn push(
         // Create package tarball, effectively compressing it
         let gz = GzEncoder::new(&temp_file, Compression::fast());
         let mut tar = tar::Builder::new(gz);
-        if let Err(err) = tar.append_dir_all(".", package_dir) {
-            return Err(RegistryError::CompressionError{ name, version, path: temp_file.path().into(), err });
+        if let Err(err) = tar.append_path_with_name(package_dir.join("package.yml"), "package.yml") {
+            // return Err(RegistryError::CompressionError{ name, version, path: temp_file.path().into(), err });
+            return Err(RegistryError::CompressionError { name, version, path: temp_path, err });
+        };
+        if let Err(err) = tar.append_path_with_name(package_dir.join("image.tar"), "image.tar") {
+            // return Err(RegistryError::CompressionError{ name, version, path: temp_file.path().into(), err });
+            return Err(RegistryError::CompressionError { name, version, path: temp_path, err });
         };
         if let Err(err) = tar.into_inner() {
-            return Err(RegistryError::CompressionError{ name, version, path: temp_file.path().into(), err });
+            // return Err(RegistryError::CompressionError{ name, version, path: temp_file.path().into(), err });
+            return Err(RegistryError::CompressionError { name, version, path: temp_path, err });
         };
         progress.finish();
 
@@ -376,21 +386,25 @@ pub async fn push(
         progress.enable_steady_tick(250);
 
         // Re-open the temporary file we've just written to
-        let handle = match TokioFile::open(&temp_file).await {
+        // let handle = match TokioFile::open(&temp_file).await {
+        let handle = match TokioFile::open(&temp_path).await {
             Ok(handle) => handle,
-            Err(err)   => { return Err(RegistryError::PackageArchiveOpenError{ path: temp_file.path().into(), err }); }
+            // Err(err)   => { return Err(RegistryError::PackageArchiveOpenError{ path: temp_file.path().into(), err }); }
+            Err(err)   => { return Err(RegistryError::PackageArchiveOpenError{ path: temp_path, err }); }
         };
         let file = FramedRead::new(handle, BytesCodec::new());
 
         // Upload the file as a request
-        let content_length = temp_file.path().metadata().unwrap().len();
+        // let content_length = temp_file.path().metadata().unwrap().len();
+        let content_length = temp_path.metadata().unwrap().len();
         let request = request
             .body(Body::wrap_stream(file))
             .header("Content-Type", "application/gzip")
             .header("Content-Length", content_length);
         let response = match request.send().await {
             Ok(response) => response,
-            Err(err)     => { return Err(RegistryError::UploadError{ path: temp_file.path().into(), endpoint: url, err }); }
+            // Err(err)     => { return Err(RegistryError::UploadError{ path: temp_file.path().into(), endpoint: url, err }); }
+            Err(err)     => { return Err(RegistryError::UploadError{ path: temp_path, endpoint: url, err }); }
         };
         let response_status = response.status();
         progress.finish();

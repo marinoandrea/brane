@@ -5,7 +5,7 @@
 # Created:
 #   14 Nov 2022, 13:43:51
 # Last edited:
-#   15 Nov 2022, 09:15:31
+#   15 Nov 2022, 16:43:21
 # Auto updated?
 #   Yes
 #
@@ -30,7 +30,7 @@ VERSION = "1.0.0"
 
 # The list of services that live on the central node. Each of them maps to a short flag, long flag prefix, a more readable name and their default port if any.
 CENTRAL_SERVICES = {
-    "aux-registry"  : ("c", "container", "Docker registry", 50050),
+    # "aux-registry"  : ("c", "container", "Docker registry", 50050),
     "aux-scylla"    : ("s", "scylla", "Scylla database", None),
     "aux-kafka"     : ("k", "kafka", "Kafka", None),
     "aux-zookeeper" : ("z", "zookeeper", "Kafka Zookeeper", None),
@@ -104,7 +104,7 @@ def fatal(text: str, end: str = "\n", code: int = 1):
 
 
 ##### ENTRYPOINT #####
-def main(cmd: str, node: str, location_id: str | None, config: str, data: str, results: str, certs: str, central_images: dict[str, str], worker_images: dict[str, str], central_ports: dict[str, int], worker_ports: dict[str, int], file: str, verbose: bool) -> int:
+def main(cmd: str, node: str, location_id: str | None, config: str, packages: str, data: str, results: str, certs: str, central_images: dict[str, str], worker_images: dict[str, str], central_ports: dict[str, int], worker_ports: dict[str, int], file: str, verbose: bool) -> int:
     """
         The main function of this script.
     """
@@ -125,6 +125,7 @@ def main(cmd: str, node: str, location_id: str | None, config: str, data: str, r
         # Print any central node relating ones
         if cmd == "start" and node == "central":
             debug(verbose, f"  - Certificates path{' ' * (longest - 17)} : '{certs}'")
+            debug(verbose, f"  - Packages path{' ' * (longest - 13)} : '{packages}'")
             for svc, path in central_images.items():
                 debug(verbose, f"  - {CENTRAL_SERVICES[svc][2]} image{' ' * (longest - len(CENTRAL_SERVICES[svc][2]) - 6)} : {path}")
             for svc, port in central_ports.items():
@@ -134,6 +135,7 @@ def main(cmd: str, node: str, location_id: str | None, config: str, data: str, r
         if cmd == "start" and node == "worker":
             debug(verbose, f"  - Location ID{' ' * (longest - 11)} : '{location_id}'")
             debug(verbose, f"  - Config path{' ' * (longest - 11)} : '{config}'")
+            debug(verbose, f"  - Packages path{' ' * (longest - 13)} : '{packages}'")
             debug(verbose, f"  - Data path{' ' * (longest - 9)} : '{data}'")
             debug(verbose, f"  - Results path{' ' * (longest - 12)} : '{results}'")
             debug(verbose, f"  - Certificates path{' ' * (longest - 17)} : '{certs}'")
@@ -155,7 +157,7 @@ def main(cmd: str, node: str, location_id: str | None, config: str, data: str, r
         for svc in images:
             # Load the image into the daemon
             debug(verbose, f"Loading image '{images[svc]}' for service '{svc}'...")
-            handle = subprocess.Popen(["docker", "load", "--input", images[svc]], stdout=subprocess.PIPE)
+            handle = subprocess.Popen(["docker", "load", "--input", images[svc]], stdout=subprocess.PIPE, stderr=sys.stderr)
             stdout, _ = handle.communicate()
             # if handle.returncode != 0: fatal(f"Command 'docker load --input {images[svc]}' failed with exit code {handle.returncode} (see above for stderr)")
             if handle.returncode != 0: continue
@@ -179,10 +181,13 @@ def main(cmd: str, node: str, location_id: str | None, config: str, data: str, r
         env = []
         for svc in ports:
             env.append(f"{services[svc][1].upper().replace('-', '_')}_PORT=\"{ports[svc]}\"")
-        if node == "worker":
+        if node == "central":
+            env.append(f"PACKAGES=\"{packages}\"")
+        elif node == "worker":
             env.append(f"CONFIG=\"{config}\"")
-            env.append(f" DATA=\"{os.path.abspath(data)}\"")
-            env.append(f" RESULTS=\"{os.path.abspath(results)}\"")
+            env.append(f"PACKAGES=\"{os.path.abspath(packages)}\"")
+            env.append(f"DATA=\"{os.path.abspath(data)}\"")
+            env.append(f"RESULTS=\"{os.path.abspath(results)}\"")
         env.append(f"CERTS=\"{certs}\"")
         if node == "worker":
             env.append(f" LOCATION_ID=\"{location_id}\"")
@@ -223,9 +228,10 @@ if __name__ == "__main__":
     parser.add_argument("LOCATION_ID", nargs='?', help="The location ID for this worker. Only relevant (and required) if we're starting a worker node.")
 
     parser.add_argument("--config", default="./config", help="Points to the directory with the configuration files for this node.")
-    parser.add_argument("--data", default="./data", help="Points to the directory that stores/gives access to this node's data. Only relevant if we're starting a worker node. You can use '$CONFIG' to use the part to the configuration folder.")
-    parser.add_argument("--results", default="/tmp/results", help="Points to the directory that stores intermediate results for this node. Only relevant if we're starting a worker node. You can use '$CONFIG' to use the part to the configuration folder.")
-    parser.add_argument("--certs", default="$CONFIG/certs", help="Points to the directory with certificates to use for this node. You can use '$CONFIG' to use the part to the configuration folder.")
+    parser.add_argument("--packages", default="./packages", help="Points to the directory that stores/gives access to this node's package registry. You can use '$CONFIG' to replace that part with the '--config' value.")
+    parser.add_argument("--data", default="./data", help="Points to the directory that stores/gives access to this node's data. Only relevant if we're starting a worker node. You can use '$CONFIG' to replace that part with the '--config' value.")
+    parser.add_argument("--results", default="/tmp/results", help="Points to the directory that stores intermediate results for this node. Only relevant if we're starting a worker node. You can use '$CONFIG' to replace that part with the '--config' value.")
+    parser.add_argument("--certs", default="$CONFIG/certs", help="Points to the directory with certificates to use for this node. You can use '$CONFIG' to replace that part with the '--config' value.")
 
     # Generate image flags for all services
     parser.add_argument("-i", "--image-dir", default="./target/release", help="Provides a base path for all the image files. Only used as a common path for them, no other files are loaded from this directory.")
@@ -253,9 +259,10 @@ if __name__ == "__main__":
     # Parse the arguments
     args = parser.parse_args()
     if args.COMMAND == "start" and args.NODE == "worker" and args.LOCATION_ID is None: fatal("Missing LOCATION_ID parameter (use --help to learn more)")
-    args.data    = args.data.replace("$CONFIG", args.config)
-    args.results = args.results.replace("$CONFIG", args.config)
-    args.certs   = args.certs.replace("$CONFIG", args.config)
+    args.packages = args.packages.replace("$CONFIG", args.config)
+    args.data     = args.data.replace("$CONFIG", args.config)
+    args.results  = args.results.replace("$CONFIG", args.config)
+    args.certs    = args.certs.replace("$CONFIG", args.config)
     for service in CENTRAL_SERVICES:
         _, long, _, _ = CENTRAL_SERVICES[service]
         setattr(args, f"{long}_image", getattr(args, f"{long}_image").replace("$IMAGE_DIR", args.image_dir))
@@ -272,7 +279,7 @@ if __name__ == "__main__":
     # Run main
     exit(main(
         args.COMMAND, args.NODE, args.LOCATION_ID,
-        args.config, args.data, args.results, args.certs,
+        args.config, args.packages, args.data, args.results, args.certs,
         { svc: getattr(args, f"{CENTRAL_SERVICES[svc][1]}_image") for svc in CENTRAL_SERVICES },
         { svc: getattr(args, f"{WORKER_SERVICES[svc][1]}_image") for svc in WORKER_SERVICES },
         { svc: getattr(args, f"{CENTRAL_SERVICES[svc][1]}_port") for svc in CENTRAL_SERVICES if CENTRAL_SERVICES[svc][3] is not None },

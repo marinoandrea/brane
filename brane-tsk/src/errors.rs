@@ -4,7 +4,7 @@
 //  Created:
 //    24 Oct 2022, 15:27:26
 //  Last edited:
-//    11 Nov 2022, 16:47:54
+//    15 Nov 2022, 16:37:50
 //  Auto updated?
 //    Yes
 // 
@@ -301,6 +301,23 @@ pub enum ExecuteError {
     ExecuteError{ endpoint: String, name: String, status: TaskStatus, err: String },
 
     // Instance-only (worker side)
+    /// Failed to fetch the digest of an already existing image.
+    DigestError{ path: PathBuf, err: DockerError },
+    /// Failed to create a reqwest proxy object.
+    ProxyCreateError{ address: String, err: reqwest::Error },
+    /// Failed to create a reqwest client.
+    ClientCreateError{ err: reqwest::Error },
+    /// Failed to send a GET-request to fetch the data.
+    DownloadRequestError{ address: String, err: reqwest::Error },
+    /// The given download request failed with a non-success status code.
+    DownloadRequestFailure{ address: String, code: StatusCode, message: Option<String> },
+    /// Failed to reach the next chunk of data.
+    DownloadStreamError{ address: String, err: reqwest::Error },
+    /// Failed to create the file to which we write the download stream.
+    ImageCreateError{ path: PathBuf, err: std::io::Error },
+    /// Failed to write to the file where we write the download stream.
+    ImageWriteError{ path: PathBuf, err: std::io::Error },
+
     /// The checker rejected the workflow.
     AuthorizationFailure{ checker: String },
     /// The checker failed to check workflow authorization.
@@ -338,6 +355,15 @@ impl Display for ExecuteError {
             GrpcConnectError{ endpoint, err }           => write!(f, "Failed to start gRPC connection with delegate node '{}': {}", endpoint, err),
             GrpcRequestError{ what, endpoint, err }     => write!(f, "Failed to send {} request to delegate node '{}': {}", what, endpoint, err),
             ExecuteError{ endpoint, name, status, err } => write!(f, "Remote delegate '{}' returned status '{:?}' while executing task '{}': {}", endpoint, status, name, err),
+
+            DigestError{ path, err }                         => write!(f, "Failed to read digest of image '{}': {}", path.display(), err),
+            ProxyCreateError{ address, err }                 => write!(f, "Failed to create proxy to '{}': {}", address, err),
+            ClientCreateError{ err }                         => write!(f, "Failed to create HTTP-client: {}", err),
+            DownloadRequestError{ address, err }             => write!(f, "Failed to send GET download request to '{}': {}", address, err),
+            DownloadRequestFailure{ address, code, message } => write!(f, "GET download request to '{}' failed with status code {} ({}){}", address, code, code.canonical_reason().unwrap_or("???"), if let Some(message) = message { format!(": {}", message) } else { String::new() }),
+            DownloadStreamError{ address, err }              => write!(f, "Failed to get next chunk in download stream from '{}': {}", address, err),
+            ImageCreateError{ path, err }                    => write!(f, "Failed to create tarball file '{}': {}", path.display(), err),
+            ImageWriteError{ path, err }                     => write!(f, "Failed to write to tarball file '{}': {}", path.display(), err),
 
             AuthorizationFailure{ checker: _ }    => write!(f, "Checker rejected workflow"),
             AuthorizationError{ checker: _, err } => write!(f, "Checker failed to authorize workflow: {}", err),
@@ -529,6 +555,25 @@ pub enum DockerError {
 
     /// Failed to remove a certain image.
     ImageRemoveError{ image: Image, id: String, err: bollard::errors::Error },
+
+    /// Could not open the given image.tar.
+    ImageTarOpenError{ path: PathBuf, err: std::io::Error },
+    /// Could not get the list of entries from the given image.tar.
+    ImageTarEntriesError{ path: PathBuf, err: std::io::Error },
+    /// COuld not read a single entry from the given image.tar.
+    ImageTarEntryError{ path: PathBuf, err: std::io::Error },
+    /// Could not get path from entry
+    ImageTarIllegalPath{ path: PathBuf, err: std::io::Error },
+    /// Could not read the manifest.json file
+    ImageTarManifestReadError{ path: PathBuf, entry: PathBuf, err: std::io::Error },
+    /// Could not parse the manifest.json file
+    ImageTarManifestParseError{ path: PathBuf, entry: PathBuf, err: serde_json::Error },
+    /// Incorrect number of items found in the toplevel list of the manifest.json file
+    ImageTarIllegalManifestNum{ path: PathBuf, entry: PathBuf, got: usize },
+    /// Could not find the expected part of the config digest
+    ImageTarIllegalDigest{ path: PathBuf, entry: PathBuf, digest: String },
+    /// Could not find the manifest.json file in the given image.tar.
+    ImageTarNoManifest{ path: PathBuf },
 }
 
 impl Display for DockerError {
@@ -558,6 +603,16 @@ impl Display for DockerError {
             ImagePullError{ image, err } => write!(f, "Failed to pull image '{}' into Docker engine: {}", image.name(), err),
 
             ImageRemoveError{ image, id, err } => write!(f, "Failed to remove image '{}' (id: {}) from Docker engine: {}", image.name(), id, err),
+
+            ImageTarOpenError{ path, err }                 => write!(f, "Could not open given Docker image file '{}': {}", path.display(), err),
+            ImageTarEntriesError{ path, err }              => write!(f, "Could not get file entries in Docker image file '{}': {}", path.display(), err),
+            ImageTarEntryError{ path, err }                => write!(f, "Could not get file entry from Docker image file '{}': {}", path.display(), err),
+            ImageTarNoManifest{ path }                     => write!(f, "Could not find manifest.json in given Docker image file '{}'", path.display()),
+            ImageTarManifestReadError{ path, entry, err }  => write!(f, "Failed to read '{}' in Docker image file '{}': {}", entry.display(), path.display(), err),
+            ImageTarManifestParseError{ path, entry, err } => write!(f, "Could not parse '{}' in Docker image file '{}': {}", entry.display(), path.display(), err),
+            ImageTarIllegalManifestNum{ path, entry, got } => write!(f, "Got incorrect number of entries in '{}' in Docker image file '{}': got {}, expected 1", entry.display(), path.display(), got),
+            ImageTarIllegalDigest{ path, entry, digest }   => write!(f, "Found image digest '{}' in '{}' in Docker image file '{}' is illegal: does not start with '{}'", digest, entry.display(), path.display(), crate::docker::MANIFEST_CONFIG_PREFIX),
+            ImageTarIllegalPath{ path, err }               => write!(f, "Given Docker image file '{}' contains illegal path entry: {}", path.display(), err),
         }
     }
 }

@@ -4,7 +4,7 @@
 //  Created:
 //    19 Sep 2022, 14:57:17
 //  Last edited:
-//    14 Nov 2022, 10:53:30
+//    15 Nov 2022, 16:27:55
 //  Auto updated?
 //    Yes
 // 
@@ -27,7 +27,10 @@ use futures_util::stream::TryStreamExt;
 use futures_util::StreamExt;
 use hyper::Body;
 use log::debug;
+use serde::{Deserialize, Serialize};
 use tokio::fs::{self as tfs, File as TFile};
+use tokio::io::AsyncReadExt;
+use tokio_tar::Archive;
 use tokio_util::codec::{BytesCodec, FramedRead};
 
 use brane_ast::ast::DataName;
@@ -38,6 +41,27 @@ use specifications::data::AccessKind;
 
 pub use crate::errors::DockerError as Error;
 use crate::errors::ExecuteError;
+
+
+/***** CONSTANTS *****/
+/// Defines the prefix to the Docker image tar's manifest config blob (which contains the image digest)
+pub(crate) const MANIFEST_CONFIG_PREFIX: &str = "blobs/sha256/";
+
+
+
+
+
+/***** HELPER STRUCTS *****/
+/// The layout of a Docker manifest file.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct DockerImageManifest {
+    /// The config string that contains the digest as the path of the config file
+    #[serde(rename = "Config")]
+    config : String,
+}
+
+
+
 
 
 /***** AUXILLARY STRUCTS *****/
@@ -78,7 +102,6 @@ impl From<Network> for String {
         format!("{}", value)
     }
 }
-
 impl From<&Network> for String {
     #[inline]
     fn from(value: &Network) -> Self {
@@ -516,6 +539,84 @@ pub async fn preprocess_args(args: &mut HashMap<String, FullValue>, input: &Hash
 
     // Done, return the binds
     Ok(binds)
+}
+
+/// Given an `image.tar` file, extracts the Docker digest (i.e., image ID) from it and returns it.
+/// 
+/// # Arguments
+/// - `path`: The `image.tar` file to extract the digest from.
+/// 
+/// # Returns
+/// The image's digest as a string. Does not include `sha:...`.
+/// 
+/// # Errors
+/// This function errors if the given image.tar could not be read or was in an incorrect format.
+pub async fn get_digest(path: impl AsRef<Path>) -> Result<String, Error> {
+    // Convert the Path-like to a Path
+    let path: &Path = path.as_ref();
+
+    // Try to open the given file
+    let handle: TFile = match TFile::open(path).await {
+        Ok(handle) => handle,
+        Err(err)   => { return Err(Error::ImageTarOpenError{ path: path.to_path_buf(), err }); }
+    };
+
+    // Wrap it as an Archive
+    let mut archive: Archive<TFile> = Archive::new(handle);
+
+    // Go through the entries
+    let mut entries = match archive.entries() {
+        Ok(handle) => handle,
+        Err(err)   => { return Err(Error::ImageTarEntriesError{ path: path.to_path_buf(), err }); }
+    };
+    while let Some(entry) = entries.next().await {
+        // Make sure the entry is legible
+        let mut entry = match entry {
+            Ok(entry) => entry,
+            Err(err)  => { return Err(Error::ImageTarEntryError{ path: path.to_path_buf(), err }); }
+        };
+
+        // Check if the entry is the manifest.json
+        let entry_path = match entry.path() {
+            Ok(path) => path.to_path_buf(),
+            Err(err) => { return Err(Error::ImageTarIllegalPath{ path: path.to_path_buf(), err }); }
+        };
+        if entry_path == PathBuf::from("manifest.json") {
+            // Try to read it
+            let mut manifest: Vec<u8> = vec![];
+            if let Err(err) = entry.read_to_end(&mut manifest).await {
+                return Err(Error::ImageTarManifestReadError{ path: path.to_path_buf(), entry: entry_path, err });
+            };
+
+            // Try to parse it with serde
+            let mut manifest: Vec<DockerImageManifest> = match serde_json::from_slice(&manifest) {
+                Ok(manifest) => manifest,
+                Err(err)     => { return Err(Error::ImageTarManifestParseError{ path: path.to_path_buf(), entry: entry_path, err }); }
+            };
+
+            // Get the first and only entry from the vector
+            let manifest: DockerImageManifest = if manifest.len() == 1 {
+                manifest.pop().unwrap()
+            } else {
+                return Err(Error::ImageTarIllegalManifestNum{ path: path.to_path_buf(), entry: entry_path, got: manifest.len() });
+            };
+
+            // Now, try to strip the filesystem part and add sha256:
+            let digest = if manifest.config.starts_with(MANIFEST_CONFIG_PREFIX) {
+                let mut digest = String::from("sha256:");
+                digest.push_str(&manifest.config[MANIFEST_CONFIG_PREFIX.len()..]);
+                digest
+            } else {
+                return Err(Error::ImageTarIllegalDigest{ path: path.to_path_buf(), entry: entry_path, digest: manifest.config });
+            };
+
+            // We found the digest! Set it, then return
+            return Ok(digest);
+        }
+    }
+
+    // No manifest found :(
+    Err(Error::ImageTarNoManifest{ path: path.to_path_buf() })
 }
 
 

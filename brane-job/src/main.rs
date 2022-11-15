@@ -4,7 +4,7 @@
 //  Created:
 //    18 Oct 2022, 13:47:17
 //  Last edited:
-//    13 Nov 2022, 15:04:20
+//    15 Nov 2022, 16:42:33
 //  Auto updated?
 //    Yes
 // 
@@ -52,6 +52,9 @@ struct Opts {
     #[clap(short, long, default_value = "http://127.0.0.1:50054", env = "XENON")]
     xenon   : String,
 
+    /// The path where packages are stored after they are downloaded
+    #[clap(short, long, default_value="/packages", env="PACKAGES_PATH")]
+    packages_path     : PathBuf,
     /// The path where data is stored (shared with registry for speedz)
     #[clap(short, long, default_value="/data", env="DATA_PATH")]
     data_path         : PathBuf,
@@ -112,6 +115,7 @@ async fn main() {
             opts.location_id,
             opts.creds,
             opts.certs,
+            opts.packages_path,
             opts.data_path,
             opts.results_path,
             opts.temp_data_path,

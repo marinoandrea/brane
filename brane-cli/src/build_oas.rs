@@ -148,8 +148,9 @@ async fn build(
 
             // Resolve the digest of the package info
             let mut package_info = package_info;
-            if let Err(err) = package_info.resolve_digest(package_dir.join("image.tar")) {
-                return Err(BuildError::DigestError{ err });
+            match brane_tsk::docker::get_digest(package_dir.join("image.tar")).await {
+                Ok(digest) => { package_info.digest = Some(digest); },
+                Err(err)   => { return Err(BuildError::DigestError{ err }); }
             }
 
             // Write it to package directory

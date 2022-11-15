@@ -10,7 +10,6 @@ use serde_json::Value as JValue;
 use serde_with::skip_serializing_none;
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
-use tar::Archive;
 use uuid::Uuid;
 
 use crate::common::{Function, Type};
@@ -21,14 +20,6 @@ use crate::version::Version;
 /***** CUSTOM TYPES *****/
 /// Shorthand for a map with String keys.
 type Map<T> = std::collections::HashMap<String, T>;
-
-
-
-
-
-/***** CONSTANTS *****/
-/// Defines the prefix to the Docker image tar's manifest config blob (which contains the image digest)
-const MANIFEST_CONFIG_PREFIX: &str = "blobs/sha256/";
 
 
 
@@ -85,23 +76,6 @@ pub enum PackageInfoError {
     FileCreateError{ path: PathBuf, err: std::io::Error },
     /// Could not write to the given writer
     FileWriteError{ err: serde_yaml::Error },
-
-    /// Could not open the given image.tar.
-    ImageTarOpenError{ path: PathBuf, err: std::io::Error },
-    /// Could not get the list of entries from the given image.tar.
-    ImageTarEntriesError{ path: PathBuf, err: std::io::Error },
-    /// COuld not read a single entry from the given image.tar.
-    ImageTarEntryError{ path: PathBuf, err: std::io::Error },
-    /// Could not get path from entry
-    ImageTarIllegalPath{ path: PathBuf, err: std::io::Error },
-    /// Could not parse the manifest.json file
-    ImageTarManifestParseError{ path: PathBuf, entry: PathBuf, err: serde_json::Error },
-    /// Incorrect number of items found in the toplevel list of the manifest.json file
-    ImageTarIllegalManifestNum{ path: PathBuf, entry: PathBuf, got: usize },
-    /// Could not find the expected part of the config digest
-    ImageTarIllegalDigest{ path: PathBuf, entry: PathBuf, digest: String },
-    /// Could not find the manifest.json file in the given image.tar.
-    ImageTarNoManifest{ path: PathBuf },
 }
 
 impl std::fmt::Display for PackageInfoError {
@@ -114,15 +88,6 @@ impl std::fmt::Display for PackageInfoError {
 
             PackageInfoError::FileCreateError{ path, err } => write!(f, "Could not create package info file '{}': {}", path.display(), err),
             PackageInfoError::FileWriteError{ err }        => write!(f, "Could not serialize & write package info file: {}", err),
-
-            PackageInfoError::ImageTarOpenError{ path, err }                 => write!(f, "Could not open given Docker image file '{}': {}", path.display(), err),
-            PackageInfoError::ImageTarEntriesError{ path, err }              => write!(f, "Could not get file entries in Docker image file '{}': {}", path.display(), err),
-            PackageInfoError::ImageTarEntryError{ path, err }                => write!(f, "Could not get file entry from Docker image file '{}': {}", path.display(), err),
-            PackageInfoError::ImageTarNoManifest{ path }                     => write!(f, "Could not find manifest.json in given Docker image file '{}'", path.display()),
-            PackageInfoError::ImageTarManifestParseError{ path, entry, err } => write!(f, "Could not parse '{}' in Docker image file '{}': {}", entry.display(), path.display(), err),
-            PackageInfoError::ImageTarIllegalManifestNum{ path, entry, got } => write!(f, "Got incorrect number of entries in '{}' in Docker image file '{}': got {}, expected 1", entry.display(), path.display(), got),
-            PackageInfoError::ImageTarIllegalDigest{ path, entry, digest }   => write!(f, "Found image digest '{}' in '{}' in Docker image file '{}' is illegal: does not start with '{}'", digest, entry.display(), path.display(), MANIFEST_CONFIG_PREFIX),
-            PackageInfoError::ImageTarIllegalPath{ path, err }               => write!(f, "Given Docker image file '{}' contains illegal path entry: {}", path.display(), err),
         }
     }
 }
@@ -172,19 +137,6 @@ impl std::fmt::Display for PackageIndexError {
 }
 
 impl std::error::Error for PackageIndexError {}
-
-
-
-
-
-/***** HELPER STRUCTS *****/
-/// Defines the interesting fields in the manifest.json in a Docker image tar.
-#[derive(Debug, Deserialize, Serialize)]
-struct DockerImageManifest {
-    /// The config string that contains the digest as the path of the config file
-    #[serde(rename = "Config")]
-    config : String,
-}
 
 
 
@@ -423,81 +375,6 @@ impl PackageInfo {
             Ok(())   => Ok(()),
             Err(err) => Err(PackageInfoError::FileWriteError{ err }),
         }
-    }
-
-
-
-    /// Resolves the digest of the PackageInfo based on the given image.tar.
-    /// 
-    /// **Generic types**
-    ///  * `P`: The Path-like type of the image.tar path.
-    /// 
-    /// **Arguments**
-    ///  * `path`: Path to the image.tar for which to "compute" (extract) its digest.
-    /// 
-    /// **Returns**  
-    /// Nothing on success (except that it sets the internal .digest field to Some(<digest>)) or a PackageInfoError otherwise.
-    pub fn resolve_digest<P: AsRef<Path>>(&mut self, path: P) -> Result<(), PackageInfoError> {
-        // Convert the Path-like to a Path
-        let path: &Path = path.as_ref();
-
-        // Try to open the given file
-        let handle = match File::open(path) {
-            Ok(handle) => handle,
-            Err(err)   => { return Err(PackageInfoError::ImageTarOpenError{ path: path.to_path_buf(), err }); }
-        };
-
-        // Wrap it as an Archive
-        let mut archive = Archive::new(handle);
-
-        // Go through the entries
-        let entries = match archive.entries() {
-            Ok(handle) => handle,
-            Err(err)   => { return Err(PackageInfoError::ImageTarEntriesError{ path: path.to_path_buf(), err }); }
-        };
-        for entry in entries {
-            // Make sure the entry is legible
-            let entry = match entry {
-                Ok(entry) => entry,
-                Err(err)  => { return Err(PackageInfoError::ImageTarEntryError{ path: path.to_path_buf(), err }); }
-            };
-
-            // Check if the entry is the manifest.json
-            let entry_path = match entry.path() {
-                Ok(path) => path.to_path_buf(),
-                Err(err) => { return Err(PackageInfoError::ImageTarIllegalPath{ path: path.to_path_buf(), err }); }
-            };
-            if entry_path == PathBuf::from("manifest.json") {
-                // Try to read it with serde
-                let mut manifest: Vec<DockerImageManifest> = match serde_json::from_reader(entry) {
-                    Ok(manifest) => manifest,
-                    Err(err)     => { return Err(PackageInfoError::ImageTarManifestParseError{ path: path.to_path_buf(), entry: entry_path, err }); }
-                };
-
-                // Get the first and only entry from the vector
-                let manifest: DockerImageManifest = if manifest.len() == 1 {
-                    manifest.pop().unwrap()
-                } else {
-                    return Err(PackageInfoError::ImageTarIllegalManifestNum{ path: path.to_path_buf(), entry: entry_path, got: manifest.len() });
-                };
-
-                // Now, try to strip the filesystem part and add sha256:
-                let digest = if manifest.config.starts_with(MANIFEST_CONFIG_PREFIX) {
-                    let mut digest = String::from("sha256:");
-                    digest.push_str(&manifest.config[MANIFEST_CONFIG_PREFIX.len()..]);
-                    digest
-                } else {
-                    return Err(PackageInfoError::ImageTarIllegalDigest{ path: path.to_path_buf(), entry: entry_path, digest: manifest.config });
-                };
-
-                // We found the digest! Set it, then return
-                self.digest = Some(digest);
-                return Ok(());
-            }
-        }
-
-        // No manifest found :(
-        Err(PackageInfoError::ImageTarNoManifest{ path: path.to_path_buf() })
     }
 }
 

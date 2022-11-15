@@ -4,7 +4,7 @@
 //  Created:
 //    17 Feb 2022, 10:27:28
 //  Last edited:
-//    14 Nov 2022, 13:15:48
+//    15 Nov 2022, 16:44:59
 //  Auto updated?
 //    Yes
 // 
@@ -193,7 +193,7 @@ pub enum BuildError {
     ImageBuildError{ command: String, code: i32 },
 
     /// Could not get the digest from the just-built image
-    DigestError{ err: PackageInfoError },
+    DigestError{ err: brane_tsk::docker::Error },
     /// Could not write the PackageFile to the build directory.
     PackageFileCreateError{ err: PackageInfoError },
 

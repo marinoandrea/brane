@@ -288,6 +288,25 @@ impl Display for Image {
     }
 }
 
+impl AsRef<Image> for Image {
+    #[inline]
+    fn as_ref(&self) -> &Self {
+        self
+    }
+}
+impl From<&Image> for Image {
+    #[inline]
+    fn from(value: &Image) -> Self {
+        value.clone()
+    }
+}
+impl From<&mut Image> for Image {
+    #[inline]
+    fn from(value: &mut Image) -> Self {
+        value.clone()
+    }
+}
+
 impl From<Image> for String {
     #[inline]
     fn from(value: Image) -> Self {

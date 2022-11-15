@@ -16,15 +16,15 @@ services:
     - kompose.service.type=nodeport
     - kompose.service.nodeport.port=9042
 
-  # Contains the Docker images for the packages
-  aux-registry:
-    image: registry:2
-    ports:
-      - "0.0.0.0:50050:5000"
-    restart: always
-    labels:
-    - kompose.service.type=nodeport
-    - kompose.service.nodeport.port=50050
+  # # Contains the Docker images for the packages
+  # aux-registry:
+  #   image: registry:2
+  #   ports:
+  #     - "0.0.0.0:50050:5000"
+  #   restart: always
+  #   labels:
+  #   - kompose.service.type=nodeport
+  #   - kompose.service.nodeport.port=50050
 
   # # Handles events and callbacks throughout the framework
   # aux-kafka:
@@ -140,14 +140,14 @@ services:
     volumes:
     - ${CERTS:-./certs}:/certs
     - ${CONFIG:-./config}:/config
+    - ${PACKAGES:-./packages}:/packages
     restart: always
     environment:
       ADDRESS: "0.0.0.0:50051"
-      REGISTRY: "aux-registry:5000"
       SCYLLA: "aux-scylla:9042"
     depends_on:
     - aux-scylla
-    - aux-registry
+    # - aux-registry
     labels:
     - kompose.service.type=nodeport
     - kompose.service.nodeport.port=50051

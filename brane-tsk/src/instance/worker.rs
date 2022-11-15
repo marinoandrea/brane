@@ -4,7 +4,7 @@
 //  Created:
 //    31 Oct 2022, 11:21:14
 //  Last edited:
-//    14 Nov 2022, 11:00:31
+//    15 Nov 2022, 16:41:46
 //  Auto updated?
 //    Yes
 // 
@@ -92,6 +92,8 @@ pub struct EnvironmentInfo {
     pub creds_path        : PathBuf,
     /// The path to the directory with all certificates.
     pub certs_path        : PathBuf,
+    /// The path to the folder with all the containers.
+    pub packages_path     : PathBuf,
     /// The path to the folder with all the data.
     pub data_path         : PathBuf,
     // The path to the folder with all the results.
@@ -116,6 +118,7 @@ impl EnvironmentInfo {
     /// - `location_id`: The ID of this location.
     /// - `creds_path: Path to the credentials file.
     /// - `certs_path`: The path to the directory with all certificates.
+    /// - `packages_path`: The path to the folder with all the containers.
     /// - `data_path`: The path to the folder with all the data.
     /// - `results_path`: The path to the folder with all the results.
     /// - `temp_data_path`: The path to store all temporarily downloaded datasets from other domains.
@@ -128,12 +131,13 @@ impl EnvironmentInfo {
     /// A new EnvironmentInfo instance.
     #[inline]
     #[allow(clippy::too_many_arguments)]
-    pub fn new(location_id: impl Into<String>, creds_path: impl Into<PathBuf>, certs_path: impl Into<PathBuf>, data_path: impl Into<PathBuf>, results_path: impl Into<PathBuf>, temp_data_path: impl Into<PathBuf>, temp_results_path: impl Into<PathBuf>, checker_endpoint: impl Into<String>, proxy_address: Option<impl Into<String>>, keep_container: bool) -> Self {
+    pub fn new(location_id: impl Into<String>, creds_path: impl Into<PathBuf>, certs_path: impl Into<PathBuf>, packages_path: impl Into<PathBuf>, data_path: impl Into<PathBuf>, results_path: impl Into<PathBuf>, temp_data_path: impl Into<PathBuf>, temp_results_path: impl Into<PathBuf>, checker_endpoint: impl Into<String>, proxy_address: Option<impl Into<String>>, keep_container: bool) -> Self {
         Self {
             location_id : location_id.into(),
 
             creds_path        : creds_path.into(),
             certs_path        : certs_path.into(),
+            packages_path     : packages_path.into(),
             data_path         : data_path.into(),
             results_path      : results_path.into(),
             temp_data_path    : temp_data_path.into(),
@@ -523,6 +527,105 @@ async fn assert_workflow_permission(endpoint: impl AsRef<str>, _workflow: &Workf
 
 
 
+/// Downloads a container to the local registry.
+/// 
+/// # Arguments
+/// - `einfo`: Defines information about the worker's environment. In this case, defines where to download packages to and if we should proxy the request.
+/// - `endpoint`: The address where to download the container from.
+/// - `image`: The image name (including digest, for caching) to download.
+/// 
+/// # Returns
+/// The path of the downloaded image file. It's very good practise to use this one, since the actual path is subject to change.
+/// 
+/// The given Image is also updated with any new digests if none are given.
+/// 
+/// # Errors
+/// This function may error if we failed to reach the remote host, download the file or write the file.
+async fn download_container(einfo: &EnvironmentInfo, endpoint: impl AsRef<str>, image: &mut Image) -> Result<PathBuf, ExecuteError> {
+    let endpoint: &str = endpoint.as_ref();
+    debug!("Downloading image '{}' from '{}'...", image, endpoint);
+
+    // Check if we have already downloaded it, by any chance
+    let image_path: PathBuf = einfo.packages_path.join(format!("{}-{}.tar", image.name, image.version.as_ref().unwrap_or(&"latest".into())));
+    if image_path.exists() {
+        debug!("Image file '{}' already exists; checking if it's up-to-date...", image_path.display());
+
+        // Get the digest of the local image
+        let image_digest: String = match docker::get_digest(&image_path).await {
+            Ok(digest) => digest,
+            Err(err)   => { return Err(ExecuteError::DigestError{ path: image_path, err }); },
+        };
+
+        // Compare the digests if they've given us one as well
+        match &image.digest {
+            Some(digest) => {
+                if digest == &image_digest {
+                    debug!("Local image is up-to-date");
+                    return Ok(image_path);
+                }
+            },
+            None => {
+                warn!("No digest given in request; assuming local image is out-of-date");
+                image.digest = Some(image_digest);
+            },
+        };
+
+        // Otherwise, they don't compare
+        debug!("Local image is outdated; overwriting...");
+    }
+
+    // Setup the reqwest client
+    let mut builder: ClientBuilder = Client::builder();
+    if let Some(proxy) = &einfo.proxy_address {
+        builder = builder.proxy(match Proxy::all(proxy) {
+            Ok(proxy) => proxy,
+            Err(err)  => { return Err(ExecuteError::ProxyCreateError { address: proxy.into(), err }) },
+        });
+    }
+    let client: Client = match builder.build() {
+        Ok(client) => client,
+        Err(err)   => { return Err(ExecuteError::ClientCreateError{ err }); },
+    };
+
+    // Send a GET-request to the correct location
+    let address: String = format!("{}/{}/{}", endpoint, image.name, image.version.as_ref().unwrap_or(&"latest".into()));
+    debug!("Performing request to '{}'...", address);
+    let res = match client.get(&address).send().await {
+        Ok(res)  => res,
+        Err(err) => { return Err(ExecuteError::DownloadRequestError{ address, err }); },
+    };
+    if !res.status().is_success() {
+        return Err(ExecuteError::DownloadRequestFailure{ address, code: res.status(), message: res.text().await.ok() });
+    }
+
+    // With the request success, download it in parts
+    debug!("Writing request stream to '{}'...", image_path.display());
+    {
+        let mut handle: tfs::File = match tfs::File::create(&image_path).await {
+            Ok(handle) => handle,
+            Err(err)   => { return Err(ExecuteError::ImageCreateError{ path: image_path, err }); },
+        };
+        let mut stream = res.bytes_stream();
+        while let Some(chunk) = stream.next().await {
+            // Unwrap the chunk
+            let mut chunk: Bytes = match chunk {
+                Ok(chunk) => chunk,
+                Err(err)  => { return Err(ExecuteError::DownloadStreamError{ address, err }); },  
+            };
+
+            // Write it to the file
+            if let Err(err) = handle.write_all_buf(&mut chunk).await {
+                return Err(ExecuteError::ImageWriteError{ path: image_path, err });
+            }
+        }
+    }
+
+    // That's OK - now return
+    Ok(image_path)
+}
+
+
+
 /// Runs the given task on a local backend.
 /// 
 /// # Arguments
@@ -530,6 +633,7 @@ async fn assert_workflow_permission(endpoint: impl AsRef<str>, _workflow: &Workf
 /// - `client_version`: The version of the Docker client we will use to talk to the engine.
 /// - `tx`: The transmission channel over which we should update the client of our progress.
 /// - `einfo`: The EnvironmentInfo that specifies where to find domain-local folders, services, etc.
+/// - `cinfo`: The ControlNodeInfo that specifies where to find services over at the control node.
 /// - `tinfo`: The TaskInfo that describes the task itself to execute.
 /// 
 /// # Returns
@@ -537,10 +641,10 @@ async fn assert_workflow_permission(endpoint: impl AsRef<str>, _workflow: &Workf
 /// 
 /// # Errors
 /// This function errors if the task fails for whatever reason or we didn't even manage to launch it.
-async fn execute_task_local(socket_path: impl AsRef<str>, client_version: ClientVersion, tx: &Sender<Result<TaskReply, Status>>, einfo: EnvironmentInfo, tinfo: TaskInfo) -> Result<FullValue, JobStatus> {
+async fn execute_task_local(socket_path: impl AsRef<str>, client_version: ClientVersion, tx: &Sender<Result<TaskReply, Status>>, einfo: EnvironmentInfo, cinfo: ControlNodeInfo, tinfo: TaskInfo) -> Result<FullValue, JobStatus> {
     let socket_path : &str     = socket_path.as_ref();
     let mut tinfo   : TaskInfo = tinfo;
-    let image       : Image    = tinfo.image.unwrap();
+    let mut image   : Image    = tinfo.image.unwrap();
     debug!("Spawning container '{}' as a local container...", image);
 
     // First, we preprocess the arguments
@@ -555,11 +659,17 @@ async fn execute_task_local(socket_path: impl AsRef<str>, client_version: Client
         Err(err)   => { return Err(JobStatus::CreationFailed(format!("Failed to serialize arguments: {}", err))); },
     };
 
+    // Download the container
+    let container_path: PathBuf = match download_container(&einfo, &cinfo.api_endpoint, &mut image).await {
+        Ok(path) => path,
+        Err(err) => { return Err(JobStatus::CreationFailed(format!("Failed to download container: {}", err))); },
+    };
+
     // Prepare the ExecuteInfo
     let info: ExecuteInfo = ExecuteInfo::new(
         &tinfo.name,
         image,
-        None,
+        Some(container_path),
         vec![
             "-d".into(),
             "--application-id".into(),
@@ -689,7 +799,7 @@ async fn execute_task(tx: Sender<Result<TaskReply, Status>>, einfo: EnvironmentI
     // Match on the specific type to find the specific backend
     let value: FullValue = match creds.method {
         Credentials::Local { path, version } => {
-            match execute_task_local(path.unwrap_or_else(|| PathBuf::from("/var/run/docker.sock")).to_string_lossy(), version.map(|(major, minor)| ClientVersion{ major_version: major, minor_version: minor }).unwrap_or(*API_DEFAULT_VERSION), &tx, einfo, tinfo).await {
+            match execute_task_local(path.unwrap_or_else(|| PathBuf::from("/var/run/docker.sock")).to_string_lossy(), version.map(|(major, minor)| ClientVersion{ major_version: major, minor_version: minor }).unwrap_or(*API_DEFAULT_VERSION), &tx, einfo, cinfo, tinfo).await {
                 Ok(value)   => value,
                 Err(status) => {
                     error!("Job failed with status: {:?}", status);

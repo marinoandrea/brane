@@ -1,0 +1,15 @@
+[package]
+name = "brane-ctl"
+version = "1.0.0"
+edition = "2021"
+authors = [ "Tim Müller" ]
+
+[[bin]]
+name = "branectl"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "3.1.6", features = ["derive", "env"] }
+dotenv = "0.15"
+env_logger = "0.9"
+log = "0.4"

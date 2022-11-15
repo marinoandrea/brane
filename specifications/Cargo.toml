@@ -20,5 +20,4 @@ serde_with = "1.9"
 serde_yaml = "0.8"
 strum = "0.23.0"
 strum_macros = "0.23"
-tar = "0.4.38"
 uuid = { version = "0.8", features = ["serde", "v4"] }

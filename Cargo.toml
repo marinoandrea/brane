@@ -10,6 +10,9 @@ members = [
     "brane-reg",
     "brane-let",
 
+    # These crates directly relate to the CTL tool
+    "brane-ctl",
+
     # These crates directly relate to the CLI tool
     "brane-cli",
     "brane-oas",

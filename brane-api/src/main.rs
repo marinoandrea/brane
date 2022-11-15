@@ -4,7 +4,7 @@
 //  Created:
 //    17 Oct 2022, 15:15:36
 //  Last edited:
-//    03 Nov 2022, 20:35:07
+//    15 Nov 2022, 13:35:38
 //  Auto updated?
 //    Yes
 // 
@@ -46,9 +46,9 @@ struct Opts {
     /// Print debug info
     #[clap(short, long, env = "DEBUG", takes_value = false)]
     debug    : bool,
-    /// Print debug info
-    #[clap(short, long, default_value = "127.0.0.1:5000", env = "REGISTRY")]
-    registry : String,
+    /// The registry where we store image files.
+    #[clap(short, long, default_value = "/packages", env = "REGISTRY")]
+    registry : PathBuf,
     /// Scylla endpoint
     #[clap(long, default_value = "127.0.0.1:9042", env = "SCYLLA")]
     scylla   : String,
@@ -147,7 +147,7 @@ async fn main() {
     let upload_package = warp::path("packages")
         .and(warp::path::end())
         .and(warp::post())
-        .and(warp::filters::body::bytes())
+        .and(warp::filters::body::stream())
         .and(context.clone())
         .and_then(packages::upload);
     let packages = download_package.or(upload_package);
