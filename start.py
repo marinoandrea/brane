@@ -5,7 +5,7 @@
 # Created:
 #   14 Nov 2022, 13:43:51
 # Last edited:
-#   14 Nov 2022, 17:36:15
+#   15 Nov 2022, 09:15:31
 # Auto updated?
 #   Yes
 #
@@ -26,7 +26,7 @@ import sys
 ##### CONSTANTS #####
 # The version of Brane for which this make script is made
 # Only relevant when downloading files
-VERSION = "0.6.3"
+VERSION = "1.0.0"
 
 # The list of services that live on the central node. Each of them maps to a short flag, long flag prefix, a more readable name and their default port if any.
 CENTRAL_SERVICES = {

@@ -5,7 +5,7 @@
 # Created:
 #   09 Jun 2022, 12:20:28
 # Last edited:
-#   14 Nov 2022, 17:36:54
+#   15 Nov 2022, 09:15:29
 # Auto updated?
 #   Yes
 #
@@ -39,7 +39,7 @@ import typing
 ##### CONSTANTS #####
 # The version of Brane for which this make script is made
 # Only relevant when downloading files
-VERSION = "0.6.3"
+VERSION = "1.0.0"
 
 # List of services that live in the control part of an instance
 CENTRAL_SERVICES = [ "api", "drv", "plr" ]
