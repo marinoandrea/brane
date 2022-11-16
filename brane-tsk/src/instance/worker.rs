@@ -4,7 +4,7 @@
 //  Created:
 //    31 Oct 2022, 11:21:14
 //  Last edited:
-//    16 Nov 2022, 11:05:14
+//    16 Nov 2022, 14:01:36
 //  Auto updated?
 //    Yes
 // 
@@ -18,6 +18,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
+use base64ct::{Base64, Encoding};
 use bollard::{API_DEFAULT_VERSION, ClientVersion};
 use chrono::Utc;
 use futures_util::StreamExt;
@@ -25,8 +26,9 @@ use hyper::body::Bytes;
 use log::{debug, error, info, warn};
 use reqwest::{Certificate, Client, ClientBuilder, Identity, Proxy};
 use serde_json_any_key::json_to_map;
+use sha2::{Digest, Sha256};
 use tokio::fs as tfs;
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::mpsc::{self, Sender};
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Response, Request, Status};
@@ -474,14 +476,16 @@ pub async fn preprocess_transfer_tar(certs_path: impl AsRef<Path>, temp_data_pat
 /// # Arguments
 /// - `endpoint`: The address where the checker may be found.
 /// - `workflow`: The workflow to check.
+/// - `container_hash`: The hash of the container that we may use to identify it.
 /// 
 /// # Returns
 /// Whether the workflow has been accepted or not.
 /// 
 /// # Errors
 /// This function errors if we failed to reach the checker, or the checker itself crashed.
-async fn assert_workflow_permission(endpoint: impl AsRef<str>, _workflow: &Workflow) -> Result<bool, AuthorizeError> {
-    let _endpoint: &str = endpoint.as_ref();
+async fn assert_workflow_permission(endpoint: impl AsRef<str>, _workflow: &Workflow, container_hash: impl AsRef<str>) -> Result<bool, AuthorizeError> {
+    let _endpoint      : &str = endpoint.as_ref();
+    let container_hash : &str = container_hash.as_ref();
 
     // // Prepare the input struct
     // let body: CheckerRequestBody<&Workflow> = CheckerRequestBody {
@@ -513,12 +517,16 @@ async fn assert_workflow_permission(endpoint: impl AsRef<str>, _workflow: &Workf
     //     code                           => { return Err(AuthorizeError::RequestFailed{ endpoint: format!("{}", endpoint), code, body: res.text().await.unwrap_or(String::from("???")) }); },
     // };
 
-    // Due to time constraints, the policy assertion is always true :(
+    // Due to time constraints, we have to use some hardcoded policies :(
     // (man would I have liked to integrate eFLINT into this)
-    let allowed: bool = true;
 
-    // Ok, return the result
-    Ok(allowed)
+    // Allow it if it's the hash of Rosanne's container
+    let rosanne_hash: &str = "feRPdYmDhwnhmMoGDcJ9yI38jzMaPdHIm4i0lTVjD2s=";
+    debug!("Asserting if container hash '{}' equals Rosanne's container hash '{}'...", container_hash, rosanne_hash);
+    if container_hash == rosanne_hash { return Ok(true) }
+
+    // OOtherwise, not allowed
+    Ok(false)
 }
 
 
@@ -531,18 +539,19 @@ async fn assert_workflow_permission(endpoint: impl AsRef<str>, _workflow: &Workf
 /// - `image`: The image name (including digest, for caching) to download.
 /// 
 /// # Returns
-/// The path of the downloaded image file. It's very good practise to use this one, since the actual path is subject to change.
+/// The path of the downloaded image file combined with the hash of the image. It's very good practise to use this one, since the actual path is subject to change.
 /// 
 /// The given Image is also updated with any new digests if none are given.
 /// 
 /// # Errors
 /// This function may error if we failed to reach the remote host, download the file or write the file.
-async fn download_container(einfo: &EnvironmentInfo, endpoint: impl AsRef<str>, image: &mut Image) -> Result<PathBuf, ExecuteError> {
+async fn download_container(einfo: &EnvironmentInfo, endpoint: impl AsRef<str>, image: &mut Image) -> Result<(PathBuf, String), ExecuteError> {
     let endpoint: &str = endpoint.as_ref();
     debug!("Downloading image '{}' from '{}'...", image, endpoint);
 
     // Check if we have already downloaded it, by any chance
-    let image_path: PathBuf = einfo.packages_path.join(format!("{}-{}.tar", image.name, image.version.as_ref().unwrap_or(&"latest".into())));
+    let image_path : PathBuf = einfo.packages_path.join(format!("{}-{}.tar", image.name, image.version.as_ref().unwrap_or(&"latest".into())));
+    let hash_path  : PathBuf = einfo.packages_path.join(format!("{}-{}.sha256", image.name, image.version.as_ref().unwrap_or(&"latest".into())));
     if image_path.exists() {
         debug!("Image file '{}' already exists; checking if it's up-to-date...", image_path.display());
 
@@ -557,7 +566,15 @@ async fn download_container(einfo: &EnvironmentInfo, endpoint: impl AsRef<str>, 
             Some(digest) => {
                 if digest == &image_digest {
                     debug!("Local image is up-to-date");
-                    return Ok(image_path);
+
+                    debug!("Loading hash...");
+                    let hash: String = match tfs::read_to_string(&hash_path).await {
+                        Ok(hash) => hash,
+                        Err(err) => { return Err(ExecuteError::HashReadError{ path: hash_path, err }); },
+                    };
+
+                    // Return both of them
+                    return Ok((image_path, hash));
                 }
             },
             None => {
@@ -616,8 +633,65 @@ async fn download_container(einfo: &EnvironmentInfo, endpoint: impl AsRef<str>, 
         }
     }
 
+    // Hash the image while at it
+    debug!("Hashing image (this might take a while)...");
+    let hash: String = {
+        // Get the image hash
+        let hash: String = hash_container(&image_path).await?;
+
+        // Write it
+        if let Err(err) = tfs::write(&hash_path, hash.as_bytes()).await {
+            return Err(ExecuteError::HashWriteError{ path: hash_path, err });
+        }
+
+        // Done, return the hash
+        hash
+    };
+
     // That's OK - now return
-    Ok(image_path)
+    Ok((image_path, hash))
+}
+
+/// Given an already downloaded container, computes the SHA-256 hash of it.
+/// 
+/// # Arguments
+/// - `container_path`: The path to the container image file to hash.
+/// 
+/// # Returns
+/// The hash, as a `sha2::Digest`.
+/// 
+/// # Errors
+/// This function may error if we failed to read the given file.
+async fn hash_container(container_path: impl AsRef<Path>) -> Result<String, ExecuteError> {
+    let container_path: &Path = container_path.as_ref();
+    debug!("Hashing image file '{}'...", container_path.display());
+
+    // Attempt to open the file
+    let mut handle: tfs::File = match tfs::File::open(container_path).await {
+        Ok(handle) => handle,
+        Err(err)   => { return Err(ExecuteError::ImageOpenError{ path: container_path.into(), err }); },
+    };
+
+    // Read through it in chunks
+    let mut hasher : Sha256 = Sha256::new();
+    let mut buf    : [u8; 1024 * 16] = [0; 1024 * 16];
+    loop {
+        // Read the next chunk
+        let n_bytes: usize = match handle.read(&mut buf).await {
+            Ok(n_bytes) => n_bytes,
+            Err(err)    => { return Err(ExecuteError::ImageReadError { path: container_path.into(), err }); },
+        };
+        // Stop if we read nothing
+        if n_bytes == 0 { break; }
+
+        // Hash that
+        hasher.update(&buf[..n_bytes]);
+    }
+    let result: String = Base64::encode_string(&hasher.finalize());
+    debug!("Image file '{}' hash: '{}'", container_path.display(), result);
+
+    // Done
+    Ok(result)
 }
 
 
@@ -628,8 +702,8 @@ async fn download_container(einfo: &EnvironmentInfo, endpoint: impl AsRef<str>, 
 /// - `socket_path`: Path to the Docker socket to connect to.
 /// - `client_version`: The version of the Docker client we will use to talk to the engine.
 /// - `tx`: The transmission channel over which we should update the client of our progress.
+/// - `container_path`: The path of the downloaded container that we should execute.
 /// - `einfo`: The EnvironmentInfo that specifies where to find domain-local folders, services, etc.
-/// - `cinfo`: The ControlNodeInfo that specifies where to find services over at the control node.
 /// - `tinfo`: The TaskInfo that describes the task itself to execute.
 /// 
 /// # Returns
@@ -637,10 +711,11 @@ async fn download_container(einfo: &EnvironmentInfo, endpoint: impl AsRef<str>, 
 /// 
 /// # Errors
 /// This function errors if the task fails for whatever reason or we didn't even manage to launch it.
-async fn execute_task_local(socket_path: impl AsRef<str>, client_version: ClientVersion, tx: &Sender<Result<TaskReply, Status>>, einfo: EnvironmentInfo, cinfo: ControlNodeInfo, tinfo: TaskInfo) -> Result<FullValue, JobStatus> {
-    let socket_path : &str     = socket_path.as_ref();
-    let mut tinfo   : TaskInfo = tinfo;
-    let mut image   : Image    = tinfo.image.unwrap();
+async fn execute_task_local(socket_path: impl AsRef<str>, client_version: ClientVersion, tx: &Sender<Result<TaskReply, Status>>, container_path: impl AsRef<Path>, einfo: EnvironmentInfo, tinfo: TaskInfo) -> Result<FullValue, JobStatus> {
+    let socket_path    : &str     = socket_path.as_ref();
+    let container_path : &Path    = container_path.as_ref();
+    let mut tinfo      : TaskInfo = tinfo;
+    let image          : Image    = tinfo.image.unwrap();
     debug!("Spawning container '{}' as a local container...", image);
 
     // First, we preprocess the arguments
@@ -655,17 +730,11 @@ async fn execute_task_local(socket_path: impl AsRef<str>, client_version: Client
         Err(err)   => { return Err(JobStatus::CreationFailed(format!("Failed to serialize arguments: {}", err))); },
     };
 
-    // Download the container
-    let container_path: PathBuf = match download_container(&einfo, &cinfo.api_endpoint, &mut image).await {
-        Ok(path) => path,
-        Err(err) => { return Err(JobStatus::CreationFailed(format!("Failed to download container: {}", err))); },
-    };
-
     // Prepare the ExecuteInfo
     let info: ExecuteInfo = ExecuteInfo::new(
         &tinfo.name,
         image,
-        Some(container_path),
+        Some(container_path.into()),
         vec![
             "-d".into(),
             "--application-id".into(),
@@ -746,26 +815,6 @@ async fn execute_task(tx: Sender<Result<TaskReply, Status>>, einfo: EnvironmentI
 
 
 
-    /* AUTHORIZATION */
-    // First: make sure that the workflow is allowed by the checker
-    match assert_workflow_permission(&einfo.checker_endpoint, &workflow).await {
-        Ok(true) => {
-            debug!("Checker accepted incoming workflow");
-            if let Err(err) = update_client(&tx, JobStatus::Authorized).await { error!("{}", err); }
-        },
-        Ok(false) => {
-            debug!("Checker rejected incoming workflow");
-            if let Err(err) = update_client(&tx, JobStatus::Denied).await { error!("{}", err); }
-            return Err(ExecuteError::AuthorizationFailure{ checker: einfo.checker_endpoint });
-        },
-
-        Err(err) => {
-            return err!(tx, JobStatus::AuthorizationFailed, ExecuteError::AuthorizationError{ checker: einfo.checker_endpoint.clone(), err });
-        },
-    }
-
-
-
     /* CALL PREPARATION */
     // Next, query the API for a package index
     let index: PackageIndex = match get_package_index(&format!("{}/graphql", cinfo.api_endpoint)).await {
@@ -789,13 +838,36 @@ async fn execute_task(tx: Sender<Result<TaskReply, Status>>, einfo: EnvironmentI
         Err(err)  => { return err!(tx, ExecuteError::CredsFileError{ path: einfo.creds_path.clone(), err }); },
     };
 
+    // Download the container from the central node
+    let (container_path, container_hash): (PathBuf, String) = download_container(&einfo, &cinfo.api_endpoint, tinfo.image.as_mut().unwrap()).await?;
+
+
+
+    /* AUTHORIZATION */
+    // First: make sure that the workflow is allowed by the checker
+    match assert_workflow_permission(&einfo.checker_endpoint, &workflow, container_hash).await {
+        Ok(true) => {
+            debug!("Checker accepted incoming workflow");
+            if let Err(err) = update_client(&tx, JobStatus::Authorized).await { error!("{}", err); }
+        },
+        Ok(false) => {
+            debug!("Checker rejected incoming workflow");
+            if let Err(err) = update_client(&tx, JobStatus::Denied).await { error!("{}", err); }
+            return Err(ExecuteError::AuthorizationFailure{ checker: einfo.checker_endpoint });
+        },
+
+        Err(err) => {
+            return err!(tx, JobStatus::AuthorizationFailed, ExecuteError::AuthorizationError{ checker: einfo.checker_endpoint.clone(), err });
+        },
+    }
+
 
 
     /* SCHEDULE */
     // Match on the specific type to find the specific backend
     let value: FullValue = match creds.method {
         Credentials::Local { path, version } => {
-            match execute_task_local(path.unwrap_or_else(|| PathBuf::from("/var/run/docker.sock")).to_string_lossy(), version.map(|(major, minor)| ClientVersion{ major_version: major, minor_version: minor }).unwrap_or(*API_DEFAULT_VERSION), &tx, einfo, cinfo, tinfo).await {
+            match execute_task_local(path.unwrap_or_else(|| PathBuf::from("/var/run/docker.sock")).to_string_lossy(), version.map(|(major, minor)| ClientVersion{ major_version: major, minor_version: minor }).unwrap_or(*API_DEFAULT_VERSION), &tx, container_path, einfo, tinfo).await {
                 Ok(value)   => value,
                 Err(status) => {
                     error!("Job failed with status: {:?}", status);

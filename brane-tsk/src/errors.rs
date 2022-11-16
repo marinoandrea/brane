@@ -4,7 +4,7 @@
 //  Created:
 //    24 Oct 2022, 15:27:26
 //  Last edited:
-//    15 Nov 2022, 16:37:50
+//    16 Nov 2022, 14:01:16
 //  Auto updated?
 //    Yes
 // 
@@ -317,6 +317,15 @@ pub enum ExecuteError {
     ImageCreateError{ path: PathBuf, err: std::io::Error },
     /// Failed to write to the file where we write the download stream.
     ImageWriteError{ path: PathBuf, err: std::io::Error },
+    /// Failed to write to the file where we write the container hash.
+    HashWriteError{ path: PathBuf, err: std::io::Error },
+    /// Failed to read to the file where we cached the container hash.
+    HashReadError{ path: PathBuf, err: std::io::Error },
+
+    /// Failed to open an image.tar file.
+    ImageOpenError{ path: PathBuf, err: std::io::Error },
+    /// Failed to read a( chunk of a)n image.tar file.
+    ImageReadError{ path: PathBuf, err: std::io::Error },
 
     /// The checker rejected the workflow.
     AuthorizationFailure{ checker: String },
@@ -364,6 +373,11 @@ impl Display for ExecuteError {
             DownloadStreamError{ address, err }              => write!(f, "Failed to get next chunk in download stream from '{}': {}", address, err),
             ImageCreateError{ path, err }                    => write!(f, "Failed to create tarball file '{}': {}", path.display(), err),
             ImageWriteError{ path, err }                     => write!(f, "Failed to write to tarball file '{}': {}", path.display(), err),
+            HashWriteError{ path, err }                      => write!(f, "Failed to write image hash to file '{}': {}", path.display(), err),
+            HashReadError{ path, err }                       => write!(f, "Failed to read image hash from file '{}': {}", path.display(), err),
+
+            ImageOpenError{ path, err } => write!(f, "Failed to open image file '{}': {}", path.display(), err),
+            ImageReadError{ path, err } => write!(f, "Failed to read image file '{}': {}", path.display(), err),
 
             AuthorizationFailure{ checker: _ }    => write!(f, "Checker rejected workflow"),
             AuthorizationError{ checker: _, err } => write!(f, "Checker failed to authorize workflow: {}", err),
