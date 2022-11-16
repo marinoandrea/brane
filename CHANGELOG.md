@@ -14,6 +14,7 @@ This release basically sees the release of an entirely rebuilt framework. Expect
 - `brane-exe` crate, which replaces `brane-bvm` to execute the workflow representation (see below).
 - `brane-tsk` crate, which collects much of the logic in `brane-plr` and `brane-job` into a new crate that builds upon `brane-exe` to execute tasks on either offline or distributed backends (see below).
 - `brane-reg` service, that is a domain-local registry of datasets (and, in the future, packages).
+- _Policies_, which, although hardcoded, restricted who may do what with which datasets. Currently, policies are present in `brane-reg` and `brane-job` as simple hardcoded rules. This requires TLS for data transfers (see below).
 - TLS to data transfers. This means that setting up a domain is now marginally more complex, since certificates have to be generated.
 - `unpack` as a new section in `container.yml` files, which replaces the semantics of the old `install` section (see below).
 - `contrib/scripts/create_certs.sh` to generate scripts in the format that Brane wants.
