@@ -4,7 +4,7 @@
 //  Created:
 //    17 Feb 2022, 10:27:28
 //  Last edited:
-//    15 Nov 2022, 16:44:59
+//    16 Nov 2022, 16:36:14
 //  Auto updated?
 //    Yes
 // 
@@ -38,6 +38,8 @@ pub enum CliError {
     // Toplevel errors for the subcommands
     /// Errors that occur during the build command
     BuildError{ err: BuildError },
+    /// Errors that occur when compiling offline.
+    CompileError{ err: CompileError },
     /// Errors that occur during any of the data(-related) command(s)
     DataError{ err: DataError },
     /// Errors that occur during the import command
@@ -77,6 +79,7 @@ impl Display for CliError {
         use CliError::*;
         match self {
             BuildError{ err }    => write!(f, "{}", err),
+            CompileError{ err }  => write!(f, "{}", err),
             DataError{ err }     => write!(f, "{}", err),
             ImportError{ err }   => write!(f, "{}", err),
             PackageError{ err }  => write!(f, "{}", err),
@@ -301,6 +304,58 @@ impl Display for BuildError {
 }
 
 impl Error for BuildError {}
+
+
+
+/// Collects errors that relate to offline compilation.
+#[derive(Debug)]
+pub enum CompileError {
+    /// Failed to open the given input file.
+    InputOpenError{ path: PathBuf, err: std::io::Error },
+    /// Failed to read from the input.
+    InputReadError{ name: String, err: std::io::Error },
+    /// Failed to fetch the local registry file
+    RegistryConfigError{ err: UtilError },
+    /// Failed to fetch the remote package index.
+    RemotePackageIndexError{ endpoint: String, err: brane_tsk::api::Error },
+    /// Failed to fetch the remote data index.
+    RemoteDataIndexError{ endpoint: String, err: brane_tsk::api::Error },
+    /// Failed to fetch the local package index.
+    LocalPackageIndexError{ err: PackageError },
+    /// Failed to fetch the local data index.
+    LocalDataIndexError{ err: DataError },
+    /// Failed to serialize workflow.
+    WorkflowSerializeError{ err: serde_json::Error },
+    /// Failed to create the given output file.
+    OutputCreateError{ path: PathBuf, err: std::io::Error },
+    /// Failed to write to the given output file.
+    OutputWriteError{ name: String, err: std::io::Error },
+
+    /// Compilation itself failed.
+    CompileError{ errs: Vec<brane_ast::Error> },
+}
+
+impl Display for CompileError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
+        use self::CompileError::*;
+        match self {
+            InputOpenError{ path, err }    => write!(f, "Failed to open input file '{}': {}", path.display(), err),
+            InputReadError{ name, err }    => write!(f, "Failed to read from input '{}': {}", name, err),
+            RegistryConfigError{ err }     => write!(f, "Failed to load registry config: {}", err),
+            RemotePackageIndexError{ endpoint, err } => write!(f, "Failed to fetch remote package index from '{}': {}", endpoint, err),
+            RemoteDataIndexError{ endpoint, err }    => write!(f, "Failed to fetch remote data index from '{}': {}", endpoint, err),
+            LocalPackageIndexError{ err }            => write!(f, "Failed to fetch local package index: {}", err),
+            LocalDataIndexError{ err }               => write!(f, "Failed to fetch local data index: {}", err),
+            WorkflowSerializeError{ err }  => write!(f, "Failed to serialize the compiled workflow: {}", err),
+            OutputCreateError{ path, err } => write!(f, "Failed to create output file '{}': {}", path.display(), err),
+            OutputWriteError{ name, err }  => write!(f, "Failed to write to output '{}': {}", name, err),
+
+            CompileError{ .. } => write!(f, "Failed to compile given workflow (see output above)"),
+        }
+    }
+}
+
+impl Error for CompileError {}
 
 
 

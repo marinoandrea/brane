@@ -4,7 +4,7 @@
 //  Created:
 //    21 Feb 2022, 14:43:30
 //  Last edited:
-//    14 Nov 2022, 13:29:51
+//    16 Nov 2022, 16:45:52
 //  Auto updated?
 //    Yes
 // 
@@ -593,7 +593,7 @@ pub fn get_package_versions(package_name: &str, package_dir: &Path) -> Result<Ve
         let dir_path = dir.unwrap().path();
 
         // Next, check if it's a 'package dir' by checking for the files we need
-        if !dir_path.join("package.yml").exists() || dir_path.join(".lock").exists() {
+        if !dir_path.join("package.yml").exists() {
             // It's not a version folder
             continue;
         }

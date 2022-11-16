@@ -4,7 +4,7 @@
 //  Created:
 //    10 Aug 2022, 14:03:04
 //  Last edited:
-//    14 Nov 2022, 09:59:17
+//    16 Nov 2022, 16:40:19
 //  Auto updated?
 //    Yes
 // 
@@ -14,12 +14,13 @@
 // 
 
 use std::fmt::{Debug, Display, Formatter, Result as FResult};
+use std::str::FromStr;
 
 use nom::AsBytes;
 use nom_locate::LocatedSpan;
 use serde::{Deserialize, Serialize};
 
-// use crate::errors::SymbolTableError;
+use crate::errors::LanguageParseError;
 
 
 /***** LIBRARY *****/
@@ -263,6 +264,18 @@ impl Display for Language {
         match self {
             BraneScript => write!(f, "BraneScript"),
             Bakery      => write!(f, "Bakery"),
+        }
+    }
+}
+
+impl FromStr for Language {
+    type Err = LanguageParseError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "bscript" => Ok(Self::BraneScript),
+            "bakery"  => Ok(Self::Bakery),
+            raw       => Err(LanguageParseError::UnknownLanguageId { raw: raw.into() }),
         }
     }
 }
