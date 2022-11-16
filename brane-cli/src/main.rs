@@ -4,7 +4,7 @@
 //  Created:
 //    21 Sep 2022, 14:34:28
 //  Last edited:
-//    14 Nov 2022, 13:05:08
+//    16 Nov 2022, 11:21:58
 //  Auto updated?
 //    Yes
 // 
@@ -41,9 +41,9 @@ use brane_cli::errors::{CliError, BuildError, ImportError};
 #[derive(Parser)]
 #[clap(name = "brane", about = "The Brane command-line interface.")]
 struct Cli {
-    #[clap(short, long, help = "Enable debug mode")]
+    #[clap(short, long, action, help = "Enable debug mode")]
     debug: bool,
-    #[clap(short, long, help = "Skip dependencies check")]
+    #[clap(short, long, action, help = "Skip dependencies check")]
     skip_check: bool,
     #[clap(subcommand)]
     sub_command: SubCommand,
@@ -63,7 +63,7 @@ enum SubCommand {
         kind: Option<String>,
         #[clap(short, long, help = "Path to the init binary to use (override Brane's binary)")]
         init: Option<PathBuf>,
-        #[clap(long, help = "Don't delete build files")]
+        #[clap(long, action, help = "Don't delete build files")]
         keep_files: bool,
     },
 
@@ -104,7 +104,7 @@ enum SubCommand {
 
     #[clap(name = "list", about = "List packages")]
     List {
-        #[clap(short, long, help = "If given, only print the latest version of each package instead of all versions")]
+        #[clap(short, long, action, help = "If given, only print the latest version of each package instead of all versions")]
         latest: bool,
     },
 
@@ -159,9 +159,9 @@ enum SubCommand {
         #[clap(short, long, value_names = &["uid"], help = "Attach to an existing remote session")]
         attach: Option<AppId>,
 
-        #[clap(short, long, help = "Use Bakery instead of BraneScript")]
+        #[clap(short, long, action, help = "Use Bakery instead of BraneScript")]
         bakery: bool,
-        #[clap(short, long, help = "Clear history before session")]
+        #[clap(short, long, action, help = "Clear history before session")]
         clear: bool,
     },
 
@@ -172,7 +172,7 @@ enum SubCommand {
         #[clap(short, long, value_names = &["address[:port]"], help = "If given, proxies any data transfers to this machine through the proxy at the given address. Irrelevant if not running remotely.")]
         proxy_addr : Option<String>,
 
-        #[clap(short, long, help = "Use Bakery instead of BraneScript")]
+        #[clap(short, long, action, help = "Use Bakery instead of BraneScript")]
         bakery: bool,
 
         #[clap(name = "FILE", help = "Path to the file to run. Use '-' to run from stdin instead.")]
@@ -203,7 +203,7 @@ enum SubCommand {
         name: String,
         #[clap(name = "VERSION", help = "Version of the package")]
         version: SemVersion,
-        #[clap(short, long, help = "Don't ask for confirmation")]
+        #[clap(short, long, action, help = "Don't ask for confirmation")]
         force: bool,
     },
 
@@ -216,11 +216,11 @@ enum SubCommand {
 
     #[clap(name = "version", about = "Shows the version number for this Brane CLI tool and (if logged in) the remote Driver.")]
     Version {
-        #[clap(short, long, help = "If given, shows the architecture instead of the version when using '--local' or '--remote'.")]
+        #[clap(short, long, action, help = "If given, shows the architecture instead of the version when using '--local' or '--remote'.")]
         arch: bool,
-        #[clap(short, long, help = "If given, shows the local version in an easy-to-be-parsed format. Note that, if given in combination with '--remote', this one is always reported first.")]
+        #[clap(short, long, action, help = "If given, shows the local version in an easy-to-be-parsed format. Note that, if given in combination with '--remote', this one is always reported first.")]
         local: bool,
-        #[clap(short, long, help = "If given, shows the remote Driver version in an easy-to-be-parsed format. Note that, if given in combination with '--local', this one is always reported second.")]
+        #[clap(short, long, action, help = "If given, shows the remote Driver version in an easy-to-be-parsed format. Note that, if given in combination with '--local', this one is always reported second.")]
         remote: bool,
     },
 }
@@ -234,9 +234,9 @@ enum DataSubcommand {
         file       : PathBuf,
         #[clap(short, long, help = "Path to the directory to use as the 'working directory' (defaults to the folder of the package file itself)")]
         workdir    : Option<PathBuf>,
-        #[clap(long, help = "if given, doesn't delete intermediate build files when done.")]
+        #[clap(long, action, help = "if given, doesn't delete intermediate build files when done.")]
         keep_files : bool,
-        #[clap(long, help = "If given, copies the dataset to the Brane data folder. Otherwise, merely soft links it (until the dataset is pushed to a remote repository). This is much more space efficient, but requires you to leave the original dataset in place.")]
+        #[clap(long, action, help = "If given, copies the dataset to the Brane data folder. Otherwise, merely soft links it (until the dataset is pushed to a remote repository). This is much more space efficient, but requires you to leave the original dataset in place.")]
         no_links   : bool,
     },
 
@@ -256,7 +256,7 @@ enum DataSubcommand {
         #[clap(short, long, help = "If given, proxies the transfer through the given proxy.")]
         proxy_addr : Option<String>,
         /// If given, forces the data transfer even if it's locally available.
-        #[clap(short, long, help = "If given, will always attempt to transfer data remotely, even if it's already available locally.")]
+        #[clap(short, long, action, help = "If given, will always attempt to transfer data remotely, even if it's already available locally.")]
         force      : bool,
     },
 
@@ -276,7 +276,7 @@ enum DataSubcommand {
     Remove {
         #[clap(name = "DATASETS", help = "The name(s) of the dataset(s) to remove.")]
         names : Vec<String>,
-        #[clap(short, long, help = "If given, does not ask the user for confirmation but just removes the dataset (use at your own risk!)")]
+        #[clap(short, long, action, help = "If given, does not ask the user for confirmation but just removes the dataset (use at your own risk!)")]
         force : bool,
     },
 }

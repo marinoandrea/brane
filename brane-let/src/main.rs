@@ -4,7 +4,7 @@
 //  Created:
 //    20 Sep 2022, 13:53:43
 //  Last edited:
-//    14 Nov 2022, 13:27:40
+//    16 Nov 2022, 11:20:18
 //  Auto updated?
 //    Yes
 // 
@@ -45,7 +45,7 @@ struct Opts {
     #[clap(short, long, env = "BRANE_MOUNT_DFS")]
     mount_dfs: Option<String>,
     /// Prints debug info
-    #[clap(short, long, env = "DEBUG", takes_value = false)]
+    #[clap(short, long, action, env = "DEBUG")]
     debug: bool,
     #[clap(subcommand)]
     sub_command: SubCommand,

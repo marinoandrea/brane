@@ -4,7 +4,7 @@
 //  Created:
 //    17 Oct 2022, 15:15:36
 //  Last edited:
-//    15 Nov 2022, 13:35:38
+//    16 Nov 2022, 10:56:51
 //  Auto updated?
 //    Yes
 // 
@@ -44,7 +44,7 @@ struct Opts {
     #[clap(short, long, default_value = "127.0.0.1:50051", env = "ADDRESS")]
     address  : String,
     /// Print debug info
-    #[clap(short, long, env = "DEBUG", takes_value = false)]
+    #[clap(short, long, env = "DEBUG")]
     debug    : bool,
     /// The registry where we store image files.
     #[clap(short, long, default_value = "/packages", env = "REGISTRY")]

@@ -4,7 +4,7 @@
 //  Created:
 //    18 Oct 2022, 13:47:17
 //  Last edited:
-//    15 Nov 2022, 16:42:33
+//    16 Nov 2022, 12:11:04
 //  Auto updated?
 //    Yes
 // 
@@ -15,7 +15,7 @@
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::path::PathBuf;
 
-use clap::Parser;
+use clap::{ArgAction::SetTrue, Parser};
 use dotenv::dotenv;
 use log::LevelFilter;
 use log::{debug, error, info};
@@ -29,10 +29,10 @@ use brane_tsk::instance::worker::{EnvironmentInfo, WorkerServer};
 #[clap(version = env!("CARGO_PKG_VERSION"))]
 struct Opts {
     /// Print debug info
-    #[clap(long, env = "DEBUG", takes_value = false)]
+    #[clap(long, action=SetTrue, env = "DEBUG")]
     debug           : bool,
     /// Whether to keep containers after execution or not.
-    #[clap(long, env = "KEEP_CONTAINERS")]
+    #[clap(long, action=SetTrue, env = "KEEP_CONTAINERS")]
     keep_containers : bool,
 
     /// The identifier of this location.
@@ -43,7 +43,7 @@ struct Opts {
     address     : String,
 
     /// If given, then this is the proxy address through which we proxy transfers.
-    #[clap(short, long, env="PROXY")]
+    #[clap(short='P', long, env="PROXY")]
     proxy   : Option<String>,
     /// Local checker endpoint
     #[clap(long, default_value = "http://127.0.0.1:50053", env = "CHECKER_ADDRESS")]
@@ -55,10 +55,10 @@ struct Opts {
     /// The path where packages are stored after they are downloaded
     #[clap(short, long, default_value="/packages", env="PACKAGES_PATH")]
     packages_path     : PathBuf,
-    /// The path where data is stored (shared with registry for speedz)
+    /// The path where data is stored (shared with registry for speedz). Needs to be externally available to share with spawned containers.
     #[clap(short, long, default_value="/data", env="DATA_PATH")]
     data_path         : PathBuf,
-    /// The path where data is stored (shared with registry for speedz)
+    /// The path where data is stored (shared with registry for speedz). Needs to be externally available to share with spawned containers.
     #[clap(short, long, default_value="/results", env="RESULTS_PATH")]
     results_path      : PathBuf,
     /// The path where data is stored but only for temporary downloads. Needs to be externally available to share with spawned containers.

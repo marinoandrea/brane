@@ -39,7 +39,7 @@ services:
     restart: always
     environment:
       ADDRESS: "0.0.0.0:${JOB_PORT:-50052}"
-      KEEP_CONTAINERS: ${KEEP_CONTAINERS:-}
+      KEEP_CONTAINERS: ${KEEP_CONTAINERS:-false}
       LOCATION_ID: ${LOCATION_ID}
       PACKAGES_PATH: ${PACKAGES:-./packages}
       DATA_PATH: ${DATA:-./data}

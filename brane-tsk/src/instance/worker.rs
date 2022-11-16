@@ -4,7 +4,7 @@
 //  Created:
 //    31 Oct 2022, 11:21:14
 //  Last edited:
-//    15 Nov 2022, 16:41:46
+//    16 Nov 2022, 11:05:14
 //  Auto updated?
 //    Yes
 // 
@@ -155,23 +155,19 @@ impl EnvironmentInfo {
 pub struct ControlNodeInfo {
     /// The address of the API service.
     pub api_endpoint : String,
-    /// The address of the main registry service.
-    pub reg_endpoint : String,
 }
 impl ControlNodeInfo {
     /// Constructor for the ControlNodeInfo.
     /// 
     /// # Arguments
     /// - `api_endpoint`: The address of the API service.
-    /// - `reg_endpoint`: The address of the main registry service.
     /// 
     /// # Returns
     /// A new ControlNodeInfo instance.
     #[inline]
-    pub fn new(api_endpoint: impl Into<String>, reg_endpoint: impl Into<String>) -> Self {
+    pub fn new(api_endpoint: impl Into<String>) -> Self {
         Self {
             api_endpoint : api_endpoint.into(),
-            reg_endpoint : reg_endpoint.into(),
         }
     }
 }
@@ -588,7 +584,7 @@ async fn download_container(einfo: &EnvironmentInfo, endpoint: impl AsRef<str>, 
     };
 
     // Send a GET-request to the correct location
-    let address: String = format!("{}/{}/{}", endpoint, image.name, image.version.as_ref().unwrap_or(&"latest".into()));
+    let address: String = format!("{}/packages/{}/{}", endpoint, image.name, image.version.as_ref().unwrap_or(&"latest".into()));
     debug!("Performing request to '{}'...", address);
     let res = match client.get(&address).send().await {
         Ok(res)  => res,
@@ -785,7 +781,7 @@ async fn execute_task(tx: Sender<Result<TaskReply, Status>>, einfo: EnvironmentI
 
     // Deduce the image name from that
     tinfo.kind  = Some(info.kind);
-    tinfo.image = Some(Image::new(format!("{}/library/{}", cinfo.reg_endpoint, tinfo.package_name), Some(tinfo.package_version.clone()), info.digest.clone()));
+    tinfo.image = Some(Image::new(&tinfo.package_name, Some(tinfo.package_version.clone()), info.digest.clone()));
 
     // Now load the credentials file to get things going
     let creds: CredsFile = match CredsFile::from_path(&einfo.creds_path) {
@@ -1144,7 +1140,7 @@ impl JobService for WorkerServer {
         };
 
         // Collect some request data into ControlNodeInfo's and TaskInfo's.
-        let cinfo : ControlNodeInfo = ControlNodeInfo::new(request.api, request.registry);
+        let cinfo : ControlNodeInfo = ControlNodeInfo::new(request.api);
         let tinfo : TaskInfo        = TaskInfo::new(
             request.name,
             request.package_name,

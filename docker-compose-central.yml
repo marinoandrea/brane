@@ -7,7 +7,7 @@ services:
 
   # Database that contains package metadata
   aux-scylla:
-    image: scylladb/scylla:4.6.3
+    image: aux-scylla:latest
     # ports:
     #   - "127.0.0.1:9042:9042"
     command: --smp 1
@@ -58,7 +58,7 @@ services:
 
   # Handles events and callbacks throughout the framework
   aux-kafka:
-    image: ubuntu/kafka:3.1-22.04_beta
+    image: aux-kafka:latest
     # ports:
     # - "127.0.0.1:9092:9092"
     restart: always
@@ -71,12 +71,12 @@ services:
 
   # Zookeeper for Kafka
   aux-zookeeper:
-    image: ubuntu/zookeeper:3.1-22.04_beta
+    image: aux-zookeeper:latest
     restart: always
 
   # Xenon scheduler, which allows the framework to act as its own domain-local scheduler
   brane-xenon:
-    image: brane-xenon:latest
+    image: aux-xenon:latest
     # ports:
     #   - "127.0.0.1:50054:50054"
     command: -v

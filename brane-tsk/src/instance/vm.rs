@@ -4,7 +4,7 @@
 //  Created:
 //    27 Oct 2022, 10:14:26
 //  Last edited:
-//    06 Nov 2022, 22:14:50
+//    16 Nov 2022, 10:52:39
 //  Auto updated?
 //    Yes
 // 
@@ -141,7 +141,7 @@ impl VmPlugin for InstancePlugin {
         debug!("Input arguments: {:#?}", info.args);
 
         // Resolve the location to an address
-        let (api_address, reg_address, delegate_address, workflow): (String, String, String, String) = {
+        let (api_address, delegate_address, workflow): (String, String, String) = {
             // Load the infrastructure file
             let state : RwLockReadGuard<GlobalState> = global.read().unwrap();
             let infra : InfraFile                    = match InfraFile::from_path(&state.infra_path) {
@@ -152,7 +152,6 @@ impl VmPlugin for InstancePlugin {
             // Resolve to an address and return that with the other addresses
             ( 
                 infra.registry().into(),
-                infra.container_registry().into(),
                 match infra.get(info.location) {
                     Some(info) => info.delegate.clone(),
                     None       => { return Err(ExecuteError::UnknownLocationError{ loc: info.location.clone() }); },
@@ -164,8 +163,7 @@ impl VmPlugin for InstancePlugin {
         // Prepare the request to send to the delegate node
         debug!("Sending execute request to job node '{}'...", delegate_address);
         let message: TaskRequest = TaskRequest {
-            api      : api_address,
-            registry : reg_address,
+            api : api_address,
             workflow,
 
             name            : info.name.into(),

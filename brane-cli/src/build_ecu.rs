@@ -12,7 +12,7 @@ use specifications::arch::Arch;
 use specifications::container::{ContainerInfo, LocalContainerInfo};
 use specifications::package::PackageInfo;
 
-use crate::build_common::{BRANELET_URL, build_docker_image, clean_directory, lock_directory, unlock_directory};
+use crate::build_common::{BRANELET_URL, build_docker_image, clean_directory, LockHandle};
 use crate::errors::BuildError;
 use crate::utils::ensure_package_dir;
 
@@ -55,12 +55,13 @@ pub async fn handle(
     };
 
     // Lock the directory, build, unlock the directory
-    lock_directory(&package_dir)?;
-    let res = build(arch, document, context, &package_dir, branelet_path, keep_files).await;
-    unlock_directory(&package_dir);
+    {
+        let _lock = LockHandle::lock(&document.name, package_dir.join(".lock"))?;
+        build(arch, document, context, &package_dir, branelet_path, keep_files).await?;
+    };
 
-    // Return the result of the build process
-    res
+    // Done
+    Ok(())
 }
 
 

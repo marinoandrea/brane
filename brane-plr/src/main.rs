@@ -4,7 +4,7 @@
 //  Created:
 //    17 Oct 2022, 17:27:16
 //  Last edited:
-//    09 Nov 2022, 12:24:14
+//    16 Nov 2022, 11:20:33
 //  Auto updated?
 //    Yes
 // 
@@ -41,7 +41,7 @@ use brane_tsk::instance::InstancePlanner;
 #[clap(version = env!("CARGO_PKG_VERSION"))]
 struct Opts {
     /// Print debug info
-    #[clap(short, long, env = "DEBUG", takes_value = false)]
+    #[clap(short, long, action, env = "DEBUG")]
     debug : bool,
 
     /// Kafka brokers

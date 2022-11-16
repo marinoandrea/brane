@@ -30,6 +30,7 @@ This release basically sees the release of an entirely rebuilt framework. Expect
 - `brane-api` now needs to have knowledge about the infrastructure too (i.e., be provided with the `infra.yml` file).
 - `brane-job` to now explicitly live on a domain instead of the central node.
 - the semantics of the `install` section in `container.yml` files: now, the commands are processed _before_ the workspace is copied over instead of after in order to be much nicer to Docker caching. To emulate the old behaviour, use the new `unpack` section (see above).
+- Bumped `clap` to `4.0.25`.
 
 ### Fixed
 - `brane-api` not accepting 'latest' when pulling packages
@@ -40,7 +41,6 @@ This release basically sees the release of an entirely rebuilt framework. Expect
 
 ### Known bugs
 - The framework cannot currently connect to domains that are accessed by IP instead of hostname (resulting in TLS errors; check [this issue](https://github.com/seanmonstar/reqwest/issues/1328)).
-- The lock file is not _always_ always removed; more work is necessary.
 
 ## [0.6.3] - 2022-05-31
 ### Added

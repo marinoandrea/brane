@@ -4,7 +4,7 @@
 //  Created:
 //    30 Sep 2022, 11:59:58
 //  Last edited:
-//    09 Nov 2022, 12:24:48
+//    16 Nov 2022, 11:21:00
 //  Auto updated?
 //    Yes
 // 
@@ -34,7 +34,7 @@ use brane_drv::handler::DriverHandler;
 #[clap(version = env!("CARGO_PKG_VERSION"))]
 struct Opts {
     /// Print debug info
-    #[clap(short, long, env = "DEBUG", takes_value = false)]
+    #[clap(short, long, action, env = "DEBUG")]
     debug : bool,
 
     /// Path to the infrastructure file.

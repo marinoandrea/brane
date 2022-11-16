@@ -39,16 +39,15 @@ message PreprocessReply {
 
 message TaskRequest {
     string api      = 1;
-    string registry = 2;
-    string workflow = 3;
+    string workflow = 2;
 
-    string name            = 4;
-    string package_name    = 5;
-    string package_version = 6;
+    string name            = 3;
+    string package_name    = 4;
+    string package_version = 5;
 
-    string input           = 7;
-    optional string result = 8;
-    string args            = 9;
+    string input           = 6;
+    optional string result = 7;
+    string args            = 8;
 }
 
 

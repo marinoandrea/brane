@@ -4,7 +4,7 @@
 //  Created:
 //    26 Sep 2022, 15:11:44
 //  Last edited:
-//    06 Nov 2022, 17:10:10
+//    16 Nov 2022, 11:20:41
 //  Auto updated?
 //    Yes
 // 
@@ -33,7 +33,7 @@ use brane_reg::data;
 /// Defines the arguments for the `brane-reg` service.
 #[derive(Parser)]
 struct Args {
-    #[clap(long, help = "If given, provides additional debug prints on the logger.", env="DEBUG")]
+    #[clap(long, action, help = "If given, provides additional debug prints on the logger.", env="DEBUG")]
     debug : bool,
 
     #[clap(long, default_value="/certs/server.pem", help = "Defines the path to the server certificate file.", env="SERVER_CERT_PATH")]

@@ -4,7 +4,7 @@
 //  Created:
 //    04 Oct 2022, 11:04:33
 //  Last edited:
-//    02 Nov 2022, 16:36:21
+//    16 Nov 2022, 09:44:58
 //  Auto updated?
 //    Yes
 // 
@@ -29,9 +29,7 @@ use crate::secrets::resolve_secrets;
 #[derive(Debug, Deserialize)]
 pub struct InfraFile {
     /// The address of the API endpoint.
-    registry           : String,
-    /// The address of the Docker registry endpoint.
-    container_registry : String,
+    registry : String,
 
     /// The map of locations (mapped by ID).
     locations : HashMap<String, InfraLocation>,
@@ -75,10 +73,6 @@ impl InfraFile {
     /// Returns the address of the main central node registry.
     #[inline]
     pub fn registry(&self) -> &str { &self.registry }
-
-    /// Returns the address of the main central node Docker registry.
-    #[inline]
-    pub fn container_registry(&self) -> &str { &self.container_registry }
 
     /// Returns the metadata for the location with the given name.
     /// 

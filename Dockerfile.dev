@@ -74,7 +74,7 @@ COPY ./.container-bins/$ARCH/brane-clb /brane-clb
 RUN chmod +x /brane-clb
 
 # Run the compiled executable as base
-ENTRYPOINT [ "./brane-clb", "--debug" ]
+ENTRYPOINT [ "/brane-clb", "--debug" ]
 
 
 
@@ -92,7 +92,7 @@ COPY ./.container-bins/$ARCH/brane-drv /brane-drv
 RUN chmod +x /brane-drv
 
 # Run the compiled executable as base
-ENTRYPOINT [ "./brane-drv", "--debug" ]
+ENTRYPOINT [ "/brane-drv", "--debug" ]
 
 
 
@@ -110,7 +110,7 @@ COPY ./.container-bins/$ARCH/brane-plr /brane-plr
 RUN chmod +x /brane-plr
 
 # Run the compiled executable as base
-ENTRYPOINT [ "./brane-plr", "--debug" ]
+ENTRYPOINT [ "/brane-plr", "--debug" ]
 
 
 
@@ -128,7 +128,7 @@ COPY ./.container-bins/$ARCH/brane-job /brane-job
 RUN chmod +x /brane-job
 
 # Run the compiled executable as base
-ENTRYPOINT [ "./brane-job", "--debug" ]
+ENTRYPOINT [ "/brane-job", "--debug" ]
 
 
 
@@ -146,4 +146,4 @@ COPY ./.container-bins/$ARCH/brane-reg /brane-reg
 RUN chmod +x /brane-reg
 
 # Run the compiled executable as base
-ENTRYPOINT [ "./brane-reg", "--debug" ]
+ENTRYPOINT [ "/brane-reg", "--debug" ]
