@@ -5,7 +5,7 @@
 # Created:
 #   14 Nov 2022, 13:43:51
 # Last edited:
-#   15 Nov 2022, 16:43:21
+#   16 Nov 2022, 11:43:26
 # Auto updated?
 #   Yes
 #
@@ -21,6 +21,7 @@ import argparse
 import os
 import subprocess
 import sys
+from typing import Optional
 
 
 ##### CONSTANTS #####
@@ -104,7 +105,7 @@ def fatal(text: str, end: str = "\n", code: int = 1):
 
 
 ##### ENTRYPOINT #####
-def main(cmd: str, node: str, location_id: str | None, config: str, packages: str, data: str, results: str, certs: str, central_images: dict[str, str], worker_images: dict[str, str], central_ports: dict[str, int], worker_ports: dict[str, int], file: str, verbose: bool) -> int:
+def main(cmd: str, node: str, location_id: Optional[str], config: str, packages: str, data: str, results: str, certs: str, central_images: dict[str, str], worker_images: dict[str, str], central_ports: dict[str, int], worker_ports: dict[str, int], file: str, verbose: bool) -> int:
     """
         The main function of this script.
     """
@@ -164,17 +165,38 @@ def main(cmd: str, node: str, location_id: str | None, config: str, packages: st
 
             # Extract the image tag
             stdout = stdout.decode("utf-8")
-            if stdout[:24] != "Loaded image ID: sha256:": fatal(f"Failed to retrieve image tag from '{stdout}'")
-            tag = stdout[24:].strip()
+            if stdout[:24] == "Loaded image ID: sha256:":
+                # It's an untagged image
+                tag = stdout[24:].strip()
 
-            # Tag the image
-            debug(verbose, f"Tagging image '{tag}' as '{svc}'...")
-            handle = subprocess.Popen(["docker", "tag", tag, svc], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            stdout, stderr = handle.communicate()
-            if handle.returncode != 0:
-                print(f"\nstdout:\n{'-' * 79}\n{stdout}\n{'-' * 79}\n")
-                print(f"stderr:\n{'-' * 79}\n{stderr}\n{'-' * 79}\n")
-                fatal(f"Command 'docker tag {tag} {svc}' failed with exit code {handle.returncode} (see above)")
+                # Tag the image
+                debug(verbose, f"Tagging image '{tag}' as '{svc}'...")
+                handle = subprocess.Popen(["docker", "tag", tag, svc], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                stdout, stderr = handle.communicate()
+                if handle.returncode != 0:
+                    print(f"\nstdout:\n{'-' * 79}\n{stdout}\n{'-' * 79}\n")
+                    print(f"stderr:\n{'-' * 79}\n{stderr}\n{'-' * 79}\n")
+                    fatal(f"Command 'docker tag {tag} {svc}' failed with exit code {handle.returncode} (see above)")
+
+            elif stdout[:14] == "Loaded image: ":
+                # It's a tagged image
+                parts = stdout[14:].strip().split(":")
+                if len(parts) != 2:
+                    fatal(f"Failed to split '{stdout}' into a name:version pair.")
+                (name, version) = parts
+
+                # Tag it as the appropriate name for us
+                debug(verbose, f"Tagging image '{name}:{version}' as '{svc}'...")
+                handle = subprocess.Popen(["docker", "tag", f"{name}:{version}", svc], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                stdout, stderr = handle.communicate()
+                if handle.returncode != 0:
+                    print(f"\nstdout:\n{'-' * 79}\n{stdout}\n{'-' * 79}\n")
+                    print(f"stderr:\n{'-' * 79}\n{stderr}\n{'-' * 79}\n")
+                    fatal(f"Command 'docker tag {name}:{version} {svc}' failed with exit code {handle.returncode} (see above)")
+
+            else:
+                fatal(f"Failed to retrieve image tag or name from '{stdout}'")
+            
 
         # Generate the environment string
         debug(verbose, f"Preparing environment variables...")

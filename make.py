@@ -5,7 +5,7 @@
 # Created:
 #   09 Jun 2022, 12:20:28
 # Last edited:
-#   15 Nov 2022, 09:15:29
+#   16 Nov 2022, 11:43:35
 # Auto updated?
 #   Yes
 #
@@ -44,7 +44,7 @@ VERSION = "1.0.0"
 # List of services that live in the control part of an instance
 CENTRAL_SERVICES = [ "api", "drv", "plr" ]
 # List of auxillary services in the control part of an instance
-AUX_CENTRAL_SERVICES = [ "xenon" ]
+AUX_CENTRAL_SERVICES = [ "scylla", "kafka", "zookeeper", "xenon" ]
 # List of services that live in a worker node in an instance
 WORKER_SERVICES = [ "job", "reg" ]
 # List of auxillary services in a worker node in an instance
@@ -3309,22 +3309,68 @@ for svc in CENTRAL_SERVICES + WORKER_SERVICES:
     )
 
 for svc in AUX_CENTRAL_SERVICES + AUX_WORKER_SERVICES:
-    # Resolve the svc to a Dockerfile name
-    if svc == "format": dockerfile = "Dockerfile.juicefs"
-    elif svc == "xenon": dockerfile = "Dockerfile.xenon"
-    else: raise ValueError(f"Unknown auxillary service '{svc}'")
+    # We might do different things
+    if svc == "scylla":
+        # We generate the image tar using a shell command
+        targets[f"{svc}-image"] = ShellTarget(f"{svc}-image",
+            [ ShellCommand("mkdir", "-p", "./target/release"), ShellCommand("docker", "pull", "scylladb/scylla:4.6.3"), ShellCommand("docker", "save", "--output", f"./target/release/aux-{svc}.tar", "scylladb/scylla:4.6.3") ],
+            dsts=[ f"./target/release/aux-{svc}.tar" ],
+            description=f"Saves the container image for the aux-{svc} auxillary service to a .tar file."
+        )
 
-    # Generate the service image build target
-    targets[f"{svc}-image"] = ImageTarget(f"{svc}-image",
-        f"./contrib/images/{dockerfile}", f"./target/release/brane-{svc}.tar", build_args={ "JUICEFS_ARCH": "$JUICEFS_ARCH" },
-        description=f"Builds the container image for the brane-{svc} auxillary service to a .tar file."
-    )
-    # Generate the install targets for the image
-    targets[f"install-{svc}-image"] = InstallImageTarget(f"install-{svc}-image",
-        f"./target/release/brane-{svc}.tar", f"brane-{svc}",
-        dep=f"{svc}-image",
-        description=f"Installs the brane-{svc} image by loading it into the local Docker engine."
-    )
+        # Then generate the install target
+        targets[f"install-{svc}-image"] = InstallImageTarget(f"install-{svc}-image",
+            f"./target/release/aux-{svc}.tar", f"aux-{svc}",
+            dep=f"{svc}-image",
+            description=f"Installs the aux-{svc} image by loading it into the local Docker engine."
+        )
+
+    elif svc == "kafka":
+        # We generate the image tar using a shell command
+        targets[f"{svc}-image"] = ShellTarget(f"{svc}-image",
+            [ ShellCommand("mkdir", "-p", "./target/release"), ShellCommand("docker", "pull", "ubuntu/kafka:3.1-22.04_beta"), ShellCommand("docker", "save", "--output", f"./target/release/aux-{svc}.tar", "ubuntu/kafka:3.1-22.04_beta") ],
+            dsts=[ f"./target/release/aux-{svc}.tar" ],
+            description=f"Saves the container image for the aux-{svc} auxillary service to a .tar file."
+        )
+
+        # Then generate the install target
+        targets[f"install-{svc}-image"] = InstallImageTarget(f"install-{svc}-image",
+            f"./target/release/aux-{svc}.tar", f"aux-{svc}",
+            dep=f"{svc}-image",
+            description=f"Installs the aux-{svc} image by loading it into the local Docker engine."
+        )
+
+    elif svc == "zookeeper":
+        # We generate the image tar using a shell command
+        targets[f"{svc}-image"] = ShellTarget(f"{svc}-image",
+            [ ShellCommand("mkdir", "-p", "./target/release"), ShellCommand("docker", "pull", "ubuntu/zookeeper:3.1-22.04_beta"), ShellCommand("docker", "save", "--output", f"./target/release/aux-{svc}.tar", "ubuntu/zookeeper:3.1-22.04_beta") ],
+            dsts=[ f"./target/release/aux-{svc}.tar" ],
+            description=f"Saves the container image for the aux-{svc} auxillary service to a .tar file."
+        )
+
+        # Then generate the install target
+        targets[f"install-{svc}-image"] = InstallImageTarget(f"install-{svc}-image",
+            f"./target/release/aux-{svc}.tar", f"aux-{svc}",
+            dep=f"{svc}-image",
+            description=f"Installs the aux-{svc} image by loading it into the local Docker engine."
+        )
+
+    elif svc == "xenon":
+        # Generate the service image build target
+        targets[f"{svc}-image"] = ImageTarget(f"{svc}-image",
+            f"./contrib/images/Dockerfile.xenon", f"./target/release/aux-{svc}.tar", build_args={ "JUICEFS_ARCH": "$JUICEFS_ARCH" },
+            description=f"Builds the container image for the aux-{svc} auxillary service to a .tar file."
+        )
+
+        # Generate the install targets for the image
+        targets[f"install-{svc}-image"] = InstallImageTarget(f"install-{svc}-image",
+            f"./target/release/aux-{svc}.tar", f"aux-{svc}",
+            dep=f"{svc}-image",
+            description=f"Installs the aux-{svc} image by loading it into the local Docker engine."
+        )
+
+    else:
+        raise ValueError(f"Unknown auxillary service '{svc}'")
 
 
 
