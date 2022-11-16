@@ -4,7 +4,7 @@
 //  Created:
 //    15 Nov 2022, 09:18:40
 //  Last edited:
-//    15 Nov 2022, 10:35:49
+//    16 Nov 2022, 17:47:13
 //  Auto updated?
 //    Yes
 // 
@@ -16,6 +16,8 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 
+use brane_cfg::node::NodeKind;
+
 
 /***** ARGUMENTS *****/
 /// Defines the toplevel arguments for the `branectl` tool.
@@ -25,9 +27,9 @@ struct Arguments {
     /// If given, prints `info` and `debug` prints.
     #[clap(long, help = "If given, prints additional information during execution.")]
     debug       : bool,
-    /// The settings.json file that we use to read some information about the local instance.
-    #[clap(short, long, default_value = "./.branectl.json", help = "Determines the configuration for this tool that contains settings and information about the current node.")]
-    config_path : PathBuf,
+    /// The path to the node config file to use.
+    #[clap(short, long, default_value = "./node.yml", help = "The 'node.yml' file that describes properties about the node itself (i.e., the location identifier, where to find directories, which ports to use, ...)")]
+    node_config : PathBuf,
 
     /// The subcommand that can be run.
     #[clap(subcommand)]
@@ -47,13 +49,17 @@ enum CtlSubcommand {
     Packages(PackageSubcommand),
 
     #[clap(name = "start", about = "Starts the local node by loading and then launching (already compiled) image files.")]
-    Start {
-
+    Start{
+        /// Defines the possible nodes to start.
+        #[clap(subcommand)]
+        kind : StartSubcommand,
     },
 
     #[clap(name = "stop", about = "Stops the local node if it is running.")]
     Stop {
-
+        /// Defines the possible nodes to stop.
+        #[clap(subcommand)]
+        kind : StopSubcommand,
     },
 
     #[clap(name = "version", about = "Returns the version of this CTL tool and/or the local node.")]
@@ -90,11 +96,44 @@ enum PackageSubcommand {
 
 }
 
+/// Defines the start subcommand, which basically defines the possible kinds of nodes.
+#[derive(Debug, Subcommand)]
+enum StartSubcommand {
+    /// Starts a central node.
+    #[clap(name = "central", about = "Starts a central node.")]
+    Central {
+        
+    },
+
+    /// Starts a worker node.
+    #[clap(name = "worker", about = "Starts a worker node.")]
+    Worker {
+        
+    },
+}
+
+/// Defines the stop subcommand, which basically defines the possible kinds of nodes.
+#[derive(Debug, Subcommand)]
+enum StopSubcommand {
+    /// Stops a central node.
+    #[clap(name = "central", about = "Stops a (running) central node.")]
+    Central {
+        
+    },
+
+    /// Stops a worker node.
+    #[clap(name = "worker", about = "Stops a (running) worker node.")]
+    Worker {
+        
+    },
+}
+
 
 
 
 
 /***** ENTYRPOINT *****/
 fn main() {
+    // Parse the arguments
     let args: Arguments = Arguments::parse();
 }

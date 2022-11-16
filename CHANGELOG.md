@@ -20,6 +20,7 @@ This release basically sees the release of an entirely rebuilt framework. Expect
 - `contrib/scripts/create_certs.sh` to generate scripts in the format that Brane wants.
 - `start.py` as alternative startup scripts that don't do compilation but just run already compiled images. As a consequence, `make.py` no longer offers 'start-instance' (see below).
 - Lots of BraneScript example/test files, which may be useful for understanding the language. Check `tests/branescript`.
+- A way of compiling the scripts to a workflow file offline (by use of `brane compile`; see below).
 
 ### Changed
 - The way that scripts are compiled. Instead of bytecode, the system now compiles to so-called Workflows, which is like bytecode but ordered in such a way that control flow information is preserved.

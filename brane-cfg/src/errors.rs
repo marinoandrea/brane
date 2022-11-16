@@ -4,7 +4,7 @@
 //  Created:
 //    04 Oct 2022, 11:09:56
 //  Last edited:
-//    02 Nov 2022, 13:52:40
+//    16 Nov 2022, 17:41:06
 //  Auto updated?
 //    Yes
 // 
@@ -129,3 +129,45 @@ impl Display for CredsFileError {
 }
 
 impl Error for CredsFileError {}
+
+
+
+/// Errors that relate to a NodeConfig.
+#[derive(Debug)]
+pub enum NodeConfigError {
+    /// The given NodeKind was unknown to us.
+    UnknownNodeKind{ raw: String },
+
+    /// Failed to open the given config path.
+    FileOpenError{ path: PathBuf, err: std::io::Error },
+    /// Failed to read from the given config path.
+    FileReadError{ path: PathBuf, err: std::io::Error },
+    /// Failed to parse the given file.
+    FileParseError{ path: PathBuf, err: serde_yaml::Error },
+
+    /// Failed to open the given config path.
+    FileCreateError{ path: PathBuf, err: std::io::Error },
+    /// Failed to write to the given config path.
+    FileWriteError{ path: PathBuf, err: std::io::Error },
+    /// Failed to serialze the NodeConfig.
+    ConfigSerializeError{ err: serde_yaml::Error },
+}
+
+impl Display for NodeConfigError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
+        use NodeConfigError::*;
+        match self {
+            UnknownNodeKind{ raw } => write!(f, "Unknown node kind '{}'", raw),
+
+            FileOpenError{ path, err }  => write!(f, "Failed to open the node config file '{}': {}", path.display(), err),
+            FileReadError{ path, err }  => write!(f, "Failed to read the ndoe config file '{}': {}", path.display(), err),
+            FileParseError{ path, err } => write!(f, "Failed to parse node config file '{}' as YAML: {}", path.display(), err),
+
+            FileCreateError{ path, err } => write!(f, "Failed to create the node config file '{}': {}", path.display(), err),
+            FileWriteError{ path, err }  => write!(f, "Failed to write to the ndoe config file '{}': {}", path.display(), err),
+            ConfigSerializeError{ err }  => write!(f, "Failed to serialize node config to YAML: {}", err),
+        }
+    }
+}
+
+impl Error for NodeConfigError {}
