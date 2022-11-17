@@ -5,7 +5,7 @@
 # Created:
 #   09 Jun 2022, 12:20:28
 # Last edited:
-#   16 Nov 2022, 11:43:35
+#   17 Nov 2022, 14:02:50
 # Auto updated?
 #   Yes
 #
@@ -3314,6 +3314,7 @@ for svc in AUX_CENTRAL_SERVICES + AUX_WORKER_SERVICES:
         # We generate the image tar using a shell command
         targets[f"{svc}-image"] = ShellTarget(f"{svc}-image",
             [ ShellCommand("mkdir", "-p", "./target/release"), ShellCommand("docker", "pull", "scylladb/scylla:4.6.3"), ShellCommand("docker", "save", "--output", f"./target/release/aux-{svc}.tar", "scylladb/scylla:4.6.3") ],
+            srcs=[ f"./target/release/aux-{svc}.tar" ],
             dsts=[ f"./target/release/aux-{svc}.tar" ],
             description=f"Saves the container image for the aux-{svc} auxillary service to a .tar file."
         )
@@ -3329,6 +3330,7 @@ for svc in AUX_CENTRAL_SERVICES + AUX_WORKER_SERVICES:
         # We generate the image tar using a shell command
         targets[f"{svc}-image"] = ShellTarget(f"{svc}-image",
             [ ShellCommand("mkdir", "-p", "./target/release"), ShellCommand("docker", "pull", "ubuntu/kafka:3.1-22.04_beta"), ShellCommand("docker", "save", "--output", f"./target/release/aux-{svc}.tar", "ubuntu/kafka:3.1-22.04_beta") ],
+            srcs=[ f"./target/release/aux-{svc}.tar" ],
             dsts=[ f"./target/release/aux-{svc}.tar" ],
             description=f"Saves the container image for the aux-{svc} auxillary service to a .tar file."
         )
@@ -3344,6 +3346,7 @@ for svc in AUX_CENTRAL_SERVICES + AUX_WORKER_SERVICES:
         # We generate the image tar using a shell command
         targets[f"{svc}-image"] = ShellTarget(f"{svc}-image",
             [ ShellCommand("mkdir", "-p", "./target/release"), ShellCommand("docker", "pull", "ubuntu/zookeeper:3.1-22.04_beta"), ShellCommand("docker", "save", "--output", f"./target/release/aux-{svc}.tar", "ubuntu/zookeeper:3.1-22.04_beta") ],
+            srcs=[ f"./target/release/aux-{svc}.tar" ],
             dsts=[ f"./target/release/aux-{svc}.tar" ],
             description=f"Saves the container image for the aux-{svc} auxillary service to a .tar file."
         )

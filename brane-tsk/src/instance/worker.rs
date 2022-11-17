@@ -4,7 +4,7 @@
 //  Created:
 //    31 Oct 2022, 11:21:14
 //  Last edited:
-//    16 Nov 2022, 14:01:36
+//    17 Nov 2022, 15:56:12
 //  Auto updated?
 //    Yes
 // 
@@ -41,6 +41,7 @@ use brane_cfg::creds::Credentials;
 use brane_exe::FullValue;
 use brane_shr::debug::BlockFormatter;
 use brane_shr::fs::{copy_dir_recursively_async, unarchive_async};
+use brane_shr::utilities::is_ip_addr;
 use specifications::container::{Image, VolumeBind};
 use specifications::data::{AccessKind, AssetInfo};
 use specifications::package::{PackageIndex, PackageInfo, PackageKind};
@@ -407,7 +408,8 @@ pub async fn preprocess_transfer_tar(certs_path: impl AsRef<Path>, temp_data_pat
     let mut client: ClientBuilder = Client::builder()
         .use_rustls_tls()
         .add_root_certificate(ca_cert)
-        .identity(identity);
+        .identity(identity)
+        .tls_sni(!is_ip_addr(&address));
     if let Some(proxy_addr) = proxy_addr {
         client = client.proxy(match Proxy::all(proxy_addr) {
             Ok(proxy) => proxy,
@@ -521,7 +523,7 @@ async fn assert_workflow_permission(endpoint: impl AsRef<str>, _workflow: &Workf
     // (man would I have liked to integrate eFLINT into this)
 
     // Allow it if it's the hash of Rosanne's container
-    let rosanne_hash: &str = "feRPdYmDhwnhmMoGDcJ9yI38jzMaPdHIm4i0lTVjD2s=";
+    let rosanne_hash: &str = "YLfIN1RaWYtm2CO3cbjcdtmxuf04hySNq26MGyx5924=";
     debug!("Asserting if container hash '{}' equals Rosanne's container hash '{}'...", container_hash, rosanne_hash);
     if container_hash == rosanne_hash { return Ok(true) }
 

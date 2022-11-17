@@ -1,0 +1,8 @@
+version: '3.6'
+
+services:
+  test:
+    image: ubuntu:22.04
+    entrypoint: cat /etc/hosts
+    extra_hosts:
+    - ${HOSTS}

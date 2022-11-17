@@ -4,7 +4,7 @@
 //  Created:
 //    12 Sep 2022, 17:39:06
 //  Last edited:
-//    14 Nov 2022, 13:28:33
+//    17 Nov 2022, 15:56:28
 //  Auto updated?
 //    Yes
 // 
@@ -38,6 +38,7 @@ use tokio_stream::StreamExt;
 use tokio_tar::Archive;
 
 use brane_shr::fs::copy_dir_recursively_async;
+use brane_shr::utilities::is_ip_addr;
 use brane_tsk::spec::LOCALHOST;
 use specifications::registry::RegistryConfig;
 
@@ -213,7 +214,8 @@ pub async fn download_data(certs_dir: impl AsRef<Path>, endpoint: impl AsRef<str
     let mut client: ClientBuilder = Client::builder()
         .use_rustls_tls()
         .add_root_certificate(ca_cert)
-        .identity(identity);
+        .identity(identity)
+        .tls_sni(!is_ip_addr(&download_addr));
     if let Some(proxy_addr) = proxy_addr {
         client = client.proxy(match Proxy::all(proxy_addr) {
             Ok(proxy) => proxy,

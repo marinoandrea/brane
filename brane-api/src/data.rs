@@ -4,7 +4,7 @@
 //  Created:
 //    26 Sep 2022, 17:20:55
 //  Last edited:
-//    06 Nov 2022, 13:11:47
+//    17 Nov 2022, 13:58:12
 //  Auto updated?
 //    Yes
 // 
@@ -25,6 +25,7 @@ use warp::hyper::Body;
 
 use brane_cfg::InfraFile;
 use brane_cfg::certs::load_cert;
+use brane_shr::utilities::is_ip_addr;
 use specifications::data::{AssetInfo, DataInfo};
 
 pub use crate::errors::DataError as Error;
@@ -93,9 +94,14 @@ pub async fn list(context: Context) -> Result<impl Reply, Rejection> {
             }
         };
 
+        // Determine if we have to enable SNI or not
+        let address: String = format!("{}/data/info", loc.registry);
+        let use_sni: bool = !is_ip_addr(&address);
+
         // Build a client with that certificate
         let client: ClientBuilder = Client::builder()
-            .add_root_certificate(root);
+            .add_root_certificate(root)
+            .tls_sni(use_sni);
         let client: Client = match client.build() {
             Ok(client) => client,
             Err(err)   => {
@@ -105,7 +111,6 @@ pub async fn list(context: Context) -> Result<impl Reply, Rejection> {
         };
 
         // Build the request
-        let address: String = format!("{}/data/info", loc.registry);
         let req: reqwest::Request = match client.get(&address).build() {
             Ok(res)  => res,
             Err(err) => {
@@ -226,9 +231,14 @@ pub async fn get(name: String, context: Context) -> Result<impl Reply, Rejection
             }
         };
 
+        // Determine if we have to enable SNI or not
+        let address: String = format!("{}/data/info/{}", loc.registry, name);
+        let use_sni: bool = !is_ip_addr(&address);
+
         // Build a client with that certificate
         let client: ClientBuilder = Client::builder()
-            .add_root_certificate(root);
+            .add_root_certificate(root)
+            .tls_sni(use_sni);
         let client: Client = match client.build() {
             Ok(client) => client,
             Err(err)   => {
@@ -238,7 +248,6 @@ pub async fn get(name: String, context: Context) -> Result<impl Reply, Rejection
         };
 
         // Build the request
-        let address: String = format!("{}/data/info/{}", loc.registry, name);
         let req: reqwest::Request = match client.get(&address).build() {
             Ok(res)  => res,
             Err(err) => {

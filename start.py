@@ -5,7 +5,7 @@
 # Created:
 #   14 Nov 2022, 13:43:51
 # Last edited:
-#   16 Nov 2022, 11:43:26
+#   17 Nov 2022, 14:07:56
 # Auto updated?
 #   Yes
 #
@@ -19,6 +19,7 @@
 
 import argparse
 import os
+import re
 import subprocess
 import sys
 from typing import Optional
@@ -100,15 +101,69 @@ def fatal(text: str, end: str = "\n", code: int = 1):
     print(f"{start_col}[ERROR]{end_col}{start_text_col} {text}{end_text_col}", end=end)
     exit(code)
 
+def generate_hosts_file(node: str, hosts: list[tuple[str, str]]) -> str:
+    """
+        Generates a temporary file that contains the extra hosts for this session.
+
+        Returns the path to the new file when it's created.
+    """
+
+    # Determine the services to use
+    if node == "central":
+        services = CENTRAL_SERVICES
+    elif node == "worker":
+        services = WORKER_SERVICES
+    else:
+        fatal(f"Unknown node type '{node}'")
+
+    # Open the file
+    path = f"/tmp/brane-{node}-hosts.yml"
+    try:
+        with open(path, "w") as h:
+            # Start writing the file header
+            h.write("version: '3.6'\n")
+            h.write("\n")
+            h.write("services:\n")
+            for svc in services:
+                # Skip services that don't do external networking
+                if services[svc][3] is None: continue
+
+                # Inject a line for that service
+                h.write(f"  {svc}:\n")
+                h.write(f"    extra_hosts:\n")
+                for host, ip in hosts:
+                    h.write(f"    - {host}:{ip}\n")
+
+    except IOError as e:
+        fatal(f"Failed to write to file '{path}': {e}")
+
+    # Done, return the path
+    return path
+
 
 
 
 
 ##### ENTRYPOINT #####
-def main(cmd: str, node: str, location_id: Optional[str], config: str, packages: str, data: str, results: str, certs: str, central_images: dict[str, str], worker_images: dict[str, str], central_ports: dict[str, int], worker_ports: dict[str, int], file: str, verbose: bool) -> int:
+def main(cmd: str, node: str, location_id: Optional[str], config: str, packages: str, data: str, results: str, certs: str, hostname: list[str], central_images: dict[str, str], worker_images: dict[str, str], central_ports: dict[str, int], worker_ports: dict[str, int], file: str, verbose: bool) -> int:
     """
         The main function of this script.
     """
+
+    # Preprocess the hostnames to a vector of tuples
+    regex = re.compile("^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$")
+    hostnames: list[tuple[str, str]] = []
+    for h in hostname:
+        # Attempt to split on a ':'
+        colon_pos = h.find(":")
+        if colon_pos is None:
+            fatal(f"Given hostname '{h}' is not a valid '<hostname>:<ip>' pair")
+        host, ip = h[:colon_pos], h[colon_pos + 1:]
+        if not regex.match(ip):
+            fatal(f"Given IP address '{ip}' is not a valid IP-address")
+        for p in ip.split("."):
+            if int(p) > 255: fatal(f"'{p}' in IP address '{ip}' is out-of-range for a standard IP")
+        hostnames.append((host, ip))
 
     # Print the parameters if in verbose mode
     services = CENTRAL_SERVICES if node == "central" else WORKER_SERVICES
@@ -125,6 +180,7 @@ def main(cmd: str, node: str, location_id: Optional[str], config: str, packages:
 
         # Print any central node relating ones
         if cmd == "start" and node == "central":
+            debug(verbose, f"  - Config path{' ' * (longest - 11)} : '{config}'")
             debug(verbose, f"  - Certificates path{' ' * (longest - 17)} : '{certs}'")
             debug(verbose, f"  - Packages path{' ' * (longest - 13)} : '{packages}'")
             for svc, path in central_images.items():
@@ -136,16 +192,18 @@ def main(cmd: str, node: str, location_id: Optional[str], config: str, packages:
         if cmd == "start" and node == "worker":
             debug(verbose, f"  - Location ID{' ' * (longest - 11)} : '{location_id}'")
             debug(verbose, f"  - Config path{' ' * (longest - 11)} : '{config}'")
+            debug(verbose, f"  - Certificates path{' ' * (longest - 17)} : '{certs}'")
             debug(verbose, f"  - Packages path{' ' * (longest - 13)} : '{packages}'")
             debug(verbose, f"  - Data path{' ' * (longest - 9)} : '{data}'")
             debug(verbose, f"  - Results path{' ' * (longest - 12)} : '{results}'")
-            debug(verbose, f"  - Certificates path{' ' * (longest - 17)} : '{certs}'")
             for svc, path in worker_images.items():
                 debug(verbose, f"  - {WORKER_SERVICES[svc][2]} image{' ' * (longest - len(WORKER_SERVICES[svc][2]) - 6)} : {path}")
             for svc, port in worker_ports.items():
                 debug(verbose, f"  - {WORKER_SERVICES[svc][2]} port{' ' * (longest - len(WORKER_SERVICES[svc][2]) - 5)} : {port}")
 
-        # Print the final two + newline
+        # Print the final three + newline
+        shostnames = [f"'{host}' -> '{ip}'" for host, ip in hostnames]
+        debug(verbose, f"  - hostnames{' ' * (longest - 9)} : {', '.join(shostnames) if len(shostnames) > 0 else '<none>'}")
         debug(verbose, f"  - file{' ' * (longest - 4)} : '{file}'")
         debug(verbose, f"  - verbose{' ' * (longest - 7)} : {'yes' if verbose else 'no'}")
         print()
@@ -197,6 +255,11 @@ def main(cmd: str, node: str, location_id: Optional[str], config: str, packages:
             else:
                 fatal(f"Failed to retrieve image tag or name from '{stdout}'")
             
+        # If given, generate the extra hosts override
+        if len(hostnames) > 0:
+            extra_file = f" -f \"{generate_hosts_file(node, hostnames)}\""
+        else:
+            extra_file = ""
 
         # Generate the environment string
         debug(verbose, f"Preparing environment variables...")
@@ -204,26 +267,29 @@ def main(cmd: str, node: str, location_id: Optional[str], config: str, packages:
         for svc in ports:
             env.append(f"{services[svc][1].upper().replace('-', '_')}_PORT=\"{ports[svc]}\"")
         if node == "central":
+            env.append(f"CONFIG=\"{config}\"")
+            env.append(f"CERTS=\"{certs}\"")
             env.append(f"PACKAGES=\"{packages}\"")
         elif node == "worker":
             env.append(f"CONFIG=\"{config}\"")
+            env.append(f"CERTS=\"{certs}\"")
             env.append(f"PACKAGES=\"{os.path.abspath(packages)}\"")
             env.append(f"DATA=\"{os.path.abspath(data)}\"")
             env.append(f"RESULTS=\"{os.path.abspath(results)}\"")
-        env.append(f"CERTS=\"{certs}\"")
         if node == "worker":
-            env.append(f" LOCATION_ID=\"{location_id}\"")
+            env.append(f"LOCATION_ID=\"{location_id}\"")
         debug(verbose, f"Environment variables: '{' '.join(env)}'")
 
         # Finally, call docker compose with that
         debug(verbose, f"Calling docker-compose on '{file}'...")
         senv = ' '.join(env)
-        handle = subprocess.Popen(["bash", "-c", f"{senv} docker-compose -p brane-{node} -f \"{file}\" up -d"])
+        handle = subprocess.Popen(["bash", "-c", f"{senv} docker-compose -p brane-{node} -f \"{file}\"{extra_file} up -d"])
         stdout, _ = handle.communicate()
         if handle.returncode != 0:
             print(f"\nstdout:\n{'-' * 79}\n{stdout}\n{'-' * 79}\n")
-            senv = ' '.join(env).replace('\"', '\\\"')
-            fatal(f"Command 'bash -c \"{senv} docker-compose -p brane-{node} -f \\\"{file}\\\" up -d\"' failed with exit code {handle.returncode} (see above)")
+            senv = ' '.join(env).replace("\\", "\\\\").replace('\"', '\\\"')
+            sextra_file = extra_file.replace("\\", "\\\\").replace("\"", "\\\"")
+            fatal(f"Command 'bash -c \"{senv} docker-compose -p brane-{node} -f \\\"{file}\\\"{sextra_file} up -d\"' failed with exit code {handle.returncode} (see above)")
 
     elif cmd == "stop":
         debug(verbose, f"Calling docker-compose on '{file}'...")
@@ -254,6 +320,8 @@ if __name__ == "__main__":
     parser.add_argument("--data", default="./data", help="Points to the directory that stores/gives access to this node's data. Only relevant if we're starting a worker node. You can use '$CONFIG' to replace that part with the '--config' value.")
     parser.add_argument("--results", default="/tmp/results", help="Points to the directory that stores intermediate results for this node. Only relevant if we're starting a worker node. You can use '$CONFIG' to replace that part with the '--config' value.")
     parser.add_argument("--certs", default="$CONFIG/certs", help="Points to the directory with certificates to use for this node. You can use '$CONFIG' to replace that part with the '--config' value.")
+
+    parser.add_argument("-H", "--hostname", nargs="*", help = "Determines additional hostnames to define in the container's '/etc/hosts' file. Should be entered as '<hostname>:<address>' pairs.")
 
     # Generate image flags for all services
     parser.add_argument("-i", "--image-dir", default="./target/release", help="Provides a base path for all the image files. Only used as a common path for them, no other files are loaded from this directory.")
@@ -302,6 +370,7 @@ if __name__ == "__main__":
     exit(main(
         args.COMMAND, args.NODE, args.LOCATION_ID,
         args.config, args.packages, args.data, args.results, args.certs,
+        args.hostname if args.hostname is not None else [],
         { svc: getattr(args, f"{CENTRAL_SERVICES[svc][1]}_image") for svc in CENTRAL_SERVICES },
         { svc: getattr(args, f"{WORKER_SERVICES[svc][1]}_image") for svc in WORKER_SERVICES },
         { svc: getattr(args, f"{CENTRAL_SERVICES[svc][1]}_port") for svc in CENTRAL_SERVICES if CENTRAL_SERVICES[svc][3] is not None },
