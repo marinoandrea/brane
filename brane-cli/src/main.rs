@@ -4,7 +4,7 @@
 //  Created:
 //    21 Sep 2022, 14:34:28
 //  Last edited:
-//    16 Nov 2022, 16:49:19
+//    18 Nov 2022, 15:53:46
 //  Auto updated?
 //    Yes
 // 
@@ -22,7 +22,7 @@ use std::str::FromStr;
 use anyhow::Result;
 use clap::Parser;
 use console::style;
-use dotenv::dotenv;
+use dotenvy::dotenv;
 use git2::Repository;
 use log::LevelFilter;
 use tempfile::tempdir;
@@ -33,7 +33,7 @@ use specifications::arch::Arch;
 use specifications::package::PackageKind;
 use specifications::version::Version as SemVersion;
 
-use brane_cli::{build_ecu, build_oas, compile, data, packages, registry, repl, run, test, verify, version};
+use brane_cli::{build_ecu, build_oas, data, packages, registry, repl, run, test, verify, version};
 use brane_cli::errors::{CliError, BuildError, ImportError};
 
 
@@ -65,25 +65,6 @@ enum SubCommand {
         init: Option<PathBuf>,
         #[clap(long, action, help = "Don't delete build files")]
         keep_files: bool,
-    },
-
-    #[clap(name = "compile", about = "Compiles the given source file (e.g., BraneScript or Bakery) to a Workflow JSON.")]
-    Compile {
-        /// The language that we will compile.
-        #[clap(short, long, default_value="bscript", help="The language of the input source file.")]
-        language : Language,
-        /// The input file.
-        #[clap(short, long, default_value="-", help="The input file to compile. Can be '-' to read from stdin instead.")]
-        input    : PathBuf,
-        /// The output file.
-        #[clap(short, long, default_value="-", help="The output file to write the compile JSON in. Can be '-' to write to stdout instead.")]
-        output   : PathBuf,
-        /// Whether to write pretty or not (but negated)
-        #[clap(short, long, action, help="If given, serializes with as little whitespace as possible. Decreases the resulting size greatly, but also readability.")]
-        compact  : bool,
-        /// Whether to read remote indices or not.
-        #[clap(short, long, action, help="If given, uses the package and data list of the logged-in remote instance to resolve the imports and Data-references in the file.")]
-        remote   : bool,
     },
 
     #[clap(name = "data", about = "Data-related commands.")]
@@ -411,10 +392,6 @@ async fn run(options: Cli) -> Result<(), CliError> {
                 _                => eprintln!("Unsupported package kind: {}", kind),
             }
         }
-
-        Compile{ language, input, output, compact, remote } => {
-            if let Err(err) = compile::compile(language, input, output, compact, remote).await { return Err(CliError::CompileError{ err }); }
-        },
 
         Data { subcommand } => {
             // Match again

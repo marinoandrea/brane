@@ -17,6 +17,9 @@ members = [
     "brane-cli",
     "brane-oas",
 
+    # These crates directly relate to the `branec` tool
+    "brane-cc",
+
     # These crates provide the full BraneScript/Bakery/... stack
     "brane-tsk",
     "brane-exe",

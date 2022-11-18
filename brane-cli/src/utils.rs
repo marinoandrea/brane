@@ -4,7 +4,7 @@
 //  Created:
 //    21 Feb 2022, 14:43:30
 //  Last edited:
-//    16 Nov 2022, 16:45:52
+//    18 Nov 2022, 14:59:23
 //  Auto updated?
 //    Yes
 // 
@@ -17,7 +17,6 @@ use std::fmt::{Display, Formatter, Result as FResult};
 use std::fs::{self, File};
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::str::FromStr;
 
 use specifications::package::PackageKind;
 use specifications::registry::RegistryConfig;
@@ -506,7 +505,10 @@ pub fn get_package_dir(name: &str, version: Option<&Version>) -> Result<PathBuf,
     let version = version.unwrap();
     let version = if version.is_latest() {
         // Get the list of versions
-        let mut versions = get_package_versions(name, &package_dir)?;
+        let mut versions = match brane_tsk::local::get_package_versions(name, &package_dir) {
+            Ok(versions) => versions,
+            Err(err)     => { return Err(UtilError::VersionsError{ err }); },
+        };
 
         // Sort the versions and return the last one
         versions.sort();
@@ -569,52 +571,6 @@ pub fn ensure_package_dir(name: &str, version: Option<&Version>, create: bool) -
 
     // It's alright
     Ok(package_dir)
-}
-
-/// Collects a list of versions in the given package directory.
-/// 
-/// **Arguments**
-///  * `package_name`: The name of the package we search the directory of (used for debugging purposes).
-///  * `package_dir`: The package directory to search. This function assumes it already exists.
-/// 
-/// **Returns**  
-/// The list of Versions found in the given package directory, or a PackageError if we couldn't.
-pub fn get_package_versions(package_name: &str, package_dir: &Path) -> Result<Vec<Version>, UtilError> {
-    // Get the list of available versions
-    let version_dirs = match fs::read_dir(package_dir) {
-        Ok(files)   => files,
-        Err(reason) => { return Err(UtilError::PackageDirReadError{ path: package_dir.to_path_buf(), err: reason }); }
-    };
-
-    // Convert the list of strings into a version
-    let mut versions: Vec<Version> = Vec::new();
-    for dir in version_dirs {
-        if let Err(reason) = dir { return Err(UtilError::PackageDirReadError{ path: package_dir.to_path_buf(), err: reason }); }
-        let dir_path = dir.unwrap().path();
-
-        // Next, check if it's a 'package dir' by checking for the files we need
-        if !dir_path.join("package.yml").exists() {
-            // It's not a version folder
-            continue;
-        }
-
-        // Try to parse the filename as a version number
-        let dir_name = match dir_path.file_name() {
-            Some(value) => value.to_string_lossy().to_string(),
-            None       => { return Err(UtilError::UnreadableVersionEntry{ path: dir_path }); }
-        };
-        let version = match Version::from_str(&dir_name) {
-            Ok(value)   => value,
-            Err(reason) => { return Err(UtilError::IllegalVersionEntry{ package: package_name.to_string(), version: dir_name, err: reason }); }
-        };
-
-        // Push it to the list and try again
-        versions.push(version);
-    }
-    if versions.is_empty() { return Err(UtilError::NoVersions{ package: package_name.to_string() }); }
-
-    // Done! Return it
-    Ok(versions)
 }
 
 /// Gets the directory where we likely stored a dataset.  

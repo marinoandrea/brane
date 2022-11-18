@@ -4,7 +4,7 @@
 //  Created:
 //    12 Sep 2022, 16:42:57
 //  Last edited:
-//    14 Nov 2022, 13:29:01
+//    18 Nov 2022, 15:47:00
 //  Auto updated?
 //    Yes
 // 
@@ -38,8 +38,7 @@ use specifications::registry::RegistryConfig;
 
 pub use crate::errors::RunError as Error;
 use crate::data;
-use crate::packages;
-use crate::utils::{get_datasets_dir, get_packages_dir, get_registry_file};
+use crate::utils::{ensure_datasets_dir, ensure_packages_dir, get_datasets_dir, get_packages_dir, get_registry_file};
 
 
 /***** HELPER FUNCTIONS *****/
@@ -160,13 +159,24 @@ pub struct InstanceVmState {
 /// # Errors
 /// This function errors if we failed to get the new package indices or other information.
 pub fn initialize_offline_vm(options: ParserOptions) -> Result<OfflineVmState, Error> {
+    // Get the directory with the packages
+    let packages_dir = match ensure_packages_dir(false) {
+        Ok(dir)  => dir,
+        Err(err) => { return Err(Error::PackagesDirError{ err }); }
+    };
+    // Get the directory with the datasets
+    let datasets_dir = match ensure_datasets_dir(false) {
+        Ok(dir)  => dir,
+        Err(err) => { return Err(Error::DatasetsDirError{ err }); }
+    };
+
     // Get the package index for the local repository
-    let package_index: Arc<PackageIndex> = match packages::get_package_index() {
+    let package_index: Arc<PackageIndex> = match brane_tsk::local::get_package_index(packages_dir) {
         Ok(index) => Arc::new(index),
         Err(err)  => { return Err(Error::LocalPackageIndexError{ err }); }
     };
     // Get the data index for the local repository
-    let data_index: Arc<DataIndex> = match data::get_data_index() {
+    let data_index: Arc<DataIndex> = match brane_tsk::local::get_data_index(datasets_dir) {
         Ok(index) => Arc::new(index),
         Err(err)  => { return Err(Error::LocalDataIndexError{ err }); }
     };
@@ -441,8 +451,14 @@ pub fn process_offline_result(result: FullValue) -> Result<(), Error> {
 
             // If it's a dataset, attempt to download it
             FullValue::Data(name) => {
+                // Get the directory with the datasets
+                let datasets_dir = match ensure_datasets_dir(false) {
+                    Ok(dir)  => dir,
+                    Err(err) => { return Err(Error::DatasetsDirError{ err }); }
+                };
+
                 // Fetch a new, local DataIndex to get up-to-date entries
-                let index: DataIndex = match data::get_data_index() {
+                let index: DataIndex = match brane_tsk::local::get_data_index(datasets_dir) {
                     Ok(index) => index,
                     Err(err)  => { return Err(Error::LocalDataIndexError{ err }); }
                 };

@@ -4,7 +4,7 @@
 //  Created:
 //    12 Sep 2022, 17:39:06
 //  Last edited:
-//    17 Nov 2022, 15:56:28
+//    18 Nov 2022, 15:42:12
 //  Auto updated?
 //    Yes
 // 
@@ -14,7 +14,7 @@
 
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::fs::{self, DirEntry, File, ReadDir};
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -47,57 +47,6 @@ use crate::utils::{ensure_dataset_dir, ensure_datasets_dir, get_dataset_dir, get
 
 
 /***** LIBRARY *****/
-/// Reads all the local data assets to a local DataIndex.
-pub fn get_data_index() -> Result<DataIndex, DataError> {
-    // Make sure the main data folder exists (do not create it, though, since this is read-only)
-    let datasets: PathBuf = match ensure_datasets_dir(false) {
-        Ok(datasets) => datasets,
-        Err(err)     => { return Err(DataError::DatasetsError{ err }); }
-    };
-
-    // Start reading the directory
-    let dirs: ReadDir = match fs::read_dir(&datasets) {
-        Ok(dirs) => dirs,
-        Err(err) => { return Err(DataError::DatasetsReadError{ path: datasets, err }); }  
-    };
-
-    // Read it and iterate over all of the nested directories
-    let mut infos: Vec<DataInfo> = Vec::with_capacity(16);
-    for d in dirs {
-        // Unwrap the entry
-        let d: DirEntry = match d {
-            Ok(d)    => d,
-            Err(err) => { return Err(DataError::DatasetsReadError { path: datasets, err }); }
-        };
-
-        // If it's a directory, tentatively try to find a 'data.yml' file in there
-        let d_path    : PathBuf = d.path();
-        let info_path : PathBuf = d_path.join("data.yml");
-        if d_path.is_dir() && info_path.exists() {
-            // Attempt to open the file
-            let handle = match File::open(&info_path) {
-                Ok(handle) => handle,
-                Err(err)   => { return Err(DataError::DataInfoOpenError{ path: info_path, err }); }
-            };
-
-            // Attempt to parse it
-            let info: DataInfo = match serde_yaml::from_reader(handle) {
-                Ok(info) => info,
-                Err(err) => { return Err(DataError::DataInfoReadError{ path: info_path, err }); }
-            };
-
-            // Add it to the index
-            infos.push(info);
-        }
-    }
-
-    // Return a newly constructed info with it
-    match DataIndex::from_infos(infos) {
-        Ok(index) => Ok(index),
-        Err(err)  => Err(DataError::DataIndexError{ err }),
-    }
-}
-
 /// Attempts to download the given dataset from the instance.
 /// 
 /// For now, this function uses a random selection since it assumes there will usually only be one location that advertises having it. However, this is super bad practise and will lead to undefined results if there are multiple.
@@ -544,9 +493,18 @@ pub fn list() -> Result<(), DataError> {
     table.set_format(format);
     table.add_row(row!["ID/NAME", "KIND", "CREATED", "LINKED?", "ACCESS"]);
 
+    // Get the local datasets folder
+    let datasets_dir: PathBuf = match ensure_datasets_dir(false) {
+        Ok(datasets_dir) => datasets_dir,
+        Err(err)         => { return Err(DataError::DatasetsError { err }); },  
+    };
+
     // Get the local DataIndex, which contains the local data infos
     let now   : i64       = Utc::now().timestamp();
-    let index : DataIndex = get_data_index()?;
+    let index : DataIndex = match brane_tsk::local::get_data_index(datasets_dir) {
+        Ok(index) => index,
+        Err(err)  => { return Err(DataError::LocalDataIndexError { err }); },
+    };
     for d in index {
         // Add the name/id of the dataset
         let name = pad_str(&d.name, 20, Alignment::Left, Some(".."));
@@ -593,8 +551,17 @@ pub fn list() -> Result<(), DataError> {
 /// # Errors
 /// This function may error if we failed to read any of the files or directories.
 pub fn path(datasets: Vec<impl AsRef<str>>) -> Result<(), DataError> {
+    // Get the local datasets folder
+    let datasets_dir: PathBuf = match ensure_datasets_dir(false) {
+        Ok(datasets_dir) => datasets_dir,
+        Err(err)         => { return Err(DataError::DatasetsError { err }); },  
+    };
+
     // Simply attempt to find all of the datasets in the local index
-    let index : DataIndex = get_data_index()?;
+    let index : DataIndex = match brane_tsk::local::get_data_index(datasets_dir) {
+        Ok(index) => index,
+        Err(err)  => { return Err(DataError::LocalDataIndexError { err }); },
+    };
     for d in datasets {
         let d: &str = d.as_ref();
 

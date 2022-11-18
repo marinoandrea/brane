@@ -21,12 +21,13 @@ use tokio_util::codec::{BytesCodec, FramedRead};
 use url::Url;
 use uuid::Uuid;
 
+use brane_tsk::local::get_package_versions;
 use specifications::package::{PackageKind, PackageInfo};
 use specifications::registry::RegistryConfig;
 use specifications::version::Version;
 
 use crate::errors::RegistryError;
-use crate::utils::{get_config_dir, get_packages_dir, get_registry_file, ensure_package_dir, get_package_versions, ensure_packages_dir, ensure_config_dir};
+use crate::utils::{get_config_dir, get_packages_dir, get_registry_file, ensure_package_dir, ensure_packages_dir, ensure_config_dir};
 
 
 type DateTimeUtc = DateTime<Utc>;
