@@ -3,7 +3,7 @@ use brane_log::ingestion;
 use brane_log::schema::{Event, Query, Subscription};
 use brane_log::{Context, Schema};
 use clap::Parser;
-use dotenv::dotenv;
+use dotenvy::dotenv;
 use futures::FutureExt;
 use juniper::{self, EmptyMutation};
 use juniper_graphql_ws::ConnectionConfig;

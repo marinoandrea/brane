@@ -20,7 +20,7 @@ clap = { version = "4.0.24", features = ["derive","env"] }
 console = "0.14"
 cwl = { git = "https://github.com/onnovalkering/cwl-rs" }
 dialoguer = "0.8"
-dotenv = "0.15"
+dotenvy = "0.15"
 env_logger = "0.9"
 file-lock = "2.1.6"
 filetime = "0.2.15"

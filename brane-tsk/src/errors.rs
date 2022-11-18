@@ -4,7 +4,7 @@
 //  Created:
 //    24 Oct 2022, 15:27:26
 //  Last edited:
-//    16 Nov 2022, 14:01:16
+//    18 Nov 2022, 15:39:08
 //  Auto updated?
 //    Yes
 // 
@@ -632,6 +632,60 @@ impl Display for DockerError {
 }
 
 impl Error for DockerError {}
+
+
+
+/// Collects errors that relate to local index interaction.
+#[derive(Debug)]
+pub enum LocalError {
+    /// There was an error reading entries from a package's directory
+    PackageDirReadError{ path: PathBuf, err: std::io::Error },
+    /// Found a version entry who's path could not be split into a filename
+    UnreadableVersionEntry{ path: PathBuf },
+    /// The name of version directory in a package's dir is not a valid version
+    IllegalVersionEntry{ package: String, version: String, err: specifications::version::ParseError },
+    /// The given package has no versions registered to it
+    NoVersions{ package: String },
+
+    /// There was an error reading entries from the packages directory
+    PackagesDirReadError{ path: PathBuf, err: std::io::Error },
+    /// We tried to load a package YML but failed
+    InvalidPackageYml{ package: String, path: PathBuf, err: specifications::package::PackageInfoError },
+    /// We tried to load a Package Index from a JSON value with PackageInfos but we failed
+    PackageIndexError{ err: specifications::package::PackageIndexError },
+
+    /// Failed to read the datasets folder
+    DatasetsReadError{ path: PathBuf, err: std::io::Error },
+    /// Failed to open a data.yml file.
+    DataInfoOpenError{ path: PathBuf, err: std::io::Error },
+    /// Failed to read/parse a data.yml file.
+    DataInfoReadError{ path: PathBuf, err: serde_yaml::Error },
+    /// Failed to create a new DataIndex from the infos locally read.
+    DataIndexError{ err: specifications::data::DataIndexError },
+}
+
+impl Display for LocalError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
+        use LocalError::*;
+        match self {
+            PackageDirReadError{ path, err }             => write!(f, "Could not read package directory '{}': {}", path.display(), err),
+            UnreadableVersionEntry{ path }               => write!(f, "Could not get the version directory from '{}'", path.display()),
+            IllegalVersionEntry{ package, version, err } => write!(f, "Entry '{}' for package '{}' is not a valid version: {}", version, package, err),
+            NoVersions{ package }                        => write!(f, "Package '{}' does not have any registered versions", package),
+
+            PackagesDirReadError{ path, err }        => write!(f, "Could not read from Brane packages directory '{}': {}", path.display(), err),
+            InvalidPackageYml{ package, path, err }  => write!(f, "Could not read '{}' for package '{}': {}", path.display(), package, err),
+            PackageIndexError{ err }                 => write!(f, "Could not create PackageIndex: {}", err),
+
+            DatasetsReadError{ path, err } => write!(f, "Failed to read datasets folder '{}': {}", path.display(), err),
+            DataInfoOpenError{ path, err } => write!(f, "Failed to open data info file '{}': {}", path.display(), err),
+            DataInfoReadError{ path, err } => write!(f, "Failed to read/parse data info file '{}': {}", path.display(), err),
+            DataIndexError{ err }          => write!(f, "Failed to create data index from local datasets: {}", err),
+        }
+    }
+}
+
+impl Error for LocalError {}
 
 
 

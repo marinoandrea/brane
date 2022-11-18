@@ -4,7 +4,7 @@
 //  Created:
 //    17 Oct 2022, 15:15:36
 //  Last edited:
-//    16 Nov 2022, 10:56:51
+//    18 Nov 2022, 15:53:46
 //  Auto updated?
 //    Yes
 // 
@@ -18,7 +18,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use clap::Parser;
-use dotenv::dotenv;
+use dotenvy::dotenv;
 use juniper::EmptySubscription;
 use log::{debug, error, LevelFilter};
 use scylla::{Session, SessionBuilder};

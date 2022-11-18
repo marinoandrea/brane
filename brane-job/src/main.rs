@@ -4,7 +4,7 @@
 //  Created:
 //    18 Oct 2022, 13:47:17
 //  Last edited:
-//    16 Nov 2022, 12:11:04
+//    18 Nov 2022, 15:53:46
 //  Auto updated?
 //    Yes
 // 
@@ -16,7 +16,7 @@ use std::net::{SocketAddr, ToSocketAddrs};
 use std::path::PathBuf;
 
 use clap::{ArgAction::SetTrue, Parser};
-use dotenv::dotenv;
+use dotenvy::dotenv;
 use log::LevelFilter;
 use log::{debug, error, info};
 use tonic::transport::Server;

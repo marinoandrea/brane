@@ -4,7 +4,7 @@
 //  Created:
 //    26 Sep 2022, 15:11:44
 //  Last edited:
-//    16 Nov 2022, 11:20:41
+//    18 Nov 2022, 15:53:46
 //  Auto updated?
 //    Yes
 // 
@@ -17,7 +17,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use clap::Parser;
-use dotenv::dotenv;
+use dotenvy::dotenv;
 use log::{error, info, LevelFilter};
 use rustls::Certificate;
 use warp::Filter;

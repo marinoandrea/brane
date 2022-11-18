@@ -11,7 +11,7 @@ bincode = "1.3"
 bytes = "1"
 clap = { version = "4.0.24", features = ["derive","env"] }
 derive_more = "0.99"
-dotenv = "0.15"
+dotenvy = "0.15"
 env_logger = "0.9"
 futures = "0.3"
 juniper = "0.15"

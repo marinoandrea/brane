@@ -4,7 +4,7 @@
 //  Created:
 //    30 Sep 2022, 11:59:58
 //  Last edited:
-//    16 Nov 2022, 11:21:00
+//    18 Nov 2022, 15:53:46
 //  Auto updated?
 //    Yes
 // 
@@ -17,7 +17,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use clap::Parser;
-use dotenv::dotenv;
+use dotenvy::dotenv;
 use log::{error, LevelFilter};
 use tonic::transport::Server;
 

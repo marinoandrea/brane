@@ -4,7 +4,7 @@
 //  Created:
 //    20 Sep 2022, 13:53:43
 //  Last edited:
-//    16 Nov 2022, 11:20:18
+//    18 Nov 2022, 15:53:46
 //  Auto updated?
 //    Yes
 // 
@@ -17,7 +17,7 @@ use std::path::PathBuf;
 use std::process;
 
 use clap::Parser;
-use dotenv::dotenv;
+use dotenvy::dotenv;
 use log::{debug, warn, LevelFilter};
 use serde::de::DeserializeOwned;
 

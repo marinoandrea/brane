@@ -4,7 +4,7 @@
 //  Created:
 //    17 Oct 2022, 17:27:16
 //  Last edited:
-//    16 Nov 2022, 11:20:33
+//    18 Nov 2022, 15:53:46
 //  Auto updated?
 //    Yes
 // 
@@ -29,7 +29,7 @@
 use std::path::PathBuf;
 
 use clap::Parser;
-use dotenv::dotenv;
+use dotenvy::dotenv;
 use log::LevelFilter;
 use log::error;
 use brane_cfg::InfraPath;
