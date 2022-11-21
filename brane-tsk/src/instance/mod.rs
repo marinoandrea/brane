@@ -4,7 +4,7 @@
 //  Created:
 //    25 Oct 2022, 11:34:40
 //  Last edited:
-//    01 Nov 2022, 11:06:16
+//    21 Nov 2022, 15:05:18
 //  Auto updated?
 //    Yes
 // 
@@ -30,10 +30,10 @@ pub use vm::{InstancePlugin, InstanceVm};
 /// The global state for the local use-case contains some indices, mostly.
 #[derive(Clone, Debug)]
 pub struct GlobalState {
-    /// Path to the infrastructure file with which we can resolve locations -> addresses
-    pub infra_path : brane_cfg::InfraPath,
+    /// The path to the configuration for this node's environment. For us, contains the path to the infra.yml and (optional) secrets.yml files.
+    pub node_config_path : std::path::PathBuf,
     /// The application identifier for this session.
-    pub app_id     : crate::spec::AppId,
+    pub app_id           : crate::spec::AppId,
 
     /// The workflow for this session, which will be updated when a new one is received.
     pub workflow : Option<String>,

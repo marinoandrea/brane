@@ -4,7 +4,7 @@
 //  Created:
 //    12 Sep 2022, 16:18:11
 //  Last edited:
-//    16 Nov 2022, 10:50:25
+//    21 Nov 2022, 15:10:22
 //  Auto updated?
 //    Yes
 // 
@@ -12,6 +12,7 @@
 //!   Implements the command handler from the client.
 // 
 
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -22,7 +23,7 @@ use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
 
 use brane_ast::Workflow;
-use brane_cfg::InfraPath;
+use brane_cfg::node::NodeConfig;
 use brane_exe::FullValue;
 use brane_tsk::errors::TaskError;
 use brane_tsk::spec::{AppId, Planner};
@@ -85,12 +86,10 @@ macro_rules! fatal_err {
 /// The DriverHandler handles incoming gRPC requests. This is effectively what 'drives' the driver.
 #[derive(Clone)]
 pub struct DriverHandler {
-    /// The path to the infrastructure file.
-    infra_path : InfraPath,
-    /// The topic where to send planning commands on.
-    cmd_topic  : String,
+    /// The path to the `node.yml` file that describes this node's environment. For the handler, this is the path to the `infra.yml` file (and an optional `secrets.yml`) and the topic to send commands to the planner on.
+    node_config_path : PathBuf,
     /// The planner we use to plan stuff.
-    planner    : Arc<InstancePlanner>,
+    planner          : Arc<InstancePlanner>,
 
     /// Current sessions and active VMs. Note that this only concerns states if connected via a REPL-session; any in-statement state (i.e., calling nodes) is handled by virtue of the VM being implemented as `async`.
     sessions : Arc<DashMap<AppId, InstanceVm>>,
@@ -100,18 +99,15 @@ impl DriverHandler {
     /// Constructor for the DriverHandler.
     /// 
     /// # Arguments
-    /// - `api_endpoint`: The address of the `brane-api` endpoint that contains dataset and package metadata and such.
-    /// - `reg_endpoint`: The address of the `aux-registry` endpoint that contains the images to run.
-    /// - `cmd_topic`: The Kafka topic to send new planning commands on.
+    /// - `node_config_path`: The path to the `node.yml` file that describes this node's environment. For the handler, this is the path to the `infra.yml` file (and an optional `secrets.yml`) and the topic to send commands to the planner on.
     /// - `planner`: The InstancePlanner that handles our side of planning.
     /// 
     /// # Returns
     /// A new DriverHandler instance.
     #[inline]
-    pub fn new(infra_path: impl Into<InfraPath>, cmd_topic: impl Into<String>, planner: Arc<InstancePlanner>) -> Self {
+    pub fn new(node_config_path: impl Into<PathBuf>, planner: Arc<InstancePlanner>) -> Self {
         Self {
-            infra_path : infra_path.into(),
-            cmd_topic  : cmd_topic.into(),
+            node_config_path : node_config_path.into(),
             planner,
 
             sessions : Arc::new(DashMap::new()),
@@ -136,7 +132,7 @@ impl grpc::DriverService for DriverHandler {
     async fn create_session(&self, _request: Request<grpc::CreateSessionRequest>) -> Result<Response<grpc::CreateSessionReply>, Status> {
         // Create a new VM for this session
         let app_id: AppId = AppId::generate();
-        self.sessions.insert(app_id.clone(), InstanceVm::new(&self.infra_path, app_id.clone(), self.planner.clone()));
+        self.sessions.insert(app_id.clone(), InstanceVm::new(&self.node_config_path, app_id.clone(), self.planner.clone()));
 
         // Now return the ID to the user for future reference
         debug!("Created new session '{}'", app_id);
@@ -169,6 +165,15 @@ impl grpc::DriverService for DriverHandler {
             Err(err)   => { fatal_err!(tx, rx, Status::invalid_argument, err); },
         };
 
+        // Load the config, making sure it's a central config
+        let node_config: NodeConfig = match NodeConfig::from_path(&self.node_config_path) {
+            Ok(config) => config,
+            Err(err)   => {
+                error!("Failed to load the NodeConfig: {}", err);
+                fatal_err!(tx, rx, Status::internal, "An internal error has occurred.");
+            },
+        };
+
         // Fetch the VM
         let sessions: Arc<DashMap<AppId, InstanceVm>> = self.sessions.clone();
         let vm: InstanceVm = match sessions.get(&app_id) {
@@ -176,9 +181,8 @@ impl grpc::DriverService for DriverHandler {
             None     => { fatal_err!(tx, rx, Status::internal(format!("No session with ID '{}' found", app_id))); }
         };
 
-        // We're gonna run the rest asynchronous, since that needs less of us
-        let cmd_topic : String               = self.cmd_topic.clone();
-        let planner   : Arc<InstancePlanner> = self.planner.clone();
+        // We're gonna run the rest asynchronous, to allow the client to earlier receive callbacks
+        let planner: Arc<InstancePlanner> = self.planner.clone();
         tokio::spawn(async move {
             debug!("Executing workflow for session '{}'", app_id);
     
@@ -195,7 +199,7 @@ impl grpc::DriverService for DriverHandler {
             };
 
             // Spend some time resolving the workflow with the planner
-            debug!("Planning workflow on Kafka topic '{}'", cmd_topic);
+            debug!("Planning workflow on Kafka topic '{}'", node_config.node.central().topics.planner_command);
             let plan: Workflow = match planner.plan(workflow).await {
                 Ok(plan) => plan,
                 Err(err) => { fatal_err!(tx, Status::internal, err); },

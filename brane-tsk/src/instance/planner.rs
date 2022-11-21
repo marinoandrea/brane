@@ -4,7 +4,7 @@
 //  Created:
 //    25 Oct 2022, 11:35:00
 //  Last edited:
-//    14 Nov 2022, 11:53:13
+//    21 Nov 2022, 17:10:51
 //  Auto updated?
 //    Yes
 // 
@@ -39,6 +39,7 @@ use brane_ast::Workflow;
 use brane_ast::locations::Locations;
 use brane_ast::ast::{DataName, Edge, SymTable};
 use brane_cfg::{InfraFile, InfraPath};
+use brane_cfg::node::NodeConfig;
 use brane_shr::kafka::{ensure_topics, restore_committed_offsets};
 use specifications::data::{AccessKind, AvailabilityKind, DataIndex, PreprocessKind};
 use specifications::planning::{PlanningStatus, PlanningStatusKind, PlanningUpdate};
@@ -378,11 +379,7 @@ async fn wait_planned(correlation_id: impl AsRef<str>, waker: Arc<Mutex<Option<W
 /// The planner is in charge of assigning locations to tasks in a workflow. This one is very simple, assigning 'localhost' to whatever it sees.
 pub struct InstancePlanner {
     /// The Kafka servers we're connecting to.
-    brokers   : String,
-    /// The topic where we send planner commands on.
-    cmd_topic : String,
-    /// The topic where we receive planner updates/results on.
-    res_topic : String,
+    node_config : NodeConfig,
 
     /// The Kafka producer with which we send commands and such.
     producer  : Arc<FutureProducer>,
@@ -396,18 +393,16 @@ impl InstancePlanner {
     /// Constructor for the InstancePlanner.
     /// 
     /// # Arguments
-    /// - `data_index`: The DataIndex that is used to resolve datasets at plantime.
-    /// - `infra`: Path to the infrastructure file to load. Note that it is actually loaded for as long as this instance lives, to make sure that there are no conflicts while planning.
+    /// - `node_config`: The configuration for this node's environment. For us, mostly Kafka topics and associated broker.
     /// 
     /// # Returns
     /// A new InstancePlanner instance.
     #[inline]
-    pub fn new(cmd_topic: impl Into<String>, res_topic: impl Into<String>, brokers: impl Into<String>) -> Result<Self, PlanError> {
-        let brokers: String = brokers.into();
+    pub fn new(node_config: NodeConfig) -> Result<Self, PlanError> {
+        let brokers: String = node_config.node.central().services.brokers.iter().map(|a| a.to_string()).collect::<Vec<String>>().join(",");
         Ok(Self {
-            brokers   : brokers.clone(),
-            cmd_topic : cmd_topic.into(),
-            res_topic : res_topic.into(),
+            node_config,
+
             producer  : match ClientConfig::new().set("bootstrap.servers", &brokers).set("message.timeout.ms", "5000").create() {
                 Ok(producer) => Arc::new(producer),
                 Err(err)     => { return Err(PlanError::KafkaProducerError { err }); },
@@ -422,22 +417,24 @@ impl InstancePlanner {
     /// This function hosts the actual planner, which uses an event monitor to receive plans which are then planned.
     /// 
     /// # Arguments
-    /// - `brokers`: The list of Kafka brokers to connect to.
+    /// - `node_config_path`: Path to the node.yml file that defines this node's environment configuration.
+    /// - `node_config`: The configuration for this node's environment. For us, mostly Kafka topics and paths to infra.yml and (optional) secrets.yml files. This is mostly given to avoid another load, since we could've loaded it from the path too.
     /// - `group_id`: The Kafka group ID to listen on.
-    /// - `cmd_topic`: The topic to _receive_ commands on.
-    /// - `res_topic`: The topic to _send_ updates on.
-    /// - `api_address`: The address where we can find the `brane-api` service to download information of packages from.
-    /// - `infra`: Path to the infrastructure file that contains the layout of the instance.
     /// 
     /// # Returns
     /// This function doesn't really return, unless the Kafka topic stream closes.
     /// 
     /// # Errors
     /// This function only errors if we fail to listen for events. Otherwise, errors are logged to stderr using the `error!` macro.
-    pub async fn planner_server(brokers: String, group_id: String, cmd_topic: String, res_topic: String, api_address: String, infra: InfraPath) -> Result<(), PlanError> {
+    pub async fn planner_server(node_config_path: impl Into<PathBuf>, node_config: NodeConfig, group_id: impl Into<String>) -> Result<(), PlanError> {
+        let node_config_path : PathBuf = node_config_path.into();
+        let group_id         : String  = group_id.into();
+
         // Ensure that the input/output topics exists.
-        if let Err(err) = ensure_topics(vec![ &cmd_topic, &res_topic ], &brokers).await {
-            return Err(PlanError::KafkaTopicError{ brokers, topics: vec![ cmd_topic, res_topic ], err });
+        let topics  : Vec<&str> = vec![ &node_config.node.central().topics.planner_command, &node_config.node.central().topics.planner_results ];
+        let brokers : String    = node_config.node.central().services.brokers.iter().map(|a| a.to_string()).collect::<Vec<String>>().join(",");
+        if let Err(err) = ensure_topics(topics.clone(), &brokers).await {
+            return Err(PlanError::KafkaTopicError{ brokers, topics: topics.into_iter().map(|t| t.into()).collect(), err });
         };
 
         // Start the producer(s) and consumer(s).
@@ -462,26 +459,33 @@ impl InstancePlanner {
         };
 
         // Now restore the committed offsets
-        if let Err(err) = restore_committed_offsets(&consumer, &cmd_topic) {
+        if let Err(err) = restore_committed_offsets(&consumer, &node_config.node.central().topics.planner_command) {
             return Err(PlanError::KafkaOffsetsError{ err });
         }
 
         // Next, we start processing the incoming stream of messages as soon as they arrive
-        if let Err(err) = consumer.stream().try_for_each(|borrowed_message| {
+        match consumer.stream().try_for_each(|borrowed_message| {
             consumer.commit_message(&borrowed_message, CommitMode::Sync).unwrap();
 
             // Shadow with owned clones
             let owned_message     : OwnedMessage        = borrowed_message.detach();
             let producer          : Arc<FutureProducer> = producer.clone();
-            let owned_infra       : InfraPath           = infra.clone();
-            let owned_cmd_topic   : String              = cmd_topic.clone();
-            let owned_res_topic   : String              = res_topic.clone();
-            let owned_api_address : String              = api_address.clone();
+            let node_config_path  : PathBuf             = node_config_path.clone();
 
+            // Do the rest in a future that takes ownership of the clones
             async move {
+                // Fetch the most recent NodeConfig
+                let node_config: NodeConfig = match NodeConfig::from_path(node_config_path) {
+                    Ok(config) => config,
+                    Err(err)   => {
+                        error!("Failed to load NodeConfig file: {}", err);
+                        return Ok(());
+                    },
+                };
+
                 // Parse the key
                 let id: String = String::from_utf8_lossy(owned_message.key().unwrap_or(&[])).to_string();
-                info!("Received new plan request with ID '{}' on topic '{}'", id, owned_cmd_topic);
+                info!("Received new plan request with ID '{}' on topic '{}'", id, node_config.node.central().topics.planner_command);
 
                 // Parse the payload, if any
                 if let Some(payload) = owned_message.payload() {
@@ -494,19 +498,20 @@ impl InstancePlanner {
                     let mut workflow: Workflow = match serde_json::from_str(&message) {
                         Ok(workflow) => workflow,
                         Err(err)     => {
-                            error!("Failed to parse incoming message workflow on topic '{}' as Workflow JSON: {}\n\nworkflow:\n{}\n{}\n{}\n", owned_cmd_topic, err, (0..80).map(|_| '-').collect::<String>(), message, (0..80).map(|_| '-').collect::<String>());
+                            error!("Failed to parse incoming message workflow on topic '{}' as Workflow JSON: {}\n\nworkflow:\n{}\n{}\n{}\n", node_config.node.central().topics.planner_command, err, (0..80).map(|_| '-').collect::<String>(), message, (0..80).map(|_| '-').collect::<String>());
                             return Ok(());
                         }
                     };
 
                     // Send that we've started planning
-                    if let Err(err) = send_update(producer.clone(), &owned_res_topic, &id, PlanningStatus::Started(None)).await { error!("Failed to update client that planning has started: {}", err); };
+                    if let Err(err) = send_update(producer.clone(), &node_config.node.central().topics.planner_results, &id, PlanningStatus::Started(None)).await { error!("Failed to update client that planning has started: {}", err); };
 
                     // Fetch the data index
-                    let dindex: DataIndex = match get_data_index(format!("{}/data/info", owned_api_address)).await {
+                    let data_index_addr: String = format!("{}/data/info", node_config.node.central().services.api);
+                    let dindex: DataIndex = match get_data_index(&data_index_addr).await {
                         Ok(dindex) => dindex,
                         Err(err)   => {
-                            error!("Failed to fetch DataIndex from '{}': {}", owned_api_address, err);
+                            error!("Failed to fetch DataIndex from '{}': {}", data_index_addr, err);
                             return Ok(());
                         }
                     };
@@ -514,10 +519,10 @@ impl InstancePlanner {
                     // Now we do the planning
                     {
                         // Load the infrastructure file
-                        let infra: InfraFile = match InfraFile::from_path(&owned_infra) {
+                        let infra: InfraFile = match InfraFile::from_path(InfraPath::new(&node_config.node.central().paths.infra, &node_config.node.central().paths.secrets)) {
                             Ok(infra) => infra,
                             Err(err)  => {
-                                error!("Failed to load infrastructure file '{}': {}", owned_infra.infra.display(), err);
+                                error!("Failed to load infrastructure file '{}': {}", node_config.node.central().paths.infra.display(), err);
                                 return Ok(());
                             }
                         };
@@ -538,7 +543,7 @@ impl InstancePlanner {
                             debug!("Planning main edges...");
                             if let Err(err) = plan_edges(&mut table, &mut edges, &dindex, &infra) {
                                 error!("Failed to plan main edges for workflow with correlation ID '{}': {}", id, err);
-                                if let Err(err) = send_update(producer.clone(), &owned_res_topic, &id, PlanningStatus::Error(format!("{}", err))).await { error!("Failed to update client that planning has failed: {}", err); }
+                                if let Err(err) = send_update(producer.clone(), &node_config.node.central().topics.planner_results, &id, PlanningStatus::Error(format!("{}", err))).await { error!("Failed to update client that planning has failed: {}", err); }
                                 return Ok(());
                             };
 
@@ -559,7 +564,7 @@ impl InstancePlanner {
                                 debug!("Planning '{}' edges...", table.funcs[*idx].name);
                                 if let Err(err) = plan_edges(&mut table, edges, &dindex, &infra) {
                                     error!("Failed to plan function '{}' edges for workflow with correlation ID '{}': {}", table.funcs[*idx].name, id, err);
-                                    if let Err(err) = send_update(producer.clone(), &owned_res_topic, &id, PlanningStatus::Error(format!("{}", err))).await { error!("Failed to update client that planning has failed: {}", err); }
+                                    if let Err(err) = send_update(producer.clone(), &node_config.node.central().topics.planner_results, &id, PlanningStatus::Error(format!("{}", err))).await { error!("Failed to update client that planning has failed: {}", err); }
                                     return Ok(());
                                 }
                             }
@@ -580,13 +585,13 @@ impl InstancePlanner {
                         Ok(splan) => splan,
                         Err(err)  => {
                             error!("Failed to serialize plan: {}", err);
-                            if let Err(err) = send_update(producer.clone(), &owned_res_topic, &id, PlanningStatus::Error(format!("{}", err))).await { error!("Failed to update client that planning has failed: {}", err); }
+                            if let Err(err) = send_update(producer.clone(), &node_config.node.central().topics.planner_results, &id, PlanningStatus::Error(format!("{}", err))).await { error!("Failed to update client that planning has failed: {}", err); }
                             return Ok(());
                         },
                     };
 
                     // Send the result
-                    if let Err(err) = send_update(producer.clone(), &owned_res_topic, &id, PlanningStatus::Success(splan)).await { error!("Failed to update client that planning has succeeded: {}", err); }
+                    if let Err(err) = send_update(producer.clone(), &node_config.node.central().topics.planner_results, &id, PlanningStatus::Success(splan)).await { error!("Failed to update client that planning has succeeded: {}", err); }
                     debug!("Planning OK");
                 }
 
@@ -594,11 +599,9 @@ impl InstancePlanner {
                 Ok(())
             }
         }).await {
-            return Err(PlanError::KafkaStreamError{ err });
+            Ok(_)    => Ok(()),
+            Err(err) => Err(PlanError::KafkaStreamError{ err }),
         }
-
-        // Done
-        Ok(())
     }
 
 
@@ -616,12 +619,13 @@ impl InstancePlanner {
         let group_id  : &str = group_id.as_ref();
 
         // Ensure that the to-be-listened on topic exists
-        if let Err(err) = ensure_topics(vec![ &self.res_topic ], &self.brokers).await { return Err(PlanError::KafkaTopicError { brokers: self.brokers.clone(), topics: vec![ self.res_topic.clone() ], err }); };
+        let brokers: String = self.node_config.node.central().services.brokers.iter().map(|a| a.to_string()).collect::<Vec<String>>().join(",");
+        if let Err(err) = ensure_topics(vec![ &self.node_config.node.central().topics.planner_results ], &brokers).await { return Err(PlanError::KafkaTopicError { brokers, topics: vec![ self.node_config.node.central().topics.planner_results.clone() ], err }); };
 
         // Create one consumer per topic that we're reading (i.e., one)
         let consumer: StreamConsumer = match ClientConfig::new()
             .set("group.id", group_id)
-            .set("bootstrap.servers", &self.brokers)
+            .set("bootstrap.servers", &brokers)
             .set("enable.partition.eof", "false")
             .set("session.timeout.ms", "6000")
             .set("enable.auto.commit", "true")
@@ -632,7 +636,7 @@ impl InstancePlanner {
         };
 
         // Restore previous offsets
-        if let Err(err) = restore_committed_offsets(&consumer, &self.res_topic) { return Err(PlanError::KafkaOffsetsError { err }); }
+        if let Err(err) = restore_committed_offsets(&consumer, &self.node_config.node.central().topics.planner_results) { return Err(PlanError::KafkaOffsetsError { err }); }
 
         // Run the Kafka consumer to monitor the planning events on a new thread (or at least, concurrently)
         let waker   : Arc<Mutex<Option<Waker>>>            = self.waker.clone();
@@ -714,7 +718,8 @@ impl InstancePlanner {
 impl Planner for InstancePlanner {
     async fn plan(&self, workflow: Workflow) -> Result<Workflow, PlanError> {
         // Ensure that the to-be-send-on topic exists
-        if let Err(err) = ensure_topics(vec![ &self.cmd_topic ], &self.brokers).await { return Err(PlanError::KafkaTopicError { brokers: self.brokers.clone(), topics: vec![ self.cmd_topic.clone() ], err }); };
+        let brokers: String = self.node_config.node.central().services.brokers.iter().map(|a| a.to_string()).collect::<Vec<String>>().join(",");
+        if let Err(err) = ensure_topics(vec![ &self.node_config.node.central().topics.planner_command ], &brokers).await { return Err(PlanError::KafkaTopicError { brokers, topics: vec![ self.node_config.node.central().topics.planner_command.clone() ], err }); };
 
         // Serialize the workflow
         let swork: String = match serde_json::to_string(&workflow) {
@@ -724,13 +729,13 @@ impl Planner for InstancePlanner {
 
         // Populate a "PlanningCommand" with that (i.e., just populate a future record with the string)
         let correlation_id: String = format!("{}", TaskId::generate());
-        let message: FutureRecord<String, [u8]> = FutureRecord::to(&self.cmd_topic)
+        let message: FutureRecord<String, [u8]> = FutureRecord::to(&self.node_config.node.central().topics.planner_command)
             .key(&correlation_id)
             .payload(swork.as_bytes());
 
         // Send the message
         if let Err((err, _)) = self.producer.send(message, Timeout::After(Duration::from_secs(5))).await {
-            return Err(PlanError::KafkaSendError { correlation_id, topic: self.cmd_topic.clone(), err });
+            return Err(PlanError::KafkaSendError { correlation_id, topic: self.node_config.node.central().topics.planner_command.clone(), err });
         }
 
         // Now we wait until the message has been planned.

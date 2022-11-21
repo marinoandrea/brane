@@ -4,7 +4,7 @@
 //  Created:
 //    31 Oct 2022, 11:21:14
 //  Last edited:
-//    17 Nov 2022, 15:56:12
+//    21 Nov 2022, 14:09:46
 //  Auto updated?
 //    Yes
 // 
@@ -38,6 +38,7 @@ use brane_ast::locations::Location;
 use brane_ast::ast::DataName;
 use brane_cfg::CredsFile;
 use brane_cfg::creds::Credentials;
+use brane_cfg::node::NodeConfig;
 use brane_exe::FullValue;
 use brane_shr::debug::BlockFormatter;
 use brane_shr::fs::{copy_dir_recursively_async, unarchive_async};
@@ -84,71 +85,62 @@ macro_rules! err {
 
 
 
-/***** HELPER STRUCTURES *****/
-/// Helper structure for grouping together worker-local "constants".
-#[derive(Clone, Debug)]
-pub struct EnvironmentInfo {
-    /// The ID of this location.
-    pub location_id : String,
+/***** HELPER FUNCTIONS *****/
+/// Updates the client with a status update.
+/// 
+/// # Arguments
+/// - `tx`: The channel to update the client on.
+/// - `status`: The status to update the client with.
+/// 
+/// # Errors
+/// This function may error if we failed to update the client.
+async fn update_client(tx: &Sender<Result<TaskReply, Status>>, status: JobStatus) -> Result<(), ExecuteError> {
+    // Convert the JobStatus into a code and (possible) value
+    let (status, value): (TaskStatus, Option<String>) = status.into();
 
-    /// Path to the credentials file.
-    pub creds_path        : PathBuf,
-    /// The path to the directory with all certificates.
-    pub certs_path        : PathBuf,
-    /// The path to the folder with all the containers.
-    pub packages_path     : PathBuf,
-    /// The path to the folder with all the data.
-    pub data_path         : PathBuf,
-    // The path to the folder with all the results.
-    pub results_path      : PathBuf,
-    /// The path to store all temporarily downloaded datasets from other domains.
-    pub temp_data_path    : PathBuf,
-    /// The path to store all temporarily downloaded intermediate results from other domains.
-    pub temp_results_path : PathBuf,
+    // Put that in an ExecuteReply
+    let reply: TaskReply = TaskReply {
+        status : status as i32,
+        value,
+    };
 
-    /// The location of the checker service.
-    pub checker_endpoint : String,
-    /// If we should sent our data transfers through a proxy, this defines where to find it.
-    pub proxy_address    : Option<String>,
+    // Send it over the wire
+    debug!("Updating client on '{:?}'...", status);
+    if let Err(err) = tx.send(Ok(reply)).await {
+        return Err(ExecuteError::ClientUpdateError{ status, err });
+    }
 
-    /// Whether to keep containers around after execution or not.
-    pub keep_container : bool,
+    // Done
+    Ok(())
 }
-impl EnvironmentInfo {
-    /// Constructor for the EnvironmentInfo.
+
+
+
+
+
+/***** AUXILLARY STRUCTURES *****/
+/// Helper structure for grouping together Docker environment information.
+#[derive(Clone, Debug)]
+pub struct DockerInfo {
+    /// The path to the Docker socket to connect to.
+    pub socket_path    : PathBuf,
+    /// The `bollard::ClientVersion` that we use to connect to the local daemon.
+    pub client_version : ClientVersion,
+}
+impl DockerInfo {
+    /// Constructor for the DockerInfo.
     /// 
     /// # Arguments
-    /// - `location_id`: The ID of this location.
-    /// - `creds_path: Path to the credentials file.
-    /// - `certs_path`: The path to the directory with all certificates.
-    /// - `packages_path`: The path to the folder with all the containers.
-    /// - `data_path`: The path to the folder with all the data.
-    /// - `results_path`: The path to the folder with all the results.
-    /// - `temp_data_path`: The path to store all temporarily downloaded datasets from other domains.
-    /// - `temp_results_path`: The path to store all temporarily downloaded intermediate results from other domains.
-    /// - `checker_endpoint`: The location of the checker service.
-    /// - `proxy_address`: If we should sent our data transfers through a proxy, this defines where to find it.
-    /// - `keep_container`: Whether to keep containers around after execution or not (useful for debugging containers).
+    /// - `socket_path`: The path to the Docker socket to connect to.
+    /// - `client_version`: The `bollard::ClientVersion` that we use to connect to the local daemon.
     /// 
     /// # Returns
-    /// A new EnvironmentInfo instance.
+    /// A new DockerInfo instance.
     #[inline]
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(location_id: impl Into<String>, creds_path: impl Into<PathBuf>, certs_path: impl Into<PathBuf>, packages_path: impl Into<PathBuf>, data_path: impl Into<PathBuf>, results_path: impl Into<PathBuf>, temp_data_path: impl Into<PathBuf>, temp_results_path: impl Into<PathBuf>, checker_endpoint: impl Into<String>, proxy_address: Option<impl Into<String>>, keep_container: bool) -> Self {
+    pub fn new(socket_path: impl Into<PathBuf>, client_version: ClientVersion) -> Self {
         Self {
-            location_id : location_id.into(),
-
-            creds_path        : creds_path.into(),
-            certs_path        : certs_path.into(),
-            packages_path     : packages_path.into(),
-            data_path         : data_path.into(),
-            results_path      : results_path.into(),
-            temp_data_path    : temp_data_path.into(),
-            temp_results_path : temp_results_path.into(),
-
-            checker_endpoint : checker_endpoint.into(),
-            proxy_address    : proxy_address.map(|p| p.into()),
-            keep_container,
+            socket_path : socket_path.into(),
+            client_version,
         }
     }
 }
@@ -233,47 +225,12 @@ impl TaskInfo {
 
 
 
-/***** HELPER FUNCTIONS *****/
-/// Updates the client with a status update.
-/// 
-/// # Arguments
-/// - `tx`: The channel to update the client on.
-/// - `status`: The status to update the client with.
-/// 
-/// # Errors
-/// This function may error if we failed to update the client.
-pub async fn update_client(tx: &Sender<Result<TaskReply, Status>>, status: JobStatus) -> Result<(), ExecuteError> {
-    // Convert the JobStatus into a code and (possible) value
-    let (status, value): (TaskStatus, Option<String>) = status.into();
-
-    // Put that in an ExecuteReply
-    let reply: TaskReply = TaskReply {
-        status : status as i32,
-        value,
-    };
-
-    // Send it over the wire
-    debug!("Updating client on '{:?}'...", status);
-    if let Err(err) = tx.send(Ok(reply)).await {
-        return Err(ExecuteError::ClientUpdateError{ status, err });
-    }
-
-    // Done
-    Ok(())
-}
-
-
-
-
-
 /***** PLANNING FUNCTIONS *****/
 /// Function that preprocesses by downloading the given tar and extracting it.
 /// 
 /// # Arguments
-/// - `certs_path`: Path to the directory with all certificates.
-/// - `temp_data_path`: The path to the folder where can store temporarily downloaded datasets.
-/// - `temp_results_path`: The path to the folder where can store temporarily downloaded intermediate results.
-/// - `proxy_addr`: If not None, then this is the address through which we will proxy the transfer.
+/// - `node_config`: The configuration for this node's environment. For us, contains the path where we may find certificates and where to download data & result files to.
+/// - `proxy`: The proxy address to route this data transfer to, if any. Note that this is not (necessarily) the same address as given in `node_config`, since this one may refer to a different BFC.
 /// - `location`: The location to download the tarball from.
 /// - `address`: The address to download the tarball from.
 /// - `data_name`: The type of the data (i.e., Data or IntermediateResult) combined with its identifier.
@@ -283,12 +240,9 @@ pub async fn update_client(tx: &Sender<Result<TaskReply, Status>>, status: JobSt
 /// 
 /// # Errors
 /// This function can error for literally a million reasons - but they mostly relate to IO (file access, request success etc).
-pub async fn preprocess_transfer_tar(certs_path: impl AsRef<Path>, temp_data_path: impl AsRef<Path>, temp_results_path: impl AsRef<Path>, proxy_addr: &Option<String>, location: Location, address: impl AsRef<str>, data_name: DataName) -> Result<AccessKind, PreprocessError> {
+pub async fn preprocess_transfer_tar(node_config: &NodeConfig, proxy: Option<String>, location: Location, address: impl AsRef<str>, data_name: DataName) -> Result<AccessKind, PreprocessError> {
     debug!("Preprocessing by executing a data transfer");
-    let certs_path        : &Path = certs_path.as_ref();
-    let temp_data_path    : &Path = temp_data_path.as_ref();
-    let temp_results_path : &Path = temp_results_path.as_ref();
-    let address           : &str  = address.as_ref();
+    let address: &str  = address.as_ref();
     debug!("Downloading from {} ({})", location, address);
 
 
@@ -296,7 +250,7 @@ pub async fn preprocess_transfer_tar(certs_path: impl AsRef<Path>, temp_data_pat
     debug!("Loading certificate for location '{}'...", location);
     let (identity, ca_cert): (Identity, Certificate) = {
         // Compute the paths
-        let cert_dir : PathBuf = certs_path.join(&location);
+        let cert_dir : PathBuf = node_config.node.worker().paths.certs.join(&location);
         let idfile   : PathBuf = cert_dir.join("client-id.pem");
         let cafile   : PathBuf = cert_dir.join("ca.pem");
 
@@ -308,13 +262,6 @@ pub async fn preprocess_transfer_tar(certs_path: impl AsRef<Path>, temp_data_pat
             },
             Err(err) => { return Err(PreprocessError::FileReadError{ what: "client identity", path: idfile, err }); },
         };
-        // let ident: Identity = match load_cert(&certfile) {
-        //     Ok(certs) => match Identity::from_pem(&ident) {
-        //         Ok(identity) => identity,
-        //         Err(err)     => { return Err(PreprocessError::IdentityFileError{ certfile, keyfile, err }); },
-        //     },
-        //     Err(err) => { return Err(PreprocessError::KeypairLoadError{ err }); },
-        // };
 
         // Load the root store for this location (also as a list of certificates)
         let root: Certificate = match tfs::read(&cafile).await {
@@ -324,17 +271,6 @@ pub async fn preprocess_transfer_tar(certs_path: impl AsRef<Path>, temp_data_pat
             },
             Err(err) => { return Err(PreprocessError::FileReadError{ what: "server cert root", path: cafile, err }); },
         };
-        // let root: ReqwestCertificate = match load_cert(&cafile) {
-        //     Ok(mut root) => if !root.is_empty() {
-        //         match ReqwestCertificate::from_der(&root.swap_remove(0).0) {
-        //             Ok(root) => root,
-        //             Err(err) => { return Err(PreprocessError::RootError{ cafile, err }); },
-        //         }
-        //     } else {
-        //         return Err(PreprocessError::EmptyCertFile{ path: cert_dir.join("ca.pem") });
-        //     },
-        //     Err(err) => { return Err(PreprocessError::StoreLoadError{ err }); },  
-        // };
 
         // Return them, with the cert and key as identity
         (ident, root)
@@ -355,6 +291,7 @@ pub async fn preprocess_transfer_tar(certs_path: impl AsRef<Path>, temp_data_pat
     }
 
     // Make sure the data folder is there
+    let temp_data_path: &Path = &node_config.node.worker().paths.temp_data;
     if temp_data_path.exists() && !temp_data_path.is_dir() {
         return Err(PreprocessError::DirNotADirError{ what: "temporary data", path: temp_data_path.into() });
     } else if !temp_data_path.exists() {
@@ -362,6 +299,7 @@ pub async fn preprocess_transfer_tar(certs_path: impl AsRef<Path>, temp_data_pat
     }
 
     // Also make sure the results folder is there
+    let temp_results_path: &Path = &node_config.node.worker().paths.temp_results;
     if temp_results_path.exists() && !temp_results_path.is_dir() {
         return Err(PreprocessError::DirNotADirError{ what: "temporary results", path: temp_results_path.into() });
     } else if !temp_results_path.exists() {
@@ -410,10 +348,10 @@ pub async fn preprocess_transfer_tar(certs_path: impl AsRef<Path>, temp_data_pat
         .add_root_certificate(ca_cert)
         .identity(identity)
         .tls_sni(!is_ip_addr(&address));
-    if let Some(proxy_addr) = proxy_addr {
-        client = client.proxy(match Proxy::all(proxy_addr) {
+    if let Some(proxy_addr) = proxy {
+        client = client.proxy(match Proxy::all(&proxy_addr) {
             Ok(proxy) => proxy,
-            Err(err)  => { return Err(PreprocessError::ProxyCreateError { address: proxy_addr.into(), err }) },
+            Err(err)  => { return Err(PreprocessError::ProxyCreateError { address: proxy_addr, err }) },
         });
     }
     let client: Client = match client.build() {
@@ -476,7 +414,7 @@ pub async fn preprocess_transfer_tar(certs_path: impl AsRef<Path>, temp_data_pat
 /// Runs the given workflow by the checker to see if it's authorized.
 /// 
 /// # Arguments
-/// - `endpoint`: The address where the checker may be found.
+/// - `node_config`: The configuration for this node's environment. For us, contains if and where we should proxy the request through and where we may find the checker.
 /// - `workflow`: The workflow to check.
 /// - `container_hash`: The hash of the container that we may use to identify it.
 /// 
@@ -485,8 +423,7 @@ pub async fn preprocess_transfer_tar(certs_path: impl AsRef<Path>, temp_data_pat
 /// 
 /// # Errors
 /// This function errors if we failed to reach the checker, or the checker itself crashed.
-async fn assert_workflow_permission(endpoint: impl AsRef<str>, _workflow: &Workflow, container_hash: impl AsRef<str>) -> Result<bool, AuthorizeError> {
-    let _endpoint      : &str = endpoint.as_ref();
+async fn assert_workflow_permission(_node_config: &NodeConfig, _workflow: &Workflow, container_hash: impl AsRef<str>) -> Result<bool, AuthorizeError> {
     let container_hash : &str = container_hash.as_ref();
 
     // // Prepare the input struct
@@ -527,7 +464,7 @@ async fn assert_workflow_permission(endpoint: impl AsRef<str>, _workflow: &Workf
     debug!("Asserting if container hash '{}' equals Rosanne's container hash '{}'...", container_hash, rosanne_hash);
     if container_hash == rosanne_hash { return Ok(true) }
 
-    // OOtherwise, not allowed
+    // Otherwise, not allowed
     Ok(false)
 }
 
@@ -536,7 +473,7 @@ async fn assert_workflow_permission(endpoint: impl AsRef<str>, _workflow: &Workf
 /// Downloads a container to the local registry.
 /// 
 /// # Arguments
-/// - `einfo`: Defines information about the worker's environment. In this case, defines where to download packages to and if we should proxy the request.
+/// - `node_config`: The configuration for this node's environment. For us, contains if and where we should proxy the request through and where we may download package images to.
 /// - `endpoint`: The address where to download the container from.
 /// - `image`: The image name (including digest, for caching) to download.
 /// 
@@ -547,13 +484,13 @@ async fn assert_workflow_permission(endpoint: impl AsRef<str>, _workflow: &Workf
 /// 
 /// # Errors
 /// This function may error if we failed to reach the remote host, download the file or write the file.
-async fn download_container(einfo: &EnvironmentInfo, endpoint: impl AsRef<str>, image: &mut Image) -> Result<(PathBuf, String), ExecuteError> {
+async fn download_container(node_config: &NodeConfig, endpoint: impl AsRef<str>, image: &mut Image) -> Result<(PathBuf, String), ExecuteError> {
     let endpoint: &str = endpoint.as_ref();
     debug!("Downloading image '{}' from '{}'...", image, endpoint);
 
     // Check if we have already downloaded it, by any chance
-    let image_path : PathBuf = einfo.packages_path.join(format!("{}-{}.tar", image.name, image.version.as_ref().unwrap_or(&"latest".into())));
-    let hash_path  : PathBuf = einfo.packages_path.join(format!("{}-{}.sha256", image.name, image.version.as_ref().unwrap_or(&"latest".into())));
+    let image_path : PathBuf = node_config.node.worker().paths.packages.join(format!("{}-{}.tar", image.name, image.version.as_ref().unwrap_or(&"latest".into())));
+    let hash_path  : PathBuf = node_config.node.worker().paths.packages.join(format!("{}-{}.sha256", image.name, image.version.as_ref().unwrap_or(&"latest".into())));
     if image_path.exists() {
         debug!("Image file '{}' already exists; checking if it's up-to-date...", image_path.display());
 
@@ -591,10 +528,10 @@ async fn download_container(einfo: &EnvironmentInfo, endpoint: impl AsRef<str>, 
 
     // Setup the reqwest client
     let mut builder: ClientBuilder = Client::builder();
-    if let Some(proxy) = &einfo.proxy_address {
+    if let Some(proxy) = &node_config.proxy {
         builder = builder.proxy(match Proxy::all(proxy) {
             Ok(proxy) => proxy,
-            Err(err)  => { return Err(ExecuteError::ProxyCreateError { address: proxy.into(), err }) },
+            Err(err)  => { return Err(ExecuteError::ProxyCreateError { address: proxy.clone(), err }) },
         });
     }
     let client: Client = match builder.build() {
@@ -701,27 +638,26 @@ async fn hash_container(container_path: impl AsRef<Path>) -> Result<String, Exec
 /// Runs the given task on a local backend.
 /// 
 /// # Arguments
-/// - `socket_path`: Path to the Docker socket to connect to.
-/// - `client_version`: The version of the Docker client we will use to talk to the engine.
+/// - `node_config`: The configuration for this node's environment. For us, contains the location ID of this location and where to find data & intermediate results.
+/// - `dinfo`: Information that determines where and how to connect to the local Docker deamon.
 /// - `tx`: The transmission channel over which we should update the client of our progress.
 /// - `container_path`: The path of the downloaded container that we should execute.
-/// - `einfo`: The EnvironmentInfo that specifies where to find domain-local folders, services, etc.
 /// - `tinfo`: The TaskInfo that describes the task itself to execute.
+/// - `keep_container`: Whether to keep the container after execution or not.
 /// 
 /// # Returns
 /// The return value of the task when it completes..
 /// 
 /// # Errors
 /// This function errors if the task fails for whatever reason or we didn't even manage to launch it.
-async fn execute_task_local(socket_path: impl AsRef<str>, client_version: ClientVersion, tx: &Sender<Result<TaskReply, Status>>, container_path: impl AsRef<Path>, einfo: EnvironmentInfo, tinfo: TaskInfo) -> Result<FullValue, JobStatus> {
-    let socket_path    : &str     = socket_path.as_ref();
+async fn execute_task_local(node_config: &NodeConfig, dinfo: DockerInfo, tx: &Sender<Result<TaskReply, Status>>, container_path: impl AsRef<Path>, tinfo: TaskInfo, keep_container: bool) -> Result<FullValue, JobStatus> {
     let container_path : &Path    = container_path.as_ref();
     let mut tinfo      : TaskInfo = tinfo;
     let image          : Image    = tinfo.image.unwrap();
     debug!("Spawning container '{}' as a local container...", image);
 
     // First, we preprocess the arguments
-    let binds: Vec<VolumeBind> = match docker::preprocess_args(&mut tinfo.args, &tinfo.input, &tinfo.result, Some(&einfo.data_path), &einfo.results_path).await {
+    let binds: Vec<VolumeBind> = match docker::preprocess_args(&mut tinfo.args, &tinfo.input, &tinfo.result, Some(&node_config.node.worker().paths.data), &node_config.node.worker().paths.results).await {
         Ok(binds) => binds,
         Err(err)  => { return Err(JobStatus::CreationFailed(format!("Failed to preprocess arguments: {}", err))); },
     };
@@ -742,7 +678,7 @@ async fn execute_task_local(socket_path: impl AsRef<str>, client_version: Client
             "--application-id".into(),
             "unspecified".into(),
             "--location-id".into(),
-            einfo.location_id,
+            node_config.node.worker().location_id.clone(),
             "--job-id".into(),
             "unspecified".into(),
             tinfo.kind.unwrap().into(),
@@ -755,7 +691,7 @@ async fn execute_task_local(socket_path: impl AsRef<str>, client_version: Client
     );
 
     // Now we can launch the container...
-    let name: String = match docker::launch(info, socket_path, client_version).await {
+    let name: String = match docker::launch(info, &dinfo.socket_path, dinfo.client_version).await {
         Ok(name) => name,
         Err(err) => { return Err(JobStatus::CreationFailed(format!("Failed to spawn container: {}", err))); },
     };
@@ -763,7 +699,7 @@ async fn execute_task_local(socket_path: impl AsRef<str>, client_version: Client
     if let Err(err) = update_client(tx, JobStatus::Started).await { error!("{}", err); }
 
     // ...and wait for it to complete
-    let (code, stdout, stderr): (i32, String, String) = match docker::join(name, socket_path, client_version, einfo.keep_container).await {
+    let (code, stdout, stderr): (i32, String, String) = match docker::join(name, dinfo.socket_path, dinfo.client_version, keep_container).await {
         Ok(name) => name,
         Err(err) => { return Err(JobStatus::CompletionFailed(format!("Failed to join container: {}", err))); },
     };
@@ -797,19 +733,20 @@ async fn execute_task_local(socket_path: impl AsRef<str>, client_version: Client
 /// Runs the given task on the backend.
 /// 
 /// # Arguments
+/// - `node_config`: The configuration for this node's environment. For us, contains the location ID of this location and where to find data & intermediate results.
 /// - `tx`: The channel to transmit stuff back to the client on.
-/// - `einfo`: The EnvironmentInfo that specifies where to find domain-local folders, services, etc.
-/// - `cinfo`: The ControlNodeInfo that specifies where to find services over at the control node.
 /// - `workflow`: The Workflow that we're executing. Useful for communicating with the eFLINT backend.
+/// - `cinfo`: The ControlNodeInfo that specifies where to find services over at the control node.
 /// - `tinfo`: The TaskInfo that describes the task itself to execute.
+/// - `keep_container`: Whether to keep the container after execution or not.
 /// 
 /// # Returns
 /// Nothing directly, although it does communicate updates, results and errors back to the client via the given `tx`.
 /// 
 /// # Errors
 /// This fnction may error for many many reasons, but chief among those are unavailable backends or a crashing task.
-async fn execute_task(tx: Sender<Result<TaskReply, Status>>, einfo: EnvironmentInfo, cinfo: ControlNodeInfo, workflow: Workflow, tinfo: TaskInfo) -> Result<(), ExecuteError> {
-    let mut tinfo = tinfo;
+async fn execute_task(node_config: &NodeConfig, tx: Sender<Result<TaskReply, Status>>, workflow: Workflow, cinfo: ControlNodeInfo, tinfo: TaskInfo, keep_container: bool) -> Result<(), ExecuteError> {
+    let mut tinfo          = tinfo;
 
     // We update the user first on that the job has been received
     info!("Starting execution of task '{}'", tinfo.name);
@@ -835,19 +772,19 @@ async fn execute_task(tx: Sender<Result<TaskReply, Status>>, einfo: EnvironmentI
     tinfo.image = Some(Image::new(&tinfo.package_name, Some(tinfo.package_version.clone()), info.digest.clone()));
 
     // Now load the credentials file to get things going
-    let creds: CredsFile = match CredsFile::from_path(&einfo.creds_path) {
+    let creds: CredsFile = match CredsFile::from_path(&node_config.node.worker().paths.creds) {
         Ok(creds) => creds,
-        Err(err)  => { return err!(tx, ExecuteError::CredsFileError{ path: einfo.creds_path.clone(), err }); },
+        Err(err)  => { return err!(tx, ExecuteError::CredsFileError{ path: node_config.node.worker().paths.creds.clone(), err }); },
     };
 
     // Download the container from the central node
-    let (container_path, container_hash): (PathBuf, String) = download_container(&einfo, &cinfo.api_endpoint, tinfo.image.as_mut().unwrap()).await?;
+    let (container_path, container_hash): (PathBuf, String) = download_container(node_config, &cinfo.api_endpoint, tinfo.image.as_mut().unwrap()).await?;
 
 
 
     /* AUTHORIZATION */
     // First: make sure that the workflow is allowed by the checker
-    match assert_workflow_permission(&einfo.checker_endpoint, &workflow, container_hash).await {
+    match assert_workflow_permission(node_config, &workflow, container_hash).await {
         Ok(true) => {
             debug!("Checker accepted incoming workflow");
             if let Err(err) = update_client(&tx, JobStatus::Authorized).await { error!("{}", err); }
@@ -855,11 +792,11 @@ async fn execute_task(tx: Sender<Result<TaskReply, Status>>, einfo: EnvironmentI
         Ok(false) => {
             debug!("Checker rejected incoming workflow");
             if let Err(err) = update_client(&tx, JobStatus::Denied).await { error!("{}", err); }
-            return Err(ExecuteError::AuthorizationFailure{ checker: einfo.checker_endpoint });
+            return Err(ExecuteError::AuthorizationFailure{ checker: node_config.node.worker().services.reg.clone() });
         },
 
         Err(err) => {
-            return err!(tx, JobStatus::AuthorizationFailed, ExecuteError::AuthorizationError{ checker: einfo.checker_endpoint.clone(), err });
+            return err!(tx, JobStatus::AuthorizationFailed, ExecuteError::AuthorizationError{ checker: node_config.node.worker().services.reg.clone(), err });
         },
     }
 
@@ -869,7 +806,11 @@ async fn execute_task(tx: Sender<Result<TaskReply, Status>>, einfo: EnvironmentI
     // Match on the specific type to find the specific backend
     let value: FullValue = match creds.method {
         Credentials::Local { path, version } => {
-            match execute_task_local(path.unwrap_or_else(|| PathBuf::from("/var/run/docker.sock")).to_string_lossy(), version.map(|(major, minor)| ClientVersion{ major_version: major, minor_version: minor }).unwrap_or(*API_DEFAULT_VERSION), &tx, container_path, einfo, tinfo).await {
+            // Prepare the DockerInfo
+            let dinfo: DockerInfo = DockerInfo::new(path.unwrap_or_else(|| PathBuf::from("/var/run/docker.sock")), version.map(|(major, minor)| ClientVersion{ major_version: major, minor_version: minor }).unwrap_or(*API_DEFAULT_VERSION));
+
+            // Do the call
+            match execute_task_local(node_config, dinfo, &tx, container_path, tinfo, keep_container).await {
                 Ok(value)   => value,
                 Err(status) => {
                     error!("Job failed with status: {:?}", status);
@@ -911,16 +852,14 @@ async fn execute_task(tx: Sender<Result<TaskReply, Status>>, einfo: EnvironmentI
 /// Commits the given intermediate result.
 /// 
 /// # Arguments
-/// - `data_path`: Path to the shared data directory with the registry. We will update this directory as needed.
+/// - `node_config`: The configuration for this node's environment. For us, contains where to read intermediate results from and data to.
 /// - `results_path`: Path to the shared data results directory. This is where the results live.
 /// - `name`: The name of the intermediate result to promote.
 /// - `data_name`: The name of the intermediate result to promote it as.
 /// 
 /// # Errors
 /// This function may error for many many reasons, but chief among those are unavailable registries and such.
-async fn commit_result(data_path: impl AsRef<Path>, results_path: impl AsRef<Path>, name: impl AsRef<str>, data_name: impl AsRef<str>) -> Result<(), CommitError> {
-    let data_path    : &Path = data_path.as_ref();
-    let results_path : &Path = results_path.as_ref();
+async fn commit_result(node_config: &NodeConfig, name: impl AsRef<str>, data_name: impl AsRef<str>) -> Result<(), CommitError> {
     let name         : &str  = name.as_ref();
     let data_name    : &str  = data_name.as_ref();
     debug!("Commit intermediate result '{}' as '{}'...", name, data_name);
@@ -928,6 +867,7 @@ async fn commit_result(data_path: impl AsRef<Path>, results_path: impl AsRef<Pat
 
 
     // Step 1: Check if the dataset already exists (locally)
+    let data_path: &Path = &node_config.node.worker().paths.data;
     let info: Option<AssetInfo> = {
         // Get the entries in the dataset directory
         let mut entries: tfs::ReadDir = match tfs::read_dir(data_path).await {
@@ -988,6 +928,7 @@ async fn commit_result(data_path: impl AsRef<Path>, results_path: impl AsRef<Pat
 
 
     // Step 2: Match on whether it already exists or not and copy the file
+    let results_path: &Path = &node_config.node.worker().paths.results;
     if let Some(info) = info {
         debug!("Dataset '{}' already exists; overwriting file...", data_name);
 
@@ -1074,22 +1015,26 @@ async fn commit_result(data_path: impl AsRef<Path>, results_path: impl AsRef<Pat
 /// Defines a server for incoming worker requests.
 #[derive(Debug)]
 pub struct WorkerServer {
-    /// The information about the local environment that we store.
-    env_info : EnvironmentInfo,
+    /// The path to the node config file that we store.
+    node_config_path : PathBuf,
+    /// Whether to remove containers after execution or not (but negated).
+    keep_containers  : bool,
 }
 
 impl WorkerServer {
     /// Constructor for the JobHandler.
     /// 
     /// # Arguments
-    /// - `env_info`: The EnvironmentInfo struct with everything we need to know about the local envirresults_dironment.
+    /// - `node_config_path`: The path to the `node.yml` file that describes this node's environment.
+    /// - `keep_containers`: If true, then we will not remove containers after execution (useful for debugging).
     /// 
     /// # Returns
     /// A new JobHandler instance.
     #[inline]
-    pub fn new(env_info: EnvironmentInfo) -> Self {
+    pub fn new(node_config_path: impl Into<PathBuf>, keep_containers: bool) -> Self {
         Self {
-            env_info,
+            node_config_path : node_config_path.into(),
+            keep_containers,
         }
     }
 }
@@ -1130,8 +1075,17 @@ impl JobService for WorkerServer {
                     },
                 };
 
+                // Load the node config file
+                let node_config: NodeConfig = match NodeConfig::from_path(&self.node_config_path) {
+                    Ok(config) => config,
+                    Err(err)   => {
+                        error!("{}", err);
+                        return Err(Status::internal("An internal error occurred"));
+                    },
+                };
+
                 // Run the function that way
-                let access: AccessKind = match preprocess_transfer_tar(&self.env_info.certs_path, &self.env_info.temp_data_path, &self.env_info.temp_results_path, &self.env_info.proxy_address, location, address, data_name).await {
+                let access: AccessKind = match preprocess_transfer_tar(&node_config, node_config.proxy.clone(), location, address, data_name).await {
                     Ok(access) => access,
                     Err(err)   => {
                         error!("{}", err);
@@ -1213,6 +1167,15 @@ impl JobService for WorkerServer {
             },
         };
 
+        // Load the node config file
+        let node_config: NodeConfig = match NodeConfig::from_path(&self.node_config_path) {
+            Ok(config) => config,
+            Err(err)   => {
+                error!("{}", err);
+                return Err(Status::internal("An internal error occurred"));
+            },
+        };
+
         // Collect some request data into ControlNodeInfo's and TaskInfo's.
         let cinfo : ControlNodeInfo = ControlNodeInfo::new(request.api);
         let tinfo : TaskInfo        = TaskInfo::new(
@@ -1225,8 +1188,12 @@ impl JobService for WorkerServer {
             args,
         );
 
-        // Now move the rest to a separate thread
-        tokio::spawn(execute_task(tx, self.env_info.clone(), cinfo, workflow, tinfo));
+        // Now move the rest to a separate task so we can return the start of the stream
+        let keep_containers: bool = self.keep_containers;
+        tokio::spawn(async move {
+            let node_config: NodeConfig = node_config;
+            execute_task(&node_config, tx, workflow, cinfo, tinfo, keep_containers).await
+        });
 
         // Return the stream so the user can get updates
         Ok(Response::new(ReceiverStream::new(rx)))
@@ -1238,8 +1205,17 @@ impl JobService for WorkerServer {
         let request = request.into_inner();
         debug!("Receiving commit request");
 
+        // Load the node config file
+        let node_config: NodeConfig = match NodeConfig::from_path(&self.node_config_path) {
+            Ok(config) => config,
+            Err(err)   => {
+                error!("{}", err);
+                return Err(Status::internal("An internal error occurred"));
+            },
+        };
+
         // Run the function
-        if let Err(err) = commit_result(&self.env_info.data_path, &self.env_info.results_path, &request.name, &request.data_name).await {
+        if let Err(err) = commit_result(&node_config, &request.name, &request.data_name).await {
             error!("{}", err);
             return Err(Status::internal("An internal error occurred"));
         }

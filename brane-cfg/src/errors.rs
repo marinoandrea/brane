@@ -4,7 +4,7 @@
 //  Created:
 //    04 Oct 2022, 11:09:56
 //  Last edited:
-//    16 Nov 2022, 17:41:06
+//    21 Nov 2022, 17:23:52
 //  Auto updated?
 //    Yes
 // 
@@ -132,6 +132,29 @@ impl Error for CredsFileError {}
 
 
 
+/// Errors that relate to parsing Addresses.
+#[derive(Debug)]
+pub enum AddressParseError {
+    /// Missing the colon separator (':') in the address.
+    MissingColon{ raw: String },
+    /// Invalid port number.
+    IllegalPortNumber{ raw: String, err: std::num::ParseIntError },
+}
+
+impl Display for AddressParseError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
+        use AddressParseError::*;
+        match self {
+            MissingColon{ raw }           => write!(f, "Missing address/port separator ':' in '{}' (did you forget to define a port?)", raw),
+            IllegalPortNumber{ raw, err } => write!(f, "Illegal port number '{}': {}", raw, err),
+        }
+    }
+}
+
+impl Error for AddressParseError {}
+
+
+
 /// Errors that relate to a NodeConfig.
 #[derive(Debug)]
 pub enum NodeConfigError {
@@ -151,6 +174,9 @@ pub enum NodeConfigError {
     FileWriteError{ path: PathBuf, err: std::io::Error },
     /// Failed to serialze the NodeConfig.
     ConfigSerializeError{ err: serde_yaml::Error },
+
+    /// Failed to write to the given writer.
+    WriterWriteError{ err: std::io::Error },
 }
 
 impl Display for NodeConfigError {
@@ -166,6 +192,8 @@ impl Display for NodeConfigError {
             FileCreateError{ path, err } => write!(f, "Failed to create the node config file '{}': {}", path.display(), err),
             FileWriteError{ path, err }  => write!(f, "Failed to write to the ndoe config file '{}': {}", path.display(), err),
             ConfigSerializeError{ err }  => write!(f, "Failed to serialize node config to YAML: {}", err),
+
+            WriterWriteError{ err } => write!(f, "Failed to write to given writer: {}", err),
         }
     }
 }

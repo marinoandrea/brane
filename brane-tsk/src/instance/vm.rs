@@ -4,7 +4,7 @@
 //  Created:
 //    27 Oct 2022, 10:14:26
 //  Last edited:
-//    16 Nov 2022, 10:52:39
+//    21 Nov 2022, 15:08:07
 //  Auto updated?
 //    Yes
 // 
@@ -15,7 +15,7 @@
 //!   complicating the `stdout()` function.
 // 
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use log::{debug, info, warn};
@@ -28,6 +28,7 @@ use brane_ast::Workflow;
 use brane_ast::locations::Location;
 use brane_ast::ast::DataName;
 use brane_cfg::{InfraFile, InfraPath};
+use brane_cfg::node::NodeConfig;
 use brane_exe::{Error as VmError, FullValue, RunState, Vm};
 use brane_exe::spec::{TaskInfo, VmPlugin};
 use brane_shr::debug::EnumDebug;
@@ -74,11 +75,17 @@ impl VmPlugin for InstancePlugin {
 
         // Resolve the location to an address
         let delegate_address: String = {
-            // Load the infrastructure file
+            // Load the node config file to get the path to...
             let state : RwLockReadGuard<GlobalState> = global.read().unwrap();
-            let infra : InfraFile                    = match InfraFile::from_path(&state.infra_path) {
+            let node_config: NodeConfig = match NodeConfig::from_path(&state.node_config_path) {
+                Ok(config) => config,
+                Err(err)   => { return Err(PreprocessError::NodeConfigReadError{ path: state.node_config_path.clone(), err }); },
+            };
+
+            // ...the infrastructure file
+            let infra : InfraFile = match InfraFile::from_path(InfraPath::new(&node_config.node.central().paths.infra, &node_config.node.central().paths.secrets)) {
                 Ok(infra) => infra,
-                Err(err)  => { return Err(PreprocessError::InfraReadError{ path: state.infra_path.infra.clone(), err }); },  
+                Err(err)  => { return Err(PreprocessError::InfraReadError{ path: node_config.node.central().paths.infra.clone(), err }); },  
             };
 
             // Resolve to an address
@@ -142,11 +149,16 @@ impl VmPlugin for InstancePlugin {
 
         // Resolve the location to an address
         let (api_address, delegate_address, workflow): (String, String, String) = {
-            // Load the infrastructure file
             let state : RwLockReadGuard<GlobalState> = global.read().unwrap();
-            let infra : InfraFile                    = match InfraFile::from_path(&state.infra_path) {
+            let node_config: NodeConfig = match NodeConfig::from_path(&state.node_config_path) {
+                Ok(config) => config,
+                Err(err)   => { return Err(ExecuteError::NodeConfigReadError{ path: state.node_config_path.clone(), err }); },
+            };
+
+            // ...the infrastructure file
+            let infra : InfraFile = match InfraFile::from_path(InfraPath::new(&node_config.node.central().paths.infra, &node_config.node.central().paths.secrets)) {
                 Ok(infra) => infra,
-                Err(err)  => { return Err(ExecuteError::InfraReadError{ path: state.infra_path.infra.clone(), err }); },  
+                Err(err)  => { return Err(ExecuteError::InfraReadError{ path: node_config.node.central().paths.infra.clone(), err }); },  
             };
 
             // Resolve to an address and return that with the other addresses
@@ -310,11 +322,16 @@ impl VmPlugin for InstancePlugin {
 
         // Resolve the location to an address
         let delegate_address: String = {
-            // Load the infrastructure file
             let state : RwLockReadGuard<GlobalState> = global.read().unwrap();
-            let infra : InfraFile                    = match InfraFile::from_path(&state.infra_path) {
+            let node_config: NodeConfig = match NodeConfig::from_path(&state.node_config_path) {
+                Ok(config) => config,
+                Err(err)   => { return Err(CommitError::NodeConfigReadError{ path: state.node_config_path.clone(), err }); },
+            };
+
+            // ...the infrastructure file
+            let infra : InfraFile = match InfraFile::from_path(InfraPath::new(&node_config.node.central().paths.infra, &node_config.node.central().paths.secrets)) {
                 Ok(infra) => infra,
-                Err(err)  => { return Err(CommitError::InfraReadError{ path: state.infra_path.infra.clone(), err }); },  
+                Err(err)  => { return Err(CommitError::InfraReadError{ path: node_config.node.central().paths.infra.clone(), err }); },  
             };
 
             // Resolve to an address
@@ -370,17 +387,18 @@ impl InstanceVm {
     /// Constructor for the InstanceVm.
     /// 
     /// # Arguments
-    /// - `infra_path`: Path to the infrastructure file that we use to map locations to delegates.
+    /// - `node_config_path`: The path to the configuration for this node's environment. For us, contains the path to the infra.yml and (optional) secrets.yml files.
     /// - `app_id`: The application ID for this session.
     /// - `planner`: The client-side of a planner that we use to plan.
     /// 
     /// # Returns
     /// A new InstanceVm instance.
     #[inline]
-    pub fn new(infra_path: impl Into<InfraPath>, app_id: AppId, planner: Arc<InstancePlanner>) -> Self {
+    pub fn new(node_config_path: impl Into<PathBuf>, app_id: AppId, planner: Arc<InstancePlanner>) -> Self {
         Self {
+            // InfraPath::new(&node_config.node.central().paths.infra, &node_config.node.central().paths.secrets)
             state : Self::new_state(GlobalState {
-                infra_path : infra_path.into(),
+                node_config_path : node_config_path.into(),
                 app_id,
 
                 workflow : None,

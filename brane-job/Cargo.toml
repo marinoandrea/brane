@@ -14,6 +14,7 @@ tokio = { version = "1", features = [] }
 tonic = "0.5"
 xenon-rs = "0.4"
 
+brane-cfg = { path = "../brane-cfg" }
 brane-tsk = { path = "../brane-tsk" }
 
 [dev-dependencies]

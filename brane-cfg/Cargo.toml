@@ -5,7 +5,6 @@ authors = ["Onno Valkering", "Tim Müller"]
 edition = "2018"
 
 [dependencies]
-kube = "0.72"
 log = "0.4"
 rustls = "0.20.7"
 rustls-pemfile = "1.0.1"

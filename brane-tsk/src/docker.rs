@@ -4,7 +4,7 @@
 //  Created:
 //    19 Sep 2022, 14:57:17
 //  Last edited:
-//    15 Nov 2022, 16:27:55
+//    21 Nov 2022, 11:26:12
 //  Auto updated?
 //    Yes
 // 
@@ -638,11 +638,11 @@ pub async fn get_digest(path: impl AsRef<Path>) -> Result<String, Error> {
 /// 
 /// # Errors
 /// This function errors for many reasons, some of which include not being able to connect to Docker or the container failing (to start).
-pub async fn launch(exec: ExecuteInfo, path: impl AsRef<str>, version: ClientVersion) -> Result<String, Error> {
-    let path: &str = path.as_ref();
+pub async fn launch(exec: ExecuteInfo, path: impl AsRef<Path>, version: ClientVersion) -> Result<String, Error> {
+    let path: &Path = path.as_ref();
 
     // Connect to docker
-    let docker = match Docker::connect_with_unix(path, 120, &version) {
+    let docker = match Docker::connect_with_unix(&path.to_string_lossy(), 120, &version) {
         Ok(res)     => res,
         Err(reason) => { return Err(Error::ConnectionError{ path: path.into(), version, err: reason }); }
     };
@@ -667,12 +667,12 @@ pub async fn launch(exec: ExecuteInfo, path: impl AsRef<str>, version: ClientVer
 /// 
 /// # Errors
 /// This function may error for many reasons, which usually means that the container is unknown or the Docker engine is unreachable.
-pub async fn join(name: impl AsRef<str>, path: impl AsRef<str>, version: ClientVersion, keep_container: bool) -> Result<(i32, String, String), Error> {
-    let name : &str = name.as_ref();
-    let path : &str = path.as_ref();
+pub async fn join(name: impl AsRef<str>, path: impl AsRef<Path>, version: ClientVersion, keep_container: bool) -> Result<(i32, String, String), Error> {
+    let name : &str  = name.as_ref();
+    let path : &Path = path.as_ref();
 
     // Connect to docker
-    let docker = match Docker::connect_with_unix(path, 120, &version) {
+    let docker = match Docker::connect_with_unix(&path.to_string_lossy(), 120, &version) {
         Ok(res)     => res,
         Err(reason) => { return Err(Error::ConnectionError{ path: path.into(), version, err: reason }); }
     };

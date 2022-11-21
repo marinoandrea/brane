@@ -4,7 +4,7 @@
 //  Created:
 //    24 Oct 2022, 15:27:26
 //  Last edited:
-//    18 Nov 2022, 15:39:08
+//    21 Nov 2022, 15:09:46
 //  Auto updated?
 //    Yes
 // 
@@ -22,6 +22,7 @@ use tonic::Status;
 
 use brane_ast::locations::{Location, Locations};
 use brane_ast::ast::DataName;
+use brane_cfg::node::Address;
 use brane_shr::debug::{BlockFormatter, Capitalizeable, EnumDebug};
 use specifications::container::Image;
 use specifications::planning::PlanningStatusKind;
@@ -146,6 +147,8 @@ pub enum PreprocessError {
     UnavailableData{ name: DataName },
 
     // Instance only (client-side)
+    /// Failed to load the node config file.
+    NodeConfigReadError{ path: PathBuf, err: brane_cfg::node::Error },
     /// Failed to load the infra file.
     InfraReadError{ path: PathBuf, err: brane_cfg::Error },
     /// The given location was unknown.
@@ -212,6 +215,7 @@ impl Display for PreprocessError {
         match self {
             UnavailableData{ name } => write!(f, "{} '{}' is not available locally", name.variant(), name.name()),
 
+            NodeConfigReadError{ err, .. }               => write!(f, "Failed to load node config file: {}", err),
             InfraReadError{ path, err }                  => write!(f, "Failed to load infrastructure file '{}': {}", path.display(), err),
             UnknownLocationError{ loc }                  => write!(f, "Unknown location '{}'", loc),
             GrpcConnectError{ endpoint, err }            => write!(f, "Failed to start gRPC connection with delegate node '{}': {}", endpoint, err),
@@ -289,6 +293,8 @@ pub enum ExecuteError {
     StatusTripletParseError{ status: TaskStatus, raw: String, err: serde_json::Error },
     /// Failed to update the client of a status change.
     ClientUpdateError{ status: TaskStatus, err: tokio::sync::mpsc::error::SendError<Result<TaskReply, Status>> },
+    /// Failed to load the node config file.
+    NodeConfigReadError{ path: PathBuf, err: brane_cfg::node::Error },
     /// Failed to load the infra file.
     InfraReadError{ path: PathBuf, err: brane_cfg::Error },
     /// The given location was unknown.
@@ -328,9 +334,9 @@ pub enum ExecuteError {
     ImageReadError{ path: PathBuf, err: std::io::Error },
 
     /// The checker rejected the workflow.
-    AuthorizationFailure{ checker: String },
+    AuthorizationFailure{ checker: Address },
     /// The checker failed to check workflow authorization.
-    AuthorizationError{ checker: String, err: AuthorizeError },
+    AuthorizationError{ checker: Address, err: AuthorizeError },
     /// Failed to get an up-to-date package index.
     PackageIndexError{ endpoint: String, err: ApiError },
     /// Failed to load the credentials file.
@@ -359,6 +365,7 @@ impl Display for ExecuteError {
             StatusValueParseError{ status, raw, err }   => write!(f, "Failed to parse '{}' as a FullValue in incoming status update {:?}: {}", raw, status, err),
             StatusTripletParseError{ status, raw, err } => write!(f, "Failed to parse '{}' as a return code/stdout/stderr triplet in incoming status update {:?}: {}", raw, status, err),
             ClientUpdateError{ status, err }            => write!(f, "Failed to update client of status {:?}: {}", status, err),
+            NodeConfigReadError{ err, .. }              => write!(f, "Failed to load node config file: {}", err),
             InfraReadError{ path, err }                 => write!(f, "Failed to load infrastructure file '{}': {}", path.display(), err),
             UnknownLocationError{ loc }                 => write!(f, "Unknown location '{}'", loc),
             GrpcConnectError{ endpoint, err }           => write!(f, "Failed to start gRPC connection with delegate node '{}': {}", endpoint, err),
@@ -455,6 +462,8 @@ pub enum CommitError {
     DataCopyError{ err: brane_shr::fs::Error },
 
     // Instance-only (client side)
+    /// Failed to load the node config file.
+    NodeConfigReadError{ path: PathBuf, err: brane_cfg::node::Error },
     /// Failed to load the infra file.
     InfraReadError{ path: PathBuf, err: brane_cfg::Error },
     /// The given location was unknown.
@@ -491,6 +500,7 @@ impl Display for CommitError {
             DirEntryReadError{ path, i, err }    => write!(f, "Failed to read entry {} in directory '{}': {}", i, path.display(), err),
             DataCopyError{ err }                 => write!(f, "Failed to copy data directory: {}", err),
 
+            NodeConfigReadError{ err, .. }          => write!(f, "Failed to load node config file: {}", err),
             InfraReadError{ path, err }             => write!(f, "Failed to load infrastructure file '{}': {}", path.display(), err),
             UnknownLocationError{ loc }             => write!(f, "Unknown location '{}'", loc),
             GrpcConnectError{ endpoint, err }       => write!(f, "Failed to start gRPC connection with delegate node '{}': {}", endpoint, err),
@@ -534,7 +544,7 @@ impl Error for IdError {}
 #[derive(Debug)]
 pub enum DockerError {
     /// We failed to connect to the local Docker daemon.
-    ConnectionError{ path: String, version: ClientVersion, err: bollard::errors::Error },
+    ConnectionError{ path: PathBuf, version: ClientVersion, err: bollard::errors::Error },
 
     /// Failed to wait for the container with the given name.
     WaitError{ name: String, err: bollard::errors::Error },
@@ -595,7 +605,7 @@ impl Display for DockerError {
     fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
         use DockerError::*;
         match self {
-            ConnectionError{ path, version, err } => write!(f, "Failed to connect to the local Docker daemon through socket '{}' and with client version {}: {}", path, version, err),
+            ConnectionError{ path, version, err } => write!(f, "Failed to connect to the local Docker daemon through socket '{}' and with client version {}: {}", path.display(), version, err),
 
             WaitError{ name, err } => write!(f, "Failed to wait for Docker container with name '{}': {}", name, err),
             LogsError{ name, err } => write!(f, "Failed to get logs of Docker container with name '{}': {}", name, err),
