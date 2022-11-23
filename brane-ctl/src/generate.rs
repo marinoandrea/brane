@@ -4,7 +4,7 @@
 //  Created:
 //    21 Nov 2022, 15:40:47
 //  Last edited:
-//    21 Nov 2022, 17:50:04
+//    23 Nov 2022, 14:16:49
 //  Auto updated?
 //    Yes
 // 
@@ -12,47 +12,21 @@
 //!   Handles commands relating to node.yml generation.
 // 
 
-use std::ffi::OsStr;
 use std::fs::File;
 use std::io::Write;
-use std::path::{Component, Path, PathBuf};
+use std::path::PathBuf;
 
 use console::style;
 use log::{debug, info};
 
-use brane_cfg::node::{CentralConfig, NodeConfig};
+use brane_cfg::node::{Address, CentralConfig, CentralKafkaTopics, CentralPaths, CentralPorts, CentralServices, CommonPaths, CommonPorts, CommonServices, NodeConfig, NodeKindConfig, WorkerConfig, WorkerPaths, WorkerPorts, WorkerServices};
 
 pub use crate::errors::GenerateError as Error;
-use crate::specs::GenerateSubcommand;
+use crate::spec::GenerateSubcommand;
+use crate::utils::resolve_config_path;
 
 
 /***** HELPER FUNCTIONS ******/
-/// Function that resolves the given config path.
-/// 
-/// Effectively replaces '$CONFIG' by the path given.
-/// 
-/// # Arguments
-/// - ``
-/// 
-/// # Returns
-/// The same path as given, but now resolved.
-fn resolve_config_path(path: PathBuf, config_path: impl AsRef<Path>) -> PathBuf {
-    let config_path: &Path = config_path.as_ref();
-
-    // Iterate over the parts to re-create it
-    let mut result: PathBuf = PathBuf::new();
-    for c in path.components() {
-        if c == Component::Normal(OsStr::new("$CONFIG")) {
-            result = result.join(config_path);
-        } else {
-            result = result.join(c);
-        }
-    }
-
-    // Done
-    result
-}
-
 /// Function that writes the standard node.yml header to the given writer.
 /// 
 /// # Arguments
@@ -74,7 +48,7 @@ fn write_header(writer: &mut impl Write) -> Result<(), std::io::Error> {
     writeln!(writer, "# will be reloaded dynamically by the services themselves.")?;
     writeln!(writer, "# ")?;
     writeln!(writer, "# For an overview of what you can do in this file, refer to")?;
-    writeln!(writer, "# https://wiki.enablingpersonalizedinterventions.nl/user-guide/TODO")?;
+    writeln!(writer, "# https://wiki.enablingpersonalizedinterventions.nl/user-guide/system-admins/docs/config/node.md")?;
     writeln!(writer, "# ")?;
     writeln!(writer)?;
     writeln!(writer)?;
@@ -88,90 +62,75 @@ fn write_header(writer: &mut impl Write) -> Result<(), std::io::Error> {
 
 
 /***** LIBRARY *****/
-/// Handles generating a new `node.yml` config file for a central node.
+/// Handles generating a new `node.yml` config file for a central _or_ worker node.
 /// 
 /// # Arguments
 /// - `path`: The path to write the central node.yml to.
-/// - `command`: The GenerateSubcommand that contains the specific values to override.
+/// - `proxy`: The address to proxy to, if any (not the address of the proxy service, but rather that of a 'real' proxy).
+/// - `config_path`: The path to the config directory that other paths may use as their base.
+/// - `common_paths`: Paths that are used by any kind of node.
+/// - `common_ports': Ports for services that occur on any kind of node.
+/// - `common_services`: Addresses to services that occur on any kind of node.
+/// - `command`: The GenerateSubcommand that contains the specific values to write, as well as whether to write a central or worker node.
 /// 
 /// # Returns
 /// Nothing, but does write a new file to the given path and updates the user on stdout on success.
 /// 
 /// # Errors
 /// This function may error if I/O errors occur while writing the file.
-pub fn central(path: impl Into<PathBuf>, command: GenerateSubcommand) -> Result<(), Error> {
-    let path: PathBuf = path.into();
-    info!("Generating default node.yml for a central node...");
-
-    // Unpack the command
-    let (config_path, infra_path, secrets_path, certs_path, api_addr, drv_addr, plr_cmd_topic, plr_res_topic) = match command {
-        GenerateSubcommand::Central { config_path, infra_path, secrets_path, certs_path, api_addr, drv_addr, plr_cmd_topic, plr_res_topic } => (config_path, infra_path, secrets_path, certs_path, api_addr, drv_addr, plr_cmd_topic, plr_res_topic),
-        GenerateSubcommand::Worker { .. } => panic!("Cannot run central() with a non-GenerateSubcommand::Central"),
-    };
-
-    // Find the default
-    debug!("Generating defaults...");
-    let mut node_config: NodeConfig = NodeConfig::new_central();
-    let node: &mut CentralConfig = node_config.node.central_mut();
-
-    // Overwrite where necessary
-    let override_config: bool = config_path.is_some();
-    let mut config: PathBuf = "./config".into();
-    if let Some(path) = config_path { config = path; }
-    if let Some(path) = infra_path { node.paths.infra = resolve_config_path(path, &config); }
-    else if override_config { node.paths.infra = config.join("infra.yml"); }
-    if let Some(path) = secrets_path { node.paths.secrets = resolve_config_path(path, &config); }
-    else if override_config { node.paths.secrets = config.join("secrets.yml"); }
-    if let Some(path) = certs_path { node.paths.certs = resolve_config_path(path, &config); }
-    else if override_config { node.paths.certs = config.join("certs"); }
-    if let Some(addr) = api_addr { node.ports.api = addr; }
-    if let Some(addr) = drv_addr { node.ports.drv = addr; }
-    if let Some(topic) = plr_cmd_topic { node.topics.planner_command = topic; }
-    if let Some(topic) = plr_res_topic { node.topics.planner_results = topic; }
-
-    // Open the file and write a header to it
-    debug!("Writing to '{}'...", path.display());
-    let mut handle: File = match File::create(&path) {
-        Ok(handle) => handle,
-        Err(err)   => { return Err(Error::FileCreateError{ path, err }); },
-    };
-
-    // Write the top comment header thingy
-    if let Err(err) = write_header(&mut handle) { return Err(Error::FileHeaderWriteError { path, err }); }
-    // Write the file itself
-    if let Err(err) = node_config.to_writer(handle) { return Err(Error::FileBodyWriteError { path, err }); }
-
-    // Done
-    println!("Successfully generated {}", style(path.display().to_string()).bold().green());
-    Ok(())
-}
-
-
-
-/// Handles generating a new `node.yml` config file for a worker node.
-/// 
-/// # Arguments
-/// - `path`: The path to write the worker node.yml to.
-/// - `command`: The GenerateSubcommand that contains the specific values to override.
-/// 
-/// # Returns
-/// Nothing, but does write a new file to the given path and updates the user on stdout on success.
-/// 
-/// # Errors
-/// This function may error if I/O errors occur while writing the file.
-pub fn worker(path: impl Into<PathBuf>, command: GenerateSubcommand) -> Result<(), Error> {
+pub fn generate(path: impl Into<PathBuf>, proxy: Option<Address>, config_path: impl Into<PathBuf>, common_paths: CommonPaths, common_ports: CommonPorts, common_services: CommonServices, command: GenerateSubcommand) -> Result<(), Error> {
     let path        : PathBuf = path.into();
-    info!("Generating default node.yml for a worker node...");
+    let config_path : PathBuf = config_path.into();
+    info!("Generating default node.yml for a {}...", match &command { GenerateSubcommand::Central { .. } => { "central node".into() }, GenerateSubcommand::Worker{ location_id, .. } => { format!("worker node with location ID '{}'", location_id) } });
 
-    // Unpack the command
-    let (location_id,) = match command {
-        GenerateSubcommand::Worker { location_id } => (location_id,),
-        GenerateSubcommand::Central { .. } => panic!("Cannot run worker() with a non-GenerateSubcommand::Worker"),
+    // Build the NodeConfig
+    debug!("Generating node config...");
+    let node_config: NodeConfig = match command {
+        // Generate the central node
+        GenerateSubcommand::Central { infra_path, secrets_path, api_addr, drv_addr, brokers, scylla_svc, api_svc, plr_cmd_topic, plr_res_topic } => {
+            NodeConfig {
+                proxy,
+
+                paths    : common_paths,
+                ports    : common_ports,
+                services : common_services,
+
+                node : NodeKindConfig::Central(CentralConfig {
+                    paths : CentralPaths {
+                        infra    : resolve_config_path(infra_path, &config_path),
+                        secrets  : resolve_config_path(secrets_path, &config_path),
+                    },
+                    ports    : CentralPorts { api: api_addr, drv: drv_addr },
+                    services : CentralServices{ brokers, scylla: scylla_svc, api: api_svc },
+                    topics   : CentralKafkaTopics{ planner_command: plr_cmd_topic, planner_results: plr_res_topic },
+                }),
+            }
+        },
+
+        // Generate the worker node
+        GenerateSubcommand::Worker { location_id, creds_path, data_path, results_path, temp_data_path, temp_results_path, reg_addr, job_addr, reg_svc, chk_svc } => {
+            NodeConfig {
+                proxy,
+
+                paths    : common_paths,
+                ports    : common_ports,
+                services : common_services,
+
+                node : NodeKindConfig::Worker(WorkerConfig {
+                    location_id,
+                    paths : WorkerPaths {
+                        creds        : resolve_config_path(creds_path, &config_path),
+                        data         : data_path,
+                        results      : results_path,
+                        temp_data    : temp_data_path,
+                        temp_results : temp_results_path,
+                    },
+                    ports    : WorkerPorts { reg: reg_addr, job: job_addr },
+                    services : WorkerServices { reg: reg_svc, chk: chk_svc },
+                }),
+            }
+        },
     };
-
-    // Find the default
-    debug!("Generating defaults...");
-    let node_config: NodeConfig = NodeConfig::new_worker(location_id);
 
     // Open the file and write a header to it
     debug!("Writing to '{}'...", path.display());

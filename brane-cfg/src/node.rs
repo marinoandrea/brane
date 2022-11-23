@@ -4,7 +4,7 @@
 //  Created:
 //    16 Nov 2022, 16:54:43
 //  Last edited:
-//    21 Nov 2022, 17:34:47
+//    23 Nov 2022, 17:33:38
 //  Auto updated?
 //    Yes
 // 
@@ -126,6 +126,16 @@ impl Address {
     pub fn serialize<'a>(&'a self) -> impl 'a + Display { self }
 }
 
+impl EnumDebug for Address {
+    fn fmt_name(&self, f: &mut Formatter<'_>) -> FResult {
+        use Address::*;
+        match self {
+            Ipv4(_, _)     => write!(f, "IPv4"),
+            Ipv6(_, _)     => write!(f, "IPv6"),
+            Hostname(_, _) => write!(f, "Hostname"),
+        }
+    }
+}
 impl Display for Address {
     fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
         use Address::*;
@@ -136,6 +146,7 @@ impl Display for Address {
         }
     }
 }
+
 impl Serialize for Address {
     #[inline]
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -200,12 +211,11 @@ impl FromStr for Address {
         // Resolve the address to a new instance of ourselves
         match Ipv6Addr::from_str(address) {
             Ok(address) => Ok(Self::Ipv6(address, port)),
-            Err(err)    => {
-                debug!("Failed to parse '{}' as IPv6: {} (retrying as IPv4)", address, err);
+            Err(_)      => {
                 match Ipv4Addr::from_str(address) {
                     Ok(address) => Ok(Self::Ipv4(address, port)),
                     Err(err)    => {
-                        debug!("Failed to parse '{}' as IPv4: {} (assuming hostname)", address, err);
+                        debug!("Parsing '{}' as a hostname, but might be an invalid IP address (parser feedback: {})", address, err);
                         Ok(Self::Hostname(address.into(), port))
                     },
                 }
@@ -250,6 +260,15 @@ impl EnumDebug for NodeKind {
         }
     }
 }
+impl Display for NodeKind {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
+        use NodeKind::*;
+        match self {
+            Central => write!(f, "central"),
+            Worker  => write!(f, "worker"),
+        }
+    }
+}
 
 impl FromStr for NodeKind {
     type Err = Error;
@@ -272,45 +291,21 @@ impl FromStr for NodeKind {
 /// Defines a `node.json` file that describes the environment layout of a node (what type it is, its location ID, where to find folders/services, etc).
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct NodeConfig {
-    /// The proxy to proxy all _framework_ communication through, if any (BFC proxy traffic is routed separately).
-    pub proxy : Option<String>,
+    /// Defines the proxy address to use for control messages, if any.
+    pub proxy : Option<Address>,
+
+    /// Defines the paths used by various services that occur on every kind of node.
+    pub paths    : CommonPaths,
+    /// Defines the ports where various services hosts themselves that occur on any kind of node.
+    pub ports    : CommonPorts,
+    /// Defines service addresses that occur on any kind of node.
+    pub services : CommonServices,
 
     /// NodeKind-specific configuration options,
     pub node : NodeKindConfig,
 }
 
 impl NodeConfig {
-    /// Constructor for the NodeConfig that initializes it to the default config for a central node.
-    /// 
-    /// # Returns
-    /// A new NodeConfig with default values for a central node.
-    #[inline]
-    pub fn new_central() -> Self {
-        Self {
-            proxy : None,
-
-            node : NodeKindConfig::new_central(),
-        }
-    }
-
-    /// Constructor for the NodeConfig that initializes it to an as-default-as-possible config for a worker node.
-    /// 
-    /// # Arguments
-    /// - `location_id`: The location ID for this node.
-    /// 
-    /// # Returns
-    /// A new NodeConfig with default values for a worker node.
-    #[inline]
-    pub fn new_worker(location_id: impl Into<String>) -> Self {
-        Self {
-            proxy : None,
-
-            node : NodeKindConfig::new_worker(location_id),
-        }
-    }
-
-
-
     /// Constructor for the NodeConfig that reads it from the given path.
     /// 
     /// # Arguments
@@ -338,34 +333,10 @@ impl NodeConfig {
         }
 
         // Parse with serde
-        let config: Self = match serde_yaml::from_str(&raw) {
-            Ok(config) => config,
-            Err(err)   => { return Err(Error::FileParseError { path: path.into(), err }); },
-        };
-
-        // Do some debugging about paths
-        debug!("Loaded '{}' with:", path.display());
-        debug!(" - proxy: {}", if let Some(proxy) = &config.proxy { format!("{}", proxy) } else { String::new() });
-        match &config.node {
-            NodeKindConfig::Central(central) => {
-                debug!(" - infra.yml: {}", central.paths.infra.display());
-                debug!(" - secrets.yml: {}", central.paths.secrets.display());
-                debug!(" - certificates: {}", central.paths.certs.display());
-                debug!(" - Kafka broker(s): {}", central.services.brokers.iter().map(|a| a.to_string()).collect::<Vec<String>>().join(", "));
-            },
-
-            NodeKindConfig::Worker(worker) => {
-                debug!(" - creds.yml: {}", worker.paths.creds.display());
-                debug!(" - certificates: {}", worker.paths.certs.display());
-                debug!(" - packages: {}", worker.paths.packages.display());
-                debug!(" - data: {}", worker.paths.data.display());
-                debug!(" - results: {}", worker.paths.results.display());
-                debug!(" - Checker: {}", worker.services.chk);
-            },
+        match serde_yaml::from_str(&raw) {
+            Ok(config) => Ok(config),
+            Err(err)   => Err(Error::FileParseError { path: path.into(), err }),
         }
-
-        // Done, return
-        Ok(config)
     }
 
     /// Writes the NodeConfig to the given path.
@@ -456,29 +427,6 @@ pub enum NodeKindConfig {
 }
 
 impl NodeKindConfig {
-    /// Constructor for the NodeKindConfig that initializes it to the default config for a central node.
-    /// 
-    /// # Returns
-    /// A new `NodeKinfConfig::Central` with default values.
-    #[inline]
-    pub fn new_central() -> Self {
-        Self::Central(Default::default())
-    }
-
-    /// Constructor for the NodeKindConfig that initializes it to an as-default-as-possible config for a worker node.
-    /// 
-    /// # Arguments
-    /// - `location_id`: The location ID for this node.
-    /// 
-    /// # Returns
-    /// A new `NodeKinfConfig::Worker` with default values.
-    #[inline]
-    pub fn new_worker(location_id: impl Into<String>) -> Self {
-        Self::Worker(WorkerConfig::new(location_id))
-    }
-
-
-
     /// Returns the kind of this config.
     #[inline]
     pub fn kind(&self) -> NodeKind {
@@ -549,8 +497,35 @@ impl From<&mut NodeKindConfig> for NodeKindConfig {
 
 
 
+/// Defines common paths used on every kind of node.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct CommonPaths {
+    /// The path of the certificate directory.
+    pub certs   : PathBuf,
+    /// The path of the package directory.
+    pub packages : PathBuf,
+}
+
+/// Defines common hosted services that are available on every kind of node.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+pub struct CommonPorts {
+    /// Defines where the proxy service hosts itself.
+    #[serde(alias = "proxy")]
+    pub prx : SocketAddr,
+}
+
+/// Defines common services that are available on every kind of node.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct CommonServices {
+    /// Defines where the proxy service may be found.
+    #[serde(alias = "proxy")]
+    pub prx : Address,
+}
+
+
+
 /// Defines the properties that are specific to a central node.
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct CentralConfig {
     /// Defines the paths configuration for the central node.
     pub paths    : CentralPaths,
@@ -569,23 +544,6 @@ pub struct CentralPaths {
     pub infra   : PathBuf,
     /// The path of the infrastructure secrets file.
     pub secrets : PathBuf,
-    /// The path of the certificate directory.
-    pub certs   : PathBuf,
-
-    /// The path of the packages directory.
-    pub packages : PathBuf,
-}
-impl Default for CentralPaths {
-    #[inline]
-    fn default() -> Self {
-        Self {
-            infra   : "./config/infra.yml".into(),
-            secrets : "./config/secrets.yml".into(),
-            certs   : "./config/certs".into(),
-
-            packages : "./packages".into(),
-        }
-    }
 }
 
 /// Defines various ports for external services on the central node.
@@ -598,15 +556,6 @@ pub struct CentralPorts {
     #[serde(alias = "driver")]
     pub drv : SocketAddr,
 }
-impl Default for CentralPorts {
-    #[inline]
-    fn default() -> Self {
-        Self {
-            api : SocketAddr::new(Ipv4Addr::new(0, 0, 0, 0).into(), 50051),
-            drv : SocketAddr::new(Ipv4Addr::new(0, 0, 0, 0).into(), 50053),
-        }
-    }
-}
 
 /// Defines where central node internal services are hosted.
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -614,20 +563,13 @@ pub struct CentralServices {
     /// Defines where the Kafka broker(s) live(s).
     #[serde(alias = "kafka_brokers")]
     pub brokers : Vec<Address>,
+    /// Defines where to find the Scylla database.
+    #[serde(alias = "scylla_database")]
+    pub scylla  : Address,
 
     /// Defines how to reach the API service.
     #[serde(alias = "registry")]
     pub api : Address,
-}
-impl Default for CentralServices {
-    #[inline]
-    fn default() -> Self {
-        Self {
-            brokers : vec![ Address::hostname("aux-kafka", 9092) ],
-
-            api : Address::hostname("http://brane-api", 50051),
-        }
-    }
 }
 
 /// Defines topics and such used on a central node.
@@ -637,15 +579,6 @@ pub struct CentralKafkaTopics {
     pub planner_command : String,
     /// The topic for the planner to send planning results on.
     pub planner_results : String,
-}
-impl Default for CentralKafkaTopics {
-    #[inline]
-    fn default() -> Self {
-        Self {
-            planner_command : "plr-cmd".into(),
-            planner_results : "plr-res".into(),
-        }
-    }
 }
 
 
@@ -664,36 +597,12 @@ pub struct WorkerConfig {
     /// Defines where to find the various worker services.
     pub services : WorkerServices,
 }
-impl WorkerConfig {
-    /// Constructor for the WorkerConfig that initializes as much as possible to the default.
-    /// 
-    /// # Arguments
-    /// - `location_id`: The location ID for this node.
-    /// 
-    /// # Returns
-    /// A new WorkerConfig instance, largely based on Default-provided implementations.
-    #[inline]
-    pub fn new(location_id: impl Into<String>) -> Self {
-        Self {
-            location_id : location_id.into(),
-
-            paths    : Default::default(),
-            ports    : Default::default(),
-            services : Default::default(),
-        }
-    }
-}
 
 /// Defines where to find various paths for a worker node.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct WorkerPaths {
     /// The path of the credentials file (`creds.yml`).
     pub creds : PathBuf,
-    /// The path of the certificate directory.
-    pub certs : PathBuf,
-
-    /// The path of the packages directory.
-    pub packages : PathBuf,
 
     /// The path of the dataset directory.
     pub data         : PathBuf,
@@ -703,22 +612,6 @@ pub struct WorkerPaths {
     pub temp_data    : PathBuf,
     /// The path of the temporary results directory.
     pub temp_results : PathBuf,
-}
-impl Default for WorkerPaths {
-    #[inline]
-    fn default() -> Self {
-        Self {
-            creds : "./config/creds.yml".into(),
-            certs : "./config/certs".into(),
-
-            packages : "./packages".into(),
-
-            data         : "./data".into(),
-            results      : "./results".into(),
-            temp_data    : "/tmp/data".into(),
-            temp_results : "/tmp/results".into(),
-        }
-    }
 }
 
 /// Defines various ports for external services on the worker node.
@@ -731,15 +624,6 @@ pub struct WorkerPorts {
     #[serde(alias = "delegate")]
     pub job : SocketAddr,
 }
-impl Default for WorkerPorts {
-    #[inline]
-    fn default() -> Self {
-        Self {
-            reg : SocketAddr::new(Ipv4Addr::new(0, 0, 0, 0).into(), 50051),
-            job : SocketAddr::new(Ipv4Addr::new(0, 0, 0, 0).into(), 50052),
-        }
-    }
-}
 
 /// Defines where central node internal services are hosted.
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -750,13 +634,4 @@ pub struct WorkerServices {
     /// Defines where the checker service lives.
     #[serde(alias = "checker")]
     pub chk : Address,
-}
-impl Default for WorkerServices {
-    #[inline]
-    fn default() -> Self {
-        Self {
-            reg : Address::hostname("http://brane-reg", 50051),
-            chk : Address::hostname("http://brane-chk", 50053),
-        }
-    }
 }

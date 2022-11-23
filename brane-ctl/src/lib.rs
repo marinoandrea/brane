@@ -4,7 +4,7 @@
 //  Created:
 //    21 Nov 2022, 15:40:12
 //  Last edited:
-//    21 Nov 2022, 17:46:46
+//    23 Nov 2022, 14:17:21
 //  Auto updated?
 //    Yes
 // 
@@ -15,5 +15,7 @@
 
 // Declare modules
 pub mod errors;
-pub mod specs;
+pub mod spec;
+pub mod utils;
 pub mod generate;
+pub mod lifetime;

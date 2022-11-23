@@ -4,7 +4,7 @@
 //  Created:
 //    31 Oct 2022, 11:21:14
 //  Last edited:
-//    21 Nov 2022, 14:09:46
+//    23 Nov 2022, 14:08:36
 //  Auto updated?
 //    Yes
 // 
@@ -38,7 +38,7 @@ use brane_ast::locations::Location;
 use brane_ast::ast::DataName;
 use brane_cfg::CredsFile;
 use brane_cfg::creds::Credentials;
-use brane_cfg::node::NodeConfig;
+use brane_cfg::node::{Address, NodeConfig};
 use brane_exe::FullValue;
 use brane_shr::debug::BlockFormatter;
 use brane_shr::fs::{copy_dir_recursively_async, unarchive_async};
@@ -240,7 +240,7 @@ impl TaskInfo {
 /// 
 /// # Errors
 /// This function can error for literally a million reasons - but they mostly relate to IO (file access, request success etc).
-pub async fn preprocess_transfer_tar(node_config: &NodeConfig, proxy: Option<String>, location: Location, address: impl AsRef<str>, data_name: DataName) -> Result<AccessKind, PreprocessError> {
+pub async fn preprocess_transfer_tar(node_config: &NodeConfig, proxy: Option<Address>, location: Location, address: impl AsRef<str>, data_name: DataName) -> Result<AccessKind, PreprocessError> {
     debug!("Preprocessing by executing a data transfer");
     let address: &str  = address.as_ref();
     debug!("Downloading from {} ({})", location, address);
@@ -250,7 +250,7 @@ pub async fn preprocess_transfer_tar(node_config: &NodeConfig, proxy: Option<Str
     debug!("Loading certificate for location '{}'...", location);
     let (identity, ca_cert): (Identity, Certificate) = {
         // Compute the paths
-        let cert_dir : PathBuf = node_config.node.worker().paths.certs.join(&location);
+        let cert_dir : PathBuf = node_config.paths.certs.join(&location);
         let idfile   : PathBuf = cert_dir.join("client-id.pem");
         let cafile   : PathBuf = cert_dir.join("ca.pem");
 
@@ -349,9 +349,9 @@ pub async fn preprocess_transfer_tar(node_config: &NodeConfig, proxy: Option<Str
         .identity(identity)
         .tls_sni(!is_ip_addr(&address));
     if let Some(proxy_addr) = proxy {
-        client = client.proxy(match Proxy::all(&proxy_addr) {
+        client = client.proxy(match Proxy::all(proxy_addr.to_string()) {
             Ok(proxy) => proxy,
-            Err(err)  => { return Err(PreprocessError::ProxyCreateError { address: proxy_addr, err }) },
+            Err(err)  => { return Err(PreprocessError::ProxyCreateError{ address: proxy_addr, err }) },
         });
     }
     let client: Client = match client.build() {
@@ -489,8 +489,8 @@ async fn download_container(node_config: &NodeConfig, endpoint: impl AsRef<str>,
     debug!("Downloading image '{}' from '{}'...", image, endpoint);
 
     // Check if we have already downloaded it, by any chance
-    let image_path : PathBuf = node_config.node.worker().paths.packages.join(format!("{}-{}.tar", image.name, image.version.as_ref().unwrap_or(&"latest".into())));
-    let hash_path  : PathBuf = node_config.node.worker().paths.packages.join(format!("{}-{}.sha256", image.name, image.version.as_ref().unwrap_or(&"latest".into())));
+    let image_path : PathBuf = node_config.paths.packages.join(format!("{}-{}.tar", image.name, image.version.as_ref().unwrap_or(&"latest".into())));
+    let hash_path  : PathBuf = node_config.paths.packages.join(format!("{}-{}.sha256", image.name, image.version.as_ref().unwrap_or(&"latest".into())));
     if image_path.exists() {
         debug!("Image file '{}' already exists; checking if it's up-to-date...", image_path.display());
 
@@ -529,7 +529,7 @@ async fn download_container(node_config: &NodeConfig, endpoint: impl AsRef<str>,
     // Setup the reqwest client
     let mut builder: ClientBuilder = Client::builder();
     if let Some(proxy) = &node_config.proxy {
-        builder = builder.proxy(match Proxy::all(proxy) {
+        builder = builder.proxy(match Proxy::all(proxy.to_string()) {
             Ok(proxy) => proxy,
             Err(err)  => { return Err(ExecuteError::ProxyCreateError { address: proxy.clone(), err }) },
         });

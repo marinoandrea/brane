@@ -4,7 +4,7 @@
 //  Created:
 //    17 Oct 2022, 15:18:32
 //  Last edited:
-//    15 Nov 2022, 15:05:44
+//    22 Nov 2022, 15:05:40
 //  Auto updated?
 //    Yes
 // 
@@ -39,6 +39,7 @@ use warp::hyper::body::{Bytes, Sender};
 use warp::reply::Response;
 use warp::{http::StatusCode, Rejection, Reply};
 
+use brane_cfg::node::{NodeConfig, NodeKind};
 use specifications::package::PackageInfo;
 use specifications::version::Version;
 
@@ -375,6 +376,16 @@ where
 
 
 
+    /* Step 0: Load config files */
+    // Load the node config file
+    let node_config: NodeConfig = match NodeConfig::from_path(&context.node_config_path) {
+        Ok(config) => config,
+        Err(err)   => { fail!(Error::NodeConfigLoadError{ err }); },
+    };
+    if !node_config.node.is_central() { fail!(Error::NodeConfigUnexpectedKind{ path: context.node_config_path, got: node_config.node.kind(), expected: NodeKind::Central }); }
+
+
+
     /* Step 1: Write the _uploadable_ archive */
     // Open a temporary directory
     debug!("Preparing filesystem...");
@@ -422,7 +433,7 @@ where
     // Re-open the file
     debug!("Extracting submitted archive file...");
     let info_path  : PathBuf = tempdir_path.join("package.yml");
-    let image_path : PathBuf = context.registry.join(format!("{}.tar", id));
+    let image_path : PathBuf = node_config.node.central().paths.packages.join(format!("{}.tar", id));
     {
         let handle: tfs::File = match tfs::File::open(&tar_path).await {
             Ok(handle) => handle,

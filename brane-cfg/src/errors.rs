@@ -4,7 +4,7 @@
 //  Created:
 //    04 Oct 2022, 11:09:56
 //  Last edited:
-//    21 Nov 2022, 17:23:52
+//    23 Nov 2022, 14:34:44
 //  Auto updated?
 //    Yes
 // 
@@ -23,10 +23,16 @@ use std::path::PathBuf;
 pub enum CertsError {
     /// Failed to open a given file.
     FileOpenError{ what: &'static str, path: PathBuf, err: std::io::Error },
+    /// Failed to read a given file.
+    FileReadError{ what: &'static str, path: PathBuf, err: std::io::Error },
+    /// Encountered unknown item in the given file.
+    UnknownItemError{ what: &'static str, path: PathBuf },
+
     /// Failed to parse the certificate file.
     CertFileParseError{ path: PathBuf, err: std::io::Error },
     /// Failed to parse the key file.
     KeyFileParseError{ path: PathBuf, err: std::io::Error },
+
     /// The given certificate file was empty.
     EmptyCertFile{ path: PathBuf },
     /// The given keyfile was empty.
@@ -38,10 +44,14 @@ impl Display for CertsError {
         use CertsError::*;
         match self {
             FileOpenError{ what, path, err } => write!(f, "Failed to open {} file '{}': {}", what, path.display(), err),
-            CertFileParseError{ path, err }  => write!(f, "Failed to parse certificates in '{}': {}", path.display(), err),
-            KeyFileParseError{ path, err }   => write!(f, "Failed to parse keys in '{}': {}", path.display(), err),
-            EmptyCertFile{ path }            => write!(f, "No certificates found in certificate file '{}'", path.display()),
-            EmptyKeyFile{ path }             => write!(f, "No keys found in keyfile '{}'", path.display()),
+            FileReadError{ what, path, err } => write!(f, "Failed to read {} file '{}': {}", what, path.display(), err),
+            UnknownItemError{ what, path }   => write!(f, "Encountered non-certificate, non-key item in {} file '{}'", what, path.display()),
+
+            CertFileParseError{ path, err } => write!(f, "Failed to parse certificates in '{}': {}", path.display(), err),
+            KeyFileParseError{ path, err }  => write!(f, "Failed to parse keys in '{}': {}", path.display(), err),
+
+            EmptyCertFile{ path }           => write!(f, "No certificates found in file '{}'", path.display()),
+            EmptyKeyFile{ path }            => write!(f, "No keys found in file '{}'", path.display()),
         }
     }
 }

@@ -5,7 +5,7 @@
 # Created:
 #   09 Jun 2022, 12:20:28
 # Last edited:
-#   17 Nov 2022, 14:02:50
+#   23 Nov 2022, 17:29:48
 # Auto updated?
 #   Yes
 #
@@ -3180,6 +3180,17 @@ targets = {
             ),
             False : CrateTarget("cli-compiled",
                 "brane-cli", target="$ARCH-unknown-linux-musl", give_target_on_unspecified=False
+            )
+        },
+        description = "Builds the Brane Command-Line Interface (Brane CLI). You may use '--precompiled' to download it from the internet instead."
+    ),
+    "ctl" : EitherTarget("ctl",
+        "down", {
+            True  : DownloadTarget("ctl-download",
+                "./target/$RELEASE/brane", "https://github.com/epi-project/brane/releases/download/v$VERSION/branectl-$OS-$ARCH"
+            ),
+            False : CrateTarget("ctl-compiled",
+                "brane-ctl", target="$ARCH-unknown-linux-musl", give_target_on_unspecified=False
             )
         },
         description = "Builds the Brane Command-Line Interface (Brane CLI). You may use '--precompiled' to download it from the internet instead."

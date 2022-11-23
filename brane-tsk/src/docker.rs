@@ -4,7 +4,7 @@
 //  Created:
 //    19 Sep 2022, 14:57:17
 //  Last edited:
-//    21 Nov 2022, 11:26:12
+//    23 Nov 2022, 16:40:52
 //  Auto updated?
 //    Yes
 // 
@@ -247,35 +247,6 @@ fn preprocess_arg(data_dir: Option<impl AsRef<Path>>, results_dir: impl AsRef<Pa
 }
 
 
-
-/// Tries to import/pull the given image if it does not exist in the local Docker instance.
-/// 
-/// # Arguments
-/// - `docker`: An already connected local instance of Docker.
-/// - `info`: The ExecuteInfo describing the image to pull.
-/// 
-/// # Errors
-/// This function errors if it failed to ensure the image existed (i.e., import or pull failed).
-async fn ensure_image(docker: &Docker, info: &ExecuteInfo) -> Result<(), Error> {
-    // Abort if image is already loaded
-    let simage: String = (&info.image).into();
-    if docker.inspect_image(&simage).await.is_ok() {
-        // The image is present, and because we specified the hash in the name, it's also for sure up-to-date
-        debug!("Image already exists in Docker deamon.");
-        return Ok(());
-    } else {
-        debug!("Image doesn't exist in Docker daemon.");
-    }
-
-    // Otherwise, import it if it is described or pull it
-    if let Some(image_file) = &info.image_file {
-        debug!(" > Importing file '{}'...", image_file.display());
-        import_image(docker, image_file).await
-    } else {
-        debug!(" > Pulling image '{}'...", info.image);
-        pull_image(docker, info.image.clone()).await
-    }
-}
 
 /// Creates a container with the given image and starts it (non-blocking after that).
 /// 
@@ -619,6 +590,39 @@ pub async fn get_digest(path: impl AsRef<Path>) -> Result<String, Error> {
     Err(Error::ImageTarNoManifest{ path: path.to_path_buf() })
 }
 
+/// Tries to import/pull the given image if it does not exist in the local Docker instance.
+/// 
+/// # Arguments
+/// - `docker`: An already connected local instance of Docker.
+/// - `image`: The Docker image name, version & potential digest to pull.
+/// - `image_path`: Path to the physical image file to import. If omitted, attempts to pull it from the interwebs instead.
+/// 
+/// # Errors
+/// This function errors if it failed to ensure the image existed (i.e., import or pull failed).
+pub async fn ensure_image(docker: &Docker, image: impl AsRef<Image>, image_path: Option<impl AsRef<Path>>) -> Result<(), Error> {
+    let image      : &Image        = image.as_ref();
+    let image_path : Option<&Path> = image_path.as_ref().map(|p| p.as_ref());
+
+    // Abort if image is already loaded
+    let simage: String = image.into();
+    if docker.inspect_image(&simage).await.is_ok() {
+        // The image is present, and because we specified the hash in the name, it's also for sure up-to-date
+        debug!("Image already exists in Docker deamon.");
+        return Ok(());
+    } else {
+        debug!("Image doesn't exist in Docker daemon.");
+    }
+
+    // Otherwise, import it if it is described or pull it
+    if let Some(image_path) = image_path {
+        debug!(" > Importing file '{}'...", image_path.display());
+        import_image(docker, image_path).await
+    } else {
+        debug!(" > Pulling image '{}'...", image);
+        pull_image(docker, image.clone()).await
+    }
+}
+
 
 
 
@@ -648,7 +652,7 @@ pub async fn launch(exec: ExecuteInfo, path: impl AsRef<Path>, version: ClientVe
     };
 
     // Either import or pull image, if not already present
-    ensure_image(&docker, &exec).await?;
+    ensure_image(&docker, &exec.image, exec.image_file.as_ref()).await?;
 
     // Start container, return immediately (propagating any errors that occurred)
     create_and_start_container(&docker, &exec).await
@@ -703,7 +707,7 @@ pub async fn run_and_wait(exec: ExecuteInfo, keep_container: bool) -> Result<(i3
     };
 
     // Either import or pull image, if not already present
-    ensure_image(&docker, &exec).await?;
+    ensure_image(&docker, &exec.image, exec.image_file.as_ref()).await?;
 
     // Start container, return immediately (propagating any errors that occurred)
     let name: String = create_and_start_container(&docker, &exec).await?;
@@ -786,8 +790,8 @@ pub async fn remove_image(image: &Image) -> Result<(), Error> {
 
     // Now we can try to remove the image
     let info = info.unwrap();
-    match docker.remove_image(&info.id, remove_options, None).await {
+    match docker.remove_image(info.id.as_ref().unwrap(), remove_options, None).await {
         Ok(_)       => Ok(()),
-        Err(reason) => Err(Error::ImageRemoveError{ image: image.clone(), id: info.id.clone(), err: reason }),
+        Err(reason) => Err(Error::ImageRemoveError{ image: image.clone(), id: info.id.clone().unwrap(), err: reason }),
     }
 }

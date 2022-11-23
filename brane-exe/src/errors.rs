@@ -4,7 +4,7 @@
 //  Created:
 //    26 Aug 2022, 18:01:09
 //  Last edited:
-//    14 Nov 2022, 10:36:55
+//    23 Nov 2022, 16:39:59
 //  Auto updated?
 //    Yes
 // 
@@ -21,18 +21,6 @@ use console::style;
 use brane_ast::{DataType, MergeStrategy};
 use brane_ast::ast::DataName;
 use specifications::version::Version;
-
-
-/***** HELPER MACROS *****/
-/// Generates a string with the given character repeated N times.
-macro_rules! rep {
-    ($c:literal, $n:literal) => {
-        (0..$n).map(|_| $c).collect::<String>()
-    };
-}
-
-
-
 
 
 /***** HELPER FUNCTIONS *****/
@@ -398,35 +386,6 @@ pub enum LocalVmError {
     /// Failed to decode the string as JSON.
     JsonDecodeError{ name: String, raw: String, err: serde_json::Error },
 
-    /// Failed to connect to the local Docker instance.
-    DockerConnectError{ err: bollard::errors::Error },
-
-    /// Failed to read a Docker image .tar file.
-    ImageReadError{ path: PathBuf, err: std::io::Error },
-    /// Failed to import a new Docker image.
-    DockerImageImportError{ path: PathBuf, err: bollard::errors::Error },
-    /// Failed to create a new Docker image.
-    DockerImagePullError{ image: String, err: bollard::errors::Error },
-    /// Failed to launch a new Docker container.
-    DockerContainerCreateError{ name: String, image: String, err: bollard::errors::Error },
-    /// Failed to start a new Docker container.
-    DockerContainerStartError{ name: String, image: String, err: bollard::errors::Error },
-
-    /// Failed to wait for the given container.
-    DockerContainerWaitError{ name: String, err: bollard::errors::Error },
-    /// Failed to get the logs of the given container.
-    DockerContainerLogsError{ name: String, err: bollard::errors::Error },
-    /// Failed to inspect a Docker container.
-    DockerContainerInspectError{ name: String, err: bollard::errors::Error },
-    /// When inspecting a container, it had no state(?)
-    DockerContainerNoState{ name: String },
-    /// When inspecting a container, it had no return code
-    DockerContainerNoReturnCode{ name: String },
-    /// The given container failed with a certain non-zero exit code.
-    DockerContainerFailed{ name: String, code: i32, stdout: String, stderr: String },
-    /// Failed to remove the given container.
-    DockerContainerRemoveError{ name: String, err: bollard::errors::Error },
-
     /// A given dataset was not found at the current location.
     DataNotAvailable{ name: String, loc: String },
     /// The given data's path was not found.
@@ -445,22 +404,6 @@ impl Display for LocalVmError {
             Base64DecodeError{ name, raw, err } => write!(f, "Could not decode result '{}' from task '{}' as Base64: {}", raw, name, err),
             Utf8DecodeError{ name, err }        => write!(f, "Could not decode base64-decoded result from task '{}' as UTF-8: {}", name, err),
             JsonDecodeError{ name, raw, err }   => write!(f, "Could not decode result '{}' from task '{}' as JSON: {}", raw, name, err),
-
-            DockerConnectError{ err } => write!(f, "Failed to connect to local Docker instance: {}", err),
-
-            ImageReadError { path, err }                   => write!(f, "Could not read image file '{}': {}", path.display(), err),
-            DockerImageImportError{ path, err }            => write!(f, "Failed to import image '{}': {}", path.display(), err),
-            DockerImagePullError{ image, err }             => write!(f, "Failed to pull image '{}': {}", image, err),
-            DockerContainerCreateError{ name, image, err } => write!(f, "Failed to create container '{}' from image '{}': {}", name, image, err),
-            DockerContainerStartError{ name, image, err }  => write!(f, "Failed to start container '{}' from image '{}': {}", name, image, err),
-
-            DockerContainerWaitError{ name, err }               => write!(f, "Failed to wait for container '{}' to complete: {}", name, err),
-            DockerContainerLogsError{ name, err }               => write!(f, "Failed to get logs (=stdout/stderr) of container '{}': {}", name, err),
-            DockerContainerInspectError{ name, err }            => write!(f, "Failed to inspect container '{}': {}", name, err),
-            DockerContainerNoState{ name }                      => write!(f, "Docker container '{}' has no inspectable state", name),
-            DockerContainerNoReturnCode{ name }                 => write!(f, "Docker container '{}' has no inspectable return code", name),
-            DockerContainerFailed{ name, code, stdout, stderr } => write!(f, "Docker container '{}' failed with non-zero exit code {}\n\n{}\nstdout:\n{}\n{}\n\n{}\nstderr:\n{}\n{}\n\n", name, code, rep!('-', 100), stdout, rep!('-', 100), rep!('-', 100), stderr, rep!('-', 100)),
-            DockerContainerRemoveError{ name, err }             => write!(f, "Failed to remove container '{}': {}", name, err),
 
             DataNotAvailable{ name, loc }      => write!(f, "Dataset '{}' is not available on the local location '{}'", name, loc),
             IllegalDataPath{ name, path, err } => write!(f, "Invalid path '{}' to dataset '{}': {}", path.display(), name, err),

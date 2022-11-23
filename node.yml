@@ -7,25 +7,31 @@
 # will be reloaded dynamically by the services themselves.
 # 
 # For an overview of what you can do in this file, refer to
-# https://wiki.enablingpersonalizedinterventions.nl/user-guide/TODO
+# https://wiki.enablingpersonalizedinterventions.nl/user-guide/system-admins/docs/config/node.md
 # 
 
 
 ---
 proxy: ~
+paths:
+  certs: "./config_test/certs"
+  packages: "/tmp/packages"
+ports:
+  prx: "0.0.0.0:50050"
+services:
+  prx: "brane-prx:50051"
 node:
   kind: central
   paths:
-    infra: "./config/infra2.yml"
+    infra: "./config/infra.yml"
     secrets: "./config/secrets.yml"
-    certs: "./config/certs"
-    packages: "./packages"
   ports:
     api: "0.0.0.0:50051"
     drv: "0.0.0.0:50053"
   services:
     brokers:
       - "aux-kafka:9092"
+    scylla: "aux-scylla:9042"
     api: "http://brane-api:50051"
   topics:
     planner_command: plr-cmd

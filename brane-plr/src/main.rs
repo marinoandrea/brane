@@ -4,7 +4,7 @@
 //  Created:
 //    17 Oct 2022, 17:27:16
 //  Last edited:
-//    21 Nov 2022, 16:38:43
+//    22 Nov 2022, 12:02:32
 //  Auto updated?
 //    Yes
 // 
@@ -46,7 +46,7 @@ struct Opts {
     group_id : String,
 
     /// Node environment metadata store.
-    #[clap(short, long, default_value = "/node.yml", help = "The path to the node environment configuration. This defines things such as where local services may be found or where to store files, as wel as this service's service address.")]
+    #[clap(short, long, default_value = "/node.yml", help = "The path to the node environment configuration. This defines things such as where local services may be found or where to store files, as wel as this service's service address.", env = "NODE_CONFIG_PATH")]
     node_config_path : PathBuf,
 }
 

@@ -4,7 +4,7 @@
 //  Created:
 //    04 Feb 2022, 10:35:12
 //  Last edited:
-//    15 Nov 2022, 13:46:09
+//    22 Nov 2022, 15:06:17
 //  Auto updated?
 //    Yes
 // 
@@ -18,7 +18,8 @@ use std::path::PathBuf;
 
 use scylla::transport::errors::NewSessionError;
 
-use brane_shr::debug::PrettyListFormatter;
+use brane_cfg::node::{Address, NodeKind};
+use brane_shr::debug::{EnumDebug, PrettyListFormatter};
 use specifications::version::Version;
 
 
@@ -27,7 +28,7 @@ use specifications::version::Version;
 #[derive(Debug)]
 pub enum ApiError {
     /// Could not create a Scylla session
-    ScyllaConnectError{ host: String, err: NewSessionError },
+    ScyllaConnectError{ host: Address, err: NewSessionError },
 }
 
 impl Display for ApiError {
@@ -155,6 +156,10 @@ pub enum PackageError {
     /// Failed to send a file chunk.
     FileSendError{ path: PathBuf, err: warp::hyper::Error },
 
+    /// Failed to load the node config.
+    NodeConfigLoadError{ err: brane_cfg::node::Error },
+    /// The given node config was not for central nodes.
+    NodeConfigUnexpectedKind{ path: PathBuf, got: NodeKind, expected: NodeKind },
     /// Failed to create a temporary directory.
     TempDirCreateError{ err: std::io::Error },
     /// Failed to create a particular file.
@@ -211,6 +216,8 @@ impl Display for PackageError {
             FileReadError{ path, err }           => write!(f, "Failed to read file '{}': {}", path.display(), err),
             FileSendError{ path, err }           => write!(f, "Failed to send chunk of file '{}': {}", path.display(), err),
 
+            NodeConfigLoadError{ err }                       => write!(f, "Failed to load node config file: {}", err),
+            NodeConfigUnexpectedKind{ path, got, expected }  => write!(f, "Given node config file '{}' is for a {} node, but expected a {} node", path.display(), got.variant(), expected.variant()),
             TempDirCreateError{ err }                        => write!(f, "Failed to create temporary directory: {}", err),
             TarCreateError{ path, err }                      => write!(f, "Failed to create new tar file '{}': {}", path.display(), err),
             BodyReadError{ err }                             => write!(f, "Failed to get next chunk in body stream: {}", err),

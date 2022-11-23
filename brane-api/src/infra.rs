@@ -4,7 +4,7 @@
 //  Created:
 //    02 Nov 2022, 16:21:33
 //  Last edited:
-//    14 Nov 2022, 09:52:38
+//    22 Nov 2022, 15:00:20
 //  Auto updated?
 //    Yes
 // 
@@ -19,7 +19,8 @@ use warp::{Reply, Rejection};
 use warp::hyper::{Body, Response};
 use warp::hyper::header::HeaderValue;
 
-use brane_cfg::{InfraFile, InfraLocation};
+use brane_cfg::{InfraFile, InfraLocation, InfraPath};
+use brane_cfg::node::NodeConfig;
 
 pub use crate::errors::InfraError as Error;
 use crate::spec::Context;
@@ -39,11 +40,24 @@ use crate::spec::Context;
 pub async fn registries(context: Context) -> Result<impl Reply, Rejection> {
     debug!("Handling GET on `/infra/registries` (i.e., list all regitsry endpoints)...");
 
+    // Load the node config file
+    let node_config: NodeConfig = match NodeConfig::from_path(&context.node_config_path) {
+        Ok(config) => config,
+        Err(err)   => {
+            error!("Failed to load NodeConfig file: {}", err);
+            return Err(warp::reject::custom(Error::SecretError));
+        },
+    };
+    if !node_config.node.is_central() {
+        error!("Provided node config file '{}' is not for a central node", context.node_config_path.display());
+        return Err(warp::reject::custom(Error::SecretError));
+    }
+
     // Load the infrastructure file
-    let infra: InfraFile = match InfraFile::from_path(&context.infra) {
+    let infra: InfraFile = match InfraFile::from_path(InfraPath::new(&node_config.node.central().paths.infra, &node_config.node.central().paths.secrets)) {
         Ok(infra) => infra,
         Err(err)  => {
-            error!("{}", Error::InfrastructureOpenError{ path: context.infra.infra, err });
+            error!("{}", Error::InfrastructureOpenError{ path: node_config.node.central().paths.infra.clone(), err });
             return Err(warp::reject::custom(Error::SecretError));
         },
     };
@@ -91,11 +105,24 @@ pub async fn registries(context: Context) -> Result<impl Reply, Rejection> {
 pub async fn get_registry(loc: String, context: Context) -> Result<impl Reply, Rejection> {
     debug!("Handling GET on `/infra/registries/{}` (i.e., get location registry address)...", loc);
 
+    // Load the node config file
+    let node_config: NodeConfig = match NodeConfig::from_path(&context.node_config_path) {
+        Ok(config) => config,
+        Err(err)   => {
+            error!("Failed to load NodeConfig file: {}", err);
+            return Err(warp::reject::custom(Error::SecretError));
+        },
+    };
+    if !node_config.node.is_central() {
+        error!("Provided node config file '{}' is not for a central node", context.node_config_path.display());
+        return Err(warp::reject::custom(Error::SecretError));
+    }
+
     // Load the infrastructure file
-    let infra: InfraFile = match InfraFile::from_path(&context.infra) {
+    let infra: InfraFile = match InfraFile::from_path(InfraPath::new(&node_config.node.central().paths.infra, &node_config.node.central().paths.secrets)) {
         Ok(infra) => infra,
         Err(err)  => {
-            error!("{}", Error::InfrastructureOpenError{ path: context.infra.infra, err });
+            error!("{}", Error::InfrastructureOpenError{ path: node_config.node.central().paths.infra.clone(), err });
             return Err(warp::reject::custom(Error::SecretError));
         },
     };

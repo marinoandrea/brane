@@ -4,7 +4,7 @@
 //  Created:
 //    17 Oct 2022, 15:15:36
 //  Last edited:
-//    18 Nov 2022, 15:53:46
+//    22 Nov 2022, 15:10:38
 //  Auto updated?
 //    Yes
 // 
@@ -12,7 +12,6 @@
 //!   Entrypoint to the `brane-job` service.
 // 
 
-use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -20,11 +19,11 @@ use std::time::Duration;
 use clap::Parser;
 use dotenvy::dotenv;
 use juniper::EmptySubscription;
-use log::{debug, error, LevelFilter};
+use log::{debug, error, info, LevelFilter};
 use scylla::{Session, SessionBuilder};
 use warp::Filter;
 
-use brane_cfg::InfraPath;
+use brane_cfg::node::NodeConfig;
 
 use brane_api::errors::ApiError;
 use brane_api::spec::Context;
@@ -40,28 +39,13 @@ use brane_api::packages;
 #[derive(Parser)]
 #[clap(version = env!("CARGO_PKG_VERSION"))]
 struct Opts {
-    /// Service address
-    #[clap(short, long, default_value = "127.0.0.1:50051", env = "ADDRESS")]
-    address  : String,
     /// Print debug info
     #[clap(short, long, env = "DEBUG")]
-    debug    : bool,
-    /// The registry where we store image files.
-    #[clap(short, long, default_value = "/packages", env = "REGISTRY")]
-    registry : PathBuf,
-    /// Scylla endpoint
-    #[clap(long, default_value = "127.0.0.1:9042", env = "SCYLLA")]
-    scylla   : String,
+    debug : bool,
 
-    /// The location of the certificates we use to connect to all domains.
-    #[clap(short, long, default_value = "/certs", env = "CERTS")]
-    certs   : PathBuf,
-    /// The location of the infrastructure file
-    #[clap(short, long, default_value = "/config/infra.yml", env = "INFRA")]
-    infra   : PathBuf,
-    /// The location of the secrets file
-    #[clap(short, long, default_value = "/config/secrets.yml", env = "SECRETS")]
-    secrets : PathBuf,
+    /// Load everything from the node.yml file
+    #[clap(short, long, default_value = "/node.yml", help = "The path to the node environment configuration. This defines things such as where local services may be found or where to store files, as wel as this service's service address.", env = "NODE_CONFIG_PATH")]
+    node_config_path : PathBuf,
 }
 
 
@@ -83,36 +67,42 @@ async fn main() {
     } else {
         logger.filter_level(LevelFilter::Info).init();
     }
+    info!("Initializing brane-job v{}...", env!("CARGO_PKG_VERSION"));
+
+    // Load the config, making sure it's a worker config
+    debug!("Loading node.yml file '{}'...", opts.node_config_path.display());
+    let node_config: NodeConfig = match NodeConfig::from_path(&opts.node_config_path) {
+        Ok(config) => config,
+        Err(err)   => {
+            error!("Failed to load NodeConfig file: {}", err);
+            std::process::exit(1);
+        },
+    };
+    if !node_config.node.is_central() { error!("Given NodeConfig file '{}' does not have properties for a worker node.", opts.node_config_path.display()); std::process::exit(1); }
 
     // Configure Scylla.
     debug!("Connecting to scylla...");
     let scylla = match SessionBuilder::new()
-        .known_node(&opts.scylla)
+        .known_node(&node_config.node.central().services.scylla.to_string())
         .connection_timeout(Duration::from_secs(3))
         .build()
         .await
     {
         Ok(scylla)  => scylla,
-        Err(reason) => { error!("{}", ApiError::ScyllaConnectError{ host: opts.scylla.clone(), err: reason }); std::process::exit(-1); }
+        Err(reason) => { error!("{}", ApiError::ScyllaConnectError{ host: node_config.node.central().services.scylla.clone(), err: reason }); std::process::exit(-1); }
     };
     debug!("Connected successfully.");
 
+    debug!("Ensuring keyspace & database...");
     if let Err(err) = ensure_db_keyspace(&scylla).await { error!("Failed to ensure database keyspace: {}", err) };
     if let Err(err) = packages::ensure_db_table(&scylla).await { error!("Failed to ensure database table: {}", err) };
 
-    let scylla = Arc::new(scylla);
-    let certs = opts.certs.clone();
-    let registry = opts.registry.clone();
-
-    // Merge the infrastructure and secrest file into one path
-    let infra: InfraPath = InfraPath::new(opts.infra.clone(), opts.secrets.clone());
-
     // Configure Juniper.
+    let node_config_path : PathBuf = opts.node_config_path;
+    let scylla                     = Arc::new(scylla);
     let context = warp::any().map(move || Context {
-        certs    : certs.clone(),
-        registry : registry.clone(),
-        scylla   : scylla.clone(),
-        infra    : infra.clone(),
+        node_config_path : node_config_path.clone(),
+        scylla           : scylla.clone(),
     });
 
     let schema = Schema::new(Query {}, Mutations {}, EmptySubscription::new());
@@ -180,11 +170,7 @@ async fn main() {
     let routes = data.or(packages.or(infra.or(health.or(version.or(graphql))))).with(warp::log("brane-api"));
 
     // Run the server
-    let address: SocketAddr = match opts.address.clone().parse() {
-        Ok(address) => address,
-        Err(err)    => { error!("Failed to parse given address: {}", err); std::process::exit(1); },
-    };
-    warp::serve(routes).run(address).await;
+    warp::serve(routes).run(node_config.node.central().ports.api).await;
 }
 
 ///

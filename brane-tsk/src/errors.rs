@@ -4,7 +4,7 @@
 //  Created:
 //    24 Oct 2022, 15:27:26
 //  Last edited:
-//    21 Nov 2022, 15:09:46
+//    23 Nov 2022, 09:33:35
 //  Auto updated?
 //    Yes
 // 
@@ -188,7 +188,7 @@ pub enum PreprocessError {
     /// A directory could not be created.
     DirCreateError{ what: &'static str, path: PathBuf, err: std::io::Error },
     /// Failed to create a reqwest proxy object.
-    ProxyCreateError{ address: String, err: reqwest::Error },
+    ProxyCreateError{ address: Address, err: reqwest::Error },
     /// Failed to create a reqwest client.
     ClientCreateError{ err: reqwest::Error },
     /// Failed to send a GET-request to fetch the data.
@@ -310,7 +310,7 @@ pub enum ExecuteError {
     /// Failed to fetch the digest of an already existing image.
     DigestError{ path: PathBuf, err: DockerError },
     /// Failed to create a reqwest proxy object.
-    ProxyCreateError{ address: String, err: reqwest::Error },
+    ProxyCreateError{ address: Address, err: reqwest::Error },
     /// Failed to create a reqwest client.
     ClientCreateError{ err: reqwest::Error },
     /// Failed to send a GET-request to fetch the data.

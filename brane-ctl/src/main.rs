@@ -4,7 +4,7 @@
 //  Created:
 //    15 Nov 2022, 09:18:40
 //  Last edited:
-//    21 Nov 2022, 17:46:47
+//    23 Nov 2022, 17:05:42
 //  Auto updated?
 //    Yes
 // 
@@ -12,14 +12,28 @@
 //!   Entrypoint to the `branectl` executable.
 // 
 
+use std::net::SocketAddr;
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 use dotenvy::dotenv;
 use log::{error, LevelFilter};
 
-use brane_ctl::specs::GenerateSubcommand;
-use brane_ctl::generate;
+use brane_cfg::node::{Address, CommonPaths, CommonPorts, CommonServices};
+use specifications::version::Version;
+
+use brane_ctl::spec::{DockerClientVersion, GenerateSubcommand, StartSubcommand};
+use brane_ctl::utils::resolve_config_path;
+use brane_ctl::{generate, lifetime};
+
+
+/***** STATICS *****/
+lazy_static::lazy_static!{
+    static ref API_DEFAULT_VERSION: String = format!("{}", bollard::API_DEFAULT_VERSION);
+}
+
+
+
 
 
 /***** ARGUMENTS *****/
@@ -44,6 +58,28 @@ struct Arguments {
 enum CtlSubcommand {
     #[clap(name = "generate", about = "Generates a new 'node.yml' file at the location indicated by --node-config.")]
     Generate {
+        /// Defines any proxy node to proxy control messages through.
+        #[clap(long, help = "If given, reroutes all control network traffic for this node through the given proxy.")]
+        proxy : Option<Address>,
+
+        /// Custom config path.
+        #[clap(short='C', long, default_value = "./config", help = "A common ancestor for --infra-path, --secrets-path and --certs-path. See their descriptions for more info.")]
+        config_path   : PathBuf,
+        /// Custom certificates path.
+        #[clap(short, long, default_value = "$CONFIG/certs", help = "The location of the certificate directory. Use '$CONFIG' to reference the value given by --config-path.")]
+        certs_path    : PathBuf,
+        /// Custom packages path.
+        #[clap(short, long, default_value = "./packages", help = "The location of the package directory.")]
+        packages_path : PathBuf,
+
+        /// The address on which to launch the proxy service.
+        #[clap(long, default_value = "0.0.0.0:50050", help = "The address on which the proxy service is hosted. Note that this is not picked up by Docker, so only docker services will be able to find it no matter what.")]
+        prx_addr : SocketAddr,
+
+        /// The address on which the API srevice is locally available.
+        #[clap(long, default_value = "brane-prx:50051", help = "The address on which the proxy service is discoverable to other *local* services.")]
+        prx_svc  : Address,
+
         /// Defines the possible nodes to generate a new node.yml file for.
         #[clap(subcommand)]
         kind : GenerateSubcommand,
@@ -59,10 +95,30 @@ enum CtlSubcommand {
     Data(DataSubcommand),
 
     #[clap(name = "start", about = "Starts the local node by loading and then launching (already compiled) image files.")]
-    Start{},
+    Start{
+        #[clap(short = 'S', long, default_value = "/var/run/docker.sock", help = "The path of the Docker socket to connect to.")]
+        docker_socket  : PathBuf,
+        #[clap(short = 'V', long, default_value = API_DEFAULT_VERSION.as_str(), help = "The version of the Docker client API that we use to connect to the engine.")]
+        docker_version : DockerClientVersion,
+        /// The docker-compose file that we start.
+        #[clap(short, long, default_value = "docker-compose-$NODE.yml", help = "The docker-compose.yml file that defines the services to start. You can use '$NODE' to match either 'central' or 'worker', depending how we started.")]
+        file           : PathBuf,
+
+        /// The specific Brane version to start.
+        #[clap(short, long, default_value = env!("CARGO_PKG_VERSION"), help = "The Brane version to import.")]
+        version : Version,
+
+        /// Defines the possible nodes and associated flags to start.
+        #[clap(subcommand)]
+        kind : StartSubcommand,
+    },
 
     #[clap(name = "stop", about = "Stops the local node if it is running.")]
-    Stop {},
+    Stop {
+        /// The docker-compose file that we start.
+        #[clap(short, long, default_value = "docker-compose-$NODE.yml", help = "The docker-compose.yml file that defines the services to stop. You can use '$NODE' to match either 'central' or 'worker', depending how we started.")]
+        file : PathBuf,
+    },
 
     #[clap(name = "version", about = "Returns the version of this CTL tool and/or the local node.")]
     Version {
@@ -98,24 +154,13 @@ enum DataSubcommand {
 
 }
 
-/// Defines the start subcommand, which basically defines the possible kinds of nodes to start.
-#[derive(Debug, Subcommand)]
-enum StartSubcommand {
-    /// Starts a central node.
-    #[clap(name = "central", about = "Starts a central node based on the values in the local node.yml file.")]
-    Central {},
-
-    /// Starts a worker node.
-    #[clap(name = "worker", about = "Starts a worker node based on the values in the local node.yml file.")]
-    Worker {},
-}
-
 
 
 
 
 /***** ENTYRPOINT *****/
-fn main() {
+#[tokio::main(flavor = "current_thread")]
+async fn main() {
     // Load the .env file
     dotenv().ok();
 
@@ -140,14 +185,14 @@ fn main() {
 
     // Now match on the command
     match args.subcommand {
-        CtlSubcommand::Generate{ kind } => match kind {
-            GenerateSubcommand::Central{ .. } => {
-                if let Err(err) = generate::central(args.node_config, kind) { error!("{}", err); std::process::exit(1); }
-            },
+        CtlSubcommand::Generate{ proxy, config_path, certs_path, packages_path, prx_addr, prx_svc, kind } => {
+            // Create the common structs
+            let paths    : CommonPaths    = CommonPaths{ certs: resolve_config_path(certs_path, &config_path), packages: resolve_config_path(packages_path, &config_path) };
+            let ports    : CommonPorts    = CommonPorts{ prx: prx_addr };
+            let services : CommonServices = CommonServices{ prx: prx_svc };
 
-            GenerateSubcommand::Worker{ .. } => {
-                if let Err(err) = generate::worker(args.node_config, kind) { error!("{}", err); std::process::exit(1); }
-            },
+            // Call the thing with them
+            if let Err(err) = generate::generate(args.node_config, proxy, config_path, paths, ports, services, kind) { error!("{}", err); std::process::exit(1); }
         },
 
         CtlSubcommand::Certs(subcommand) => match subcommand {
@@ -162,11 +207,11 @@ fn main() {
             
         },
 
-        CtlSubcommand::Start{} => {
-
+        CtlSubcommand::Start{ file, docker_socket, docker_version, version, kind, } => {
+            if let Err(err) = lifetime::start(file, docker_socket, docker_version, version, args.node_config, kind).await { error!("{}", err); std::process::exit(1); };
         },
 
-        CtlSubcommand::Stop{} => {
+        CtlSubcommand::Stop{ file } => {
             
         },
 

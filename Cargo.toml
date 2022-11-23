@@ -10,6 +10,9 @@ members = [
     "brane-reg",
     "brane-let",
 
+    # These crates implement services that occur on any type of node
+    "brane-prx",
+
     # These crates directly relate to the CTL tool
     "brane-ctl",
 

@@ -4,7 +4,7 @@
 //  Created:
 //    26 Sep 2022, 17:20:55
 //  Last edited:
-//    17 Nov 2022, 13:58:12
+//    22 Nov 2022, 15:53:28
 //  Auto updated?
 //    Yes
 // 
@@ -17,14 +17,15 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use log::{debug, error};
-use reqwest::{Client, ClientBuilder, StatusCode};
+use reqwest::{Client, ClientBuilder, Proxy, StatusCode};
 use reqwest::tls::Certificate;
 use warp::{Rejection, Reply};
 use warp::http::{HeaderValue, Response};
 use warp::hyper::Body;
 
-use brane_cfg::InfraFile;
+use brane_cfg::{InfraFile, InfraPath};
 use brane_cfg::certs::load_cert;
+use brane_cfg::node::NodeConfig;
 use brane_shr::utilities::is_ip_addr;
 use specifications::data::{AssetInfo, DataInfo};
 
@@ -58,12 +59,25 @@ macro_rules! fail {
 pub async fn list(context: Context) -> Result<impl Reply, Rejection> {
     debug!("Handling GET on `/data/info` (i.e., list all datasets)...");
 
+    // Load the node config file
+    let node_config: NodeConfig = match NodeConfig::from_path(&context.node_config_path) {
+        Ok(config) => config,
+        Err(err)   => {
+            error!("Failed to load NodeConfig file: {}", err);
+            return Err(warp::reject::custom(Error::SecretError));
+        },
+    };
+    if !node_config.node.is_central() {
+        error!("Provided node config file '{}' is not for a central node", context.node_config_path.display());
+        return Err(warp::reject::custom(Error::SecretError));
+    }
+
     // Load the infrastructure file
-    let infra: InfraFile = match InfraFile::from_path(&context.infra) {
+    let infra: InfraFile = match InfraFile::from_path(InfraPath::new(&node_config.node.central().paths.infra, &node_config.node.central().paths.secrets)) {
         Ok(infra) => infra,
         Err(err)  => {
-            error!("{}", Error::InfrastructureOpenError{ path: context.infra.infra.clone(), err });
-            fail!();
+            error!("{}", Error::InfrastructureOpenError{ path: node_config.node.central().paths.infra.clone(), err });
+            return Err(warp::reject::custom(Error::SecretError));
         },
     };
 
@@ -73,7 +87,7 @@ pub async fn list(context: Context) -> Result<impl Reply, Rejection> {
         // Load the certificates for this domain
         let root: Certificate = {
             // Load the root store for this location (also as a list of certificates)
-            let cafile: PathBuf = context.certs.join(&name).join("ca.pem");
+            let cafile: PathBuf = node_config.node.central().paths.certs.join(&name).join("ca.pem");
             match load_cert(&cafile) {
                 Ok(mut root) => if !root.is_empty() {
                     match Certificate::from_der(&root.swap_remove(0).0) {
@@ -99,9 +113,18 @@ pub async fn list(context: Context) -> Result<impl Reply, Rejection> {
         let use_sni: bool = !is_ip_addr(&address);
 
         // Build a client with that certificate
-        let client: ClientBuilder = Client::builder()
+        let mut client: ClientBuilder = Client::builder()
             .add_root_certificate(root)
             .tls_sni(use_sni);
+        if let Some(proxy) = &node_config.proxy {
+            client = client.proxy(match Proxy::all(proxy.serialize().to_string()) {
+                Ok(proxy) => proxy,
+                Err(err)  => {
+                    error!("Failed to create proxy to '{}': {} (skipping domain)", proxy, err);
+                    continue;
+                },
+            });
+        }
         let client: Client = match client.build() {
             Ok(client) => client,
             Err(err)   => {
@@ -193,12 +216,25 @@ pub async fn list(context: Context) -> Result<impl Reply, Rejection> {
 pub async fn get(name: String, context: Context) -> Result<impl Reply, Rejection> {
     debug!("Handling GET on `/data/info/{}` (i.e., get dataset info)...", name);
 
+    // Load the node config file
+    let node_config: NodeConfig = match NodeConfig::from_path(&context.node_config_path) {
+        Ok(config) => config,
+        Err(err)   => {
+            error!("Failed to load NodeConfig file: {}", err);
+            return Err(warp::reject::custom(Error::SecretError));
+        },
+    };
+    if !node_config.node.is_central() {
+        error!("Provided node config file '{}' is not for a central node", context.node_config_path.display());
+        return Err(warp::reject::custom(Error::SecretError));
+    }
+
     // Load the infrastructure file
-    let infra: InfraFile = match InfraFile::from_path(&context.infra) {
+    let infra: InfraFile = match InfraFile::from_path(InfraPath::new(&node_config.node.central().paths.infra, &node_config.node.central().paths.secrets)) {
         Ok(infra) => infra,
         Err(err)  => {
-            error!("{}", Error::InfrastructureOpenError{ path: context.infra.infra.clone(), err });
-            fail!();
+            error!("{}", Error::InfrastructureOpenError{ path: node_config.node.central().paths.infra.clone(), err });
+            return Err(warp::reject::custom(Error::SecretError));
         },
     };
 
@@ -208,7 +244,7 @@ pub async fn get(name: String, context: Context) -> Result<impl Reply, Rejection
         // Load the certificates for this domain
         let root: Certificate = {
             // Load the root store for this location (also as a list of certificates)
-            let cafile: PathBuf = context.certs.join(&name).join("ca.pem");
+            let cafile: PathBuf = node_config.node.central().paths.certs.join(&name).join("ca.pem");
             match load_cert(&cafile) {
                 Ok(mut root) => {
                     if !root.is_empty() {
@@ -236,9 +272,18 @@ pub async fn get(name: String, context: Context) -> Result<impl Reply, Rejection
         let use_sni: bool = !is_ip_addr(&address);
 
         // Build a client with that certificate
-        let client: ClientBuilder = Client::builder()
+        let mut client: ClientBuilder = Client::builder()
             .add_root_certificate(root)
             .tls_sni(use_sni);
+        if let Some(proxy) = &node_config.proxy {
+            client = client.proxy(match Proxy::all(proxy.serialize().to_string()) {
+                Ok(proxy) => proxy,
+                Err(err)  => {
+                    error!("Failed to create proxy to '{}': {} (skipping domain)", proxy, err);
+                    continue;
+                },
+            });
+        }
         let client: Client = match client.build() {
             Ok(client) => client,
             Err(err)   => {
