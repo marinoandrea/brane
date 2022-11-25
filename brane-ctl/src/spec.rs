@@ -4,7 +4,7 @@
 //  Created:
 //    21 Nov 2022, 17:27:52
 //  Last edited:
-//    23 Nov 2022, 17:42:55
+//    25 Nov 2022, 16:32:45
 //  Auto updated?
 //    Yes
 // 
@@ -20,6 +20,7 @@ use bollard::ClientVersion;
 use clap::Subcommand;
 
 use brane_cfg::node::Address;
+use brane_tsk::docker::ImageSource;
 
 use crate::errors::DockerClientVersionParseError;
 
@@ -148,12 +149,44 @@ pub enum StartSubcommand {
     /// Starts a central node.
     #[clap(name = "central", about = "Starts a central node based on the values in the local node.yml file.")]
     Central {
+        /// THe path (or other source) to the `aux-scylla` service.
+        #[clap(short = 's', long, default_value = "Registry<scylladb/scylla:4.6.3>", help = "The image to load for the aux-scylla service. If it's a path that exists, will attempt to load that file; otherwise, assumes it's an image name in a remote registry. You can wrap your names in either `Path<...>` or `Registry<...>` if it matters.")]
+        aux_scylla    : ImageSource,
         /// The path (or other source) to the `aux-kafka` service.
-        #[clap(short, long, default_value = "ubuntu/kafka:3.1-22.04_beta", help = "The image to load for the aux-kafka service. If it's a path that exists, will attempt to load that file; otherwise, assumes it's an image name in a remote registry.")]
-        aux_kafka : String,
+        #[clap(short = 'k', long, default_value = "Registry<ubuntu/kafka:3.1-22.04_beta>", help = "The image to load for the aux-kafka service. If it's a path that exists, will attempt to load that file; otherwise, assumes it's an image name in a remote registry. You can wrap your names in either `Path<...>` or `Registry<...>` if it matters.")]
+        aux_kafka     : ImageSource,
+        /// The path (or other source) to the `aux-zookeeper` service.
+        #[clap(short = 'z', long, default_value = "Registry<ubuntu/zookeeper:3.1-22.04_beta>", help = "The image to load for the aux-zookeeper service. If it's a path that exists, will attempt to load that file; otherwise, assumes it's an image name in a remote registry. You can wrap your names in either `Path<...>` or `Registry<...>` if it matters.")]
+        aux_zookeeper : ImageSource,
+        /// The path (or other source) to the `aux-xenon` service.
+        #[clap(short = 'm', long, default_value = "Path<./target/release/aux-xenon.tar>", help = "The image to load for the aux-xenon service. If it's a path that exists, will attempt to load that file; otherwise, assumes it's an image name in a remote registry. You can wrap your names in either `Path<...>` or `Registry<...>` if it matters.")]
+        aux_xenon     : ImageSource,
+
+        /// The path (or other source) to the `brane-prx` service.
+        #[clap(short = 'P', long, default_value = "Path<./target/$MODE/brane-prx.tar>", help = "The image to load for the brane-prx service. If it's a path that exists, will attempt to load that file; otherwise, assumes it's an image name in a remote registry. You can wrap your names in either `Path<...>` or `Registry<...>` if it matters. Finally, use '$MODE' to reference the value indicated by --mode.")]
+        brane_prx : ImageSource,
+        /// The path (or other source) to the `brane-api` service.
+        #[clap(short = 'a', long, default_value = "Path<./target/$MODE/brane-api.tar>", help = "The image to load for the brane-plr service. If it's a path that exists, will attempt to load that file; otherwise, assumes it's an image name in a remote registry. You can wrap your names in either `Path<...>` or `Registry<...>` if it matters. Finally, use '$MODE' to reference the value indicated by --mode.")]
+        brane_api : ImageSource,
+        /// The path (or other source) to the `brane-drv` service.
+        #[clap(short = 'd', long, default_value = "Path<./target/$MODE/brane-drv.tar>", help = "The image to load for the brane-drv service. If it's a path that exists, will attempt to load that file; otherwise, assumes it's an image name in a remote registry. You can wrap your names in either `Path<...>` or `Registry<...>` if it matters. Finally, use '$MODE' to reference the value indicated by --mode.")]
+        brane_drv : ImageSource,
+        /// The path (or other source) to the `brane-plr` service.
+        #[clap(short = 'p', long, default_value = "Path<./target/$MODE/brane-plr.tar>", help = "The image to load for the brane-plr service. If it's a path that exists, will attempt to load that file; otherwise, assumes it's an image name in a remote registry. You can wrap your names in either `Path<...>` or `Registry<...>` if it matters. Finally, use '$MODE' to reference the value indicated by --mode.")]
+        brane_plr : ImageSource,
     },
 
     /// Starts a worker node.
     #[clap(name = "worker", about = "Starts a worker node based on the values in the local node.yml file.")]
-    Worker {},
+    Worker {
+        /// The path (or other source) to the `brane-prx` service.
+        #[clap(short = 'P', long, default_value = "Path<./target/$MODE/brane-prx.tar>", help = "The image to load for the brane-prx service. If it's a path that exists, will attempt to load that file; otherwise, assumes it's an image name in a remote registry. You can wrap your names in either `Path<...>` or `Registry<...>` if it matters. Finally, use '$MODE' to reference the value indicated by --mode.")]
+        brane_prx : ImageSource,
+        /// The path (or other source) to the `brane-api` service.
+        #[clap(short = 'r', long, default_value = "Path<./target/$MODE/brane-reg.tar>", help = "The image to load for the brane-reg service. If it's a path that exists, will attempt to load that file; otherwise, assumes it's an image name in a remote registry. You can wrap your names in either `Path<...>` or `Registry<...>` if it matters. Finally, use '$MODE' to reference the value indicated by --mode.")]
+        brane_reg : ImageSource,
+        /// The path (or other source) to the `brane-drv` service.
+        #[clap(short = 'j', long, default_value = "Path<./target/$MODE/brane-job.tar>", help = "The image to load for the brane-job service. If it's a path that exists, will attempt to load that file; otherwise, assumes it's an image name in a remote registry. You can wrap your names in either `Path<...>` or `Registry<...>` if it matters. Finally, use '$MODE' to reference the value indicated by --mode.")]
+        brane_job : ImageSource,
+    },
 }

@@ -4,7 +4,7 @@
 //  Created:
 //    17 Oct 2022, 15:18:32
 //  Last edited:
-//    22 Nov 2022, 15:05:40
+//    24 Nov 2022, 15:50:39
 //  Auto updated?
 //    Yes
 // 
@@ -433,7 +433,7 @@ where
     // Re-open the file
     debug!("Extracting submitted archive file...");
     let info_path  : PathBuf = tempdir_path.join("package.yml");
-    let image_path : PathBuf = node_config.node.central().paths.packages.join(format!("{}.tar", id));
+    let image_path : PathBuf = node_config.paths.packages.join(format!("{}.tar", id));
     {
         let handle: tfs::File = match tfs::File::open(&tar_path).await {
             Ok(handle) => handle,

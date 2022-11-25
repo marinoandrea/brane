@@ -4,7 +4,7 @@
 //  Created:
 //    26 Sep 2022, 17:20:55
 //  Last edited:
-//    22 Nov 2022, 15:53:28
+//    25 Nov 2022, 16:21:36
 //  Auto updated?
 //    Yes
 // 
@@ -14,19 +14,17 @@
 // 
 
 use std::collections::HashMap;
-use std::path::PathBuf;
 
 use log::{debug, error};
-use reqwest::{Client, ClientBuilder, Proxy, StatusCode};
-use reqwest::tls::Certificate;
+use reqwest::StatusCode;
 use warp::{Rejection, Reply};
 use warp::http::{HeaderValue, Response};
 use warp::hyper::Body;
 
 use brane_cfg::{InfraFile, InfraPath};
-use brane_cfg::certs::load_cert;
 use brane_cfg::node::NodeConfig;
-use brane_shr::utilities::is_ip_addr;
+use brane_prx::spec::NewPathRequestTlsOptions;
+use brane_prx::client::create_path;
 use specifications::data::{AssetInfo, DataInfo};
 
 pub use crate::errors::DataError as Error;
@@ -84,72 +82,32 @@ pub async fn list(context: Context) -> Result<impl Reply, Rejection> {
     // Iterate through all the locations (each of which have their own registry service)
     let mut datasets: HashMap<String, DataInfo> = HashMap::new();
     for (name, loc) in infra {
-        // Load the certificates for this domain
-        let root: Certificate = {
-            // Load the root store for this location (also as a list of certificates)
-            let cafile: PathBuf = node_config.node.central().paths.certs.join(&name).join("ca.pem");
-            match load_cert(&cafile) {
-                Ok(mut root) => if !root.is_empty() {
-                    match Certificate::from_der(&root.swap_remove(0).0) {
-                        Ok(root) => root,
-                        Err(err) => {
-                            error!("Failed to parse CA certificate file '{}' for location '{}': {} (skipping domain)", cafile.display(), name, err);
-                            continue;
-                        },
-                    }
-                } else {
-                    error!("No certificates found in CA certificate file '{}' for location '{}' (skipping domain)", cafile.display(), name);
-                    continue;
-                },
-                Err(err) => {
-                    error!("Failed to load CA certificate file '{}' for location '{}': {} (skipping domain)", cafile.display(), name, err);
-                    continue;
-                },  
-            }
-        };
-
-        // Determine if we have to enable SNI or not
-        let address: String = format!("{}/data/info", loc.registry);
-        let use_sni: bool = !is_ip_addr(&address);
-
-        // Build a client with that certificate
-        let mut client: ClientBuilder = Client::builder()
-            .add_root_certificate(root)
-            .tls_sni(use_sni);
-        if let Some(proxy) = &node_config.proxy {
-            client = client.proxy(match Proxy::all(proxy.serialize().to_string()) {
-                Ok(proxy) => proxy,
-                Err(err)  => {
-                    error!("Failed to create proxy to '{}': {} (skipping domain)", proxy, err);
-                    continue;
-                },
-            });
-        }
-        let client: Client = match client.build() {
-            Ok(client) => client,
-            Err(err)   => {
-                error!("Failed to create client: {} (skipping domain)", err);
-                continue;
-            }
-        };
-
-        // Build the request
-        let req: reqwest::Request = match client.get(&address).build() {
-            Ok(res)  => res,
+        // Ensure that a path exists to this location on the `brane-prx` node.
+        let address: String = format!("{}/data/info/{}", loc.registry, name);
+        let port: u16 = match create_path(&node_config.services.prx, &address, Some(NewPathRequestTlsOptions {
+            location        : name.clone(),
+            use_client_auth : true,
+        })).await {
+            Ok(port) => port,
             Err(err) => {
-                error!("Failed to create GET-request to '{}': {} (skipping domain)", address, err);
-                continue;
+                error!("{}", Error::ProxyPathCreateError{ proxy: node_config.services.prx, address, err });
+                return Err(warp::reject::custom(Error::SecretError));
             },
         };
 
-        // Run a GET-request on `/data/info` to fetch all datasets known in this domain
-        let res: reqwest::Response = match client.execute(req).await {
+        // Run a GET-request on `/data` to fetch the specific dataset we're asked for
+        let address: String = format!("{}:{}", node_config.services.prx.domain(), port);
+        let res: reqwest::Response = match reqwest::get(&address).await {
             Ok(res)  => res,
             Err(err) => {
                 error!("{} (skipping domain)", Error::RequestError { address, err });
                 continue;
             },
         };
+        if res.status() == StatusCode::NOT_FOUND {
+            // Search the next one instead
+            continue;
+        }
 
         // Fetch the body
         let body: String = match res.text().await {
@@ -241,68 +199,22 @@ pub async fn get(name: String, context: Context) -> Result<impl Reply, Rejection
     // Iterate through all the locations (each of which have their own registry service)
     let mut dataset: Option<DataInfo> = None;
     for (loc_name, loc) in infra {
-        // Load the certificates for this domain
-        let root: Certificate = {
-            // Load the root store for this location (also as a list of certificates)
-            let cafile: PathBuf = node_config.node.central().paths.certs.join(&name).join("ca.pem");
-            match load_cert(&cafile) {
-                Ok(mut root) => {
-                    if !root.is_empty() {
-                        match Certificate::from_der(&root.swap_remove(0).0) {
-                            Ok(root) => root,
-                            Err(err) => {
-                                error!("Failed to parse CA certificate file '{}' for location '{}': {} (skipping domain)", cafile.display(), name, err);
-                                continue;
-                            },
-                        }
-                    } else {
-                        error!("No certificates found in CA certificate file '{}' for location '{}' (skipping domain)", cafile.display(), name);
-                        continue;
-                    }
-                },
-                Err(err) => {
-                    error!("Failed to load CA certificate file '{}' for location '{}': {} (skipping domain)", cafile.display(), name, err);
-                    continue;
-                },  
-            }
-        };
-
-        // Determine if we have to enable SNI or not
+        // Ensure that a path exists to this location on the `brane-prx` node.
         let address: String = format!("{}/data/info/{}", loc.registry, name);
-        let use_sni: bool = !is_ip_addr(&address);
-
-        // Build a client with that certificate
-        let mut client: ClientBuilder = Client::builder()
-            .add_root_certificate(root)
-            .tls_sni(use_sni);
-        if let Some(proxy) = &node_config.proxy {
-            client = client.proxy(match Proxy::all(proxy.serialize().to_string()) {
-                Ok(proxy) => proxy,
-                Err(err)  => {
-                    error!("Failed to create proxy to '{}': {} (skipping domain)", proxy, err);
-                    continue;
-                },
-            });
-        }
-        let client: Client = match client.build() {
-            Ok(client) => client,
-            Err(err)   => {
-                error!("Failed to create client: {} (skipping domain)", err);
-                continue;
-            }
-        };
-
-        // Build the request
-        let req: reqwest::Request = match client.get(&address).build() {
-            Ok(res)  => res,
+        let port: u16 = match create_path(&node_config.services.prx, &address, Some(NewPathRequestTlsOptions {
+            location        : loc_name.clone(),
+            use_client_auth : true,
+        })).await {
+            Ok(port) => port,
             Err(err) => {
-                error!("Failed to create GET-request to '{}': {} (skipping domain)", address, err);
-                continue;
+                error!("{}", Error::ProxyPathCreateError{ proxy: node_config.services.prx, address, err });
+                return Err(warp::reject::custom(Error::SecretError));
             },
         };
 
         // Run a GET-request on `/data` to fetch the specific dataset we're asked for
-        let res: reqwest::Response = match client.execute(req).await {
+        let address: String = format!("{}:{}", node_config.services.prx.domain(), port);
+        let res: reqwest::Response = match reqwest::get(&address).await {
             Ok(res)  => res,
             Err(err) => {
                 error!("{} (skipping domain datasets)", Error::RequestError { address, err });

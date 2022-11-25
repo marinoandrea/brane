@@ -4,7 +4,7 @@
 //  Created:
 //    04 Feb 2022, 10:35:12
 //  Last edited:
-//    22 Nov 2022, 15:06:17
+//    25 Nov 2022, 16:20:29
 //  Auto updated?
 //    Yes
 // 
@@ -83,6 +83,8 @@ pub enum DataError {
     /// Failed to get the metadata of a location.
     InfrastructureMetadataError{ path: PathBuf, name: String, err: brane_cfg::Error },
 
+    /// Failed to create a new port on the proxy.
+    ProxyPathCreateError{ proxy: Address, address: String, err: brane_prx::client::Error },
     /// Failed to send a GET-request to the given URL
     RequestError{ address: String, err: reqwest::Error },
     /// Failed to get the body of a response.
@@ -104,10 +106,11 @@ impl Display for DataError {
             InfrastructureLocationsError{ path, err }      => write!(f, "Failed to get locations from infrastructure file '{}': {}", path.display(), err),
             InfrastructureMetadataError{ path, name, err } => write!(f, "Failed to get metadata of location '{}' from infrastructure file '{}': {}", name, path.display(), err),
 
-            RequestError{ address, err }       => write!(f, "Failed to send GET-request to '{}': {}", address, err),
-            ResponseBodyError{ address, err }  => write!(f, "Failed to get the response body received from '{}': {}", address, err),
-            ResponseParseError{ address, err } => write!(f, "Failed to parse response from '{}' as JSON: {}", address, err),
-            SerializeError{ what, err }        => write!(f, "Failed to serialize {}: {}", what, err),
+            ProxyPathCreateError{ proxy, address, err } => write!(f, "Failed to create new path to '{}' at proxy service '{}': {}", address, proxy, err),
+            RequestError{ address, err }                => write!(f, "Failed to send GET-request to '{}': {}", address, err),
+            ResponseBodyError{ address, err }           => write!(f, "Failed to get the response body received from '{}': {}", address, err),
+            ResponseParseError{ address, err }          => write!(f, "Failed to parse response from '{}' as JSON: {}", address, err),
+            SerializeError{ what, err }                 => write!(f, "Failed to serialize {}: {}", what, err),
 
             SecretError => write!(f, "An internal error has occurred"),
         }

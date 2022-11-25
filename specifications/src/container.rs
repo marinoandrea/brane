@@ -272,7 +272,7 @@ impl Image {
 
 
 
-    /// Returns the name-part of the Image.
+    /// Returns the name-part of the Image (i.e., the name + version).
     #[inline]
     pub fn name(&self) -> String { format!("{}{}", self.name, if let Some(version) = &self.version { format!(":{}", version) } else { String::new() }) }
 

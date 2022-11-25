@@ -4,7 +4,7 @@
 //  Created:
 //    15 Nov 2022, 09:18:40
 //  Last edited:
-//    23 Nov 2022, 17:05:42
+//    25 Nov 2022, 16:39:08
 //  Auto updated?
 //    Yes
 // 
@@ -77,7 +77,7 @@ enum CtlSubcommand {
         prx_addr : SocketAddr,
 
         /// The address on which the API srevice is locally available.
-        #[clap(long, default_value = "brane-prx:50051", help = "The address on which the proxy service is discoverable to other *local* services.")]
+        #[clap(long, default_value = "brane-prx:50050", help = "The address on which the proxy service is discoverable to other *local* services.")]
         prx_svc  : Address,
 
         /// Defines the possible nodes to generate a new node.yml file for.
@@ -107,6 +107,10 @@ enum CtlSubcommand {
         /// The specific Brane version to start.
         #[clap(short, long, default_value = env!("CARGO_PKG_VERSION"), help = "The Brane version to import.")]
         version : Version,
+
+        /// Sets the '$MODE' variable, which can easily switch the location of compiled binaries.
+        #[clap(short, long, default_value = "release", help = "Sets the mode ($MODE) to use in the image flags of the `start` command.")]
+        mode : String,
 
         /// Defines the possible nodes and associated flags to start.
         #[clap(subcommand)]
@@ -207,12 +211,12 @@ async fn main() {
             
         },
 
-        CtlSubcommand::Start{ file, docker_socket, docker_version, version, kind, } => {
-            if let Err(err) = lifetime::start(file, docker_socket, docker_version, version, args.node_config, kind).await { error!("{}", err); std::process::exit(1); };
+        CtlSubcommand::Start{ file, docker_socket, docker_version, version, mode, kind, } => {
+            if let Err(err) = lifetime::start(file, docker_socket, docker_version, version, args.node_config, mode, kind).await { error!("{}", err); std::process::exit(1); }
         },
 
         CtlSubcommand::Stop{ file } => {
-            
+            if let Err(err) = lifetime::stop(file, args.node_config) { error!("{}", err); std::process::exit(1); }
         },
 
         CtlSubcommand::Version { arch: _, kind: _, ctl: _, node: _ } => {

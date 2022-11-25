@@ -4,7 +4,7 @@
 //  Created:
 //    24 Oct 2022, 15:27:26
 //  Last edited:
-//    23 Nov 2022, 09:33:35
+//    24 Nov 2022, 16:26:02
 //  Auto updated?
 //    Yes
 // 
@@ -575,7 +575,9 @@ pub enum DockerError {
     ImageImportError{ path: PathBuf, err: bollard::errors::Error },
 
     /// Failed to pull the given image file.
-    ImagePullError{ image: Image, err: bollard::errors::Error },
+    ImagePullError{ source: String, err: bollard::errors::Error },
+    /// Failed to appropriately tag the pulled image.
+    ImageTagError{ image: Image, source: String, err: bollard::errors::Error },
 
     /// Failed to remove a certain image.
     ImageRemoveError{ image: Image, id: String, err: bollard::errors::Error },
@@ -624,7 +626,8 @@ impl Display for DockerError {
             ImageFileOpenError{ path, err } => write!(f, "Failed to open image file '{}': {}", path.display(), err),
             ImageImportError{ path, err }   => write!(f, "Failed to import image file '{}' into Docker engine: {}", path.display(), err),
 
-            ImagePullError{ image, err } => write!(f, "Failed to pull image '{}' into Docker engine: {}", image.name(), err),
+            ImagePullError{ source, err }       => write!(f, "Failed to pull image '{}' into Docker engine: {}", source, err),
+            ImageTagError{ image, source, err } => write!(f, "Failed to tag pulled image '{}' as '{}': {}", source, image, err),
 
             ImageRemoveError{ image, id, err } => write!(f, "Failed to remove image '{}' (id: {}) from Docker engine: {}", image.name(), id, err),
 

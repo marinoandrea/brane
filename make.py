@@ -5,7 +5,7 @@
 # Created:
 #   09 Jun 2022, 12:20:28
 # Last edited:
-#   23 Nov 2022, 17:29:48
+#   24 Nov 2022, 14:52:35
 # Auto updated?
 #   Yes
 #
@@ -42,11 +42,11 @@ import typing
 VERSION = "1.0.0"
 
 # List of services that live in the control part of an instance
-CENTRAL_SERVICES = [ "api", "drv", "plr" ]
+CENTRAL_SERVICES = [ "prx", "api", "drv", "plr" ]
 # List of auxillary services in the control part of an instance
 AUX_CENTRAL_SERVICES = [ "scylla", "kafka", "zookeeper", "xenon" ]
 # List of services that live in a worker node in an instance
-WORKER_SERVICES = [ "job", "reg" ]
+WORKER_SERVICES = [ "prx", "job", "reg" ]
 # List of auxillary services in a worker node in an instance
 AUX_WORKER_SERVICES = []
 

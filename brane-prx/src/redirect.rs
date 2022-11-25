@@ -4,7 +4,7 @@
 //  Created:
 //    23 Nov 2022, 11:26:46
 //  Last edited:
-//    23 Nov 2022, 14:59:46
+//    25 Nov 2022, 16:12:41
 //  Auto updated?
 //    Yes
 // 
@@ -28,7 +28,6 @@ use tokio_rustls::client::TlsStream;
 
 use brane_cfg::certs::{load_certstore, load_identity};
 use brane_cfg::node::{Address, NodeConfig};
-use brane_shr::debug::EnumDebug;
 
 pub use crate::errors::RedirectError as Error;
 use crate::spec::{Context, NewPathRequestTlsOptions};
@@ -51,19 +50,19 @@ impl RemoteClient {
     /// 
     /// # Returns
     /// A TcpStream that represents the connetion.
-    async fn connect(&self, address: impl AsRef<Address>) -> Result<TcpStream, Error> {
-        let address: &Address = address.as_ref();
+    async fn connect(&self, address: impl AsRef<str>) -> Result<TcpStream, Error> {
+        let address: &str = address.as_ref();
 
         use RemoteClient::*;
         match self {
-            Direct => match TcpStream::connect(address.to_string()).await {
+            Direct => match TcpStream::connect(address).await {
                 Ok(conn) => Ok(conn),
-                Err(err) => Err(Error::TcpStreamConnectError{ address: address.clone(), err }),
+                Err(err) => Err(Error::TcpStreamConnectError{ address: address.into(), err }),
             },
 
             Proxied(client, proxy) => match client.connect(address.to_string(), None, None).await {
                 Ok((conn, addr)) => { debug!("{:?}", addr); Ok(conn) },
-                Err(err)         => Err(Error::Socks6ConnectError{ address: address.clone(), proxy: proxy.clone(), err }),
+                Err(err)         => Err(Error::Socks6ConnectError{ address: address.into(), proxy: proxy.clone(), err }),
             },
         }
     }
@@ -87,18 +86,16 @@ impl RemoteClient {
 /// 
 /// # Errors
 /// This function errors if we failed to bind a TCP server on the given port.
-pub async fn path_server_factory(context: &Arc<Context>, socket_addr: SocketAddr, remote_addr: Address, tls: Option<NewPathRequestTlsOptions>) -> Result<impl Future<Output = Never>, Error> {
+pub async fn path_server_factory(context: &Arc<Context>, socket_addr: SocketAddr, remote_addr: String, tls: Option<NewPathRequestTlsOptions>) -> Result<impl Future<Output = Never>, Error> {
     // Parse the given domain as a hostname first, if required by TLS
     let tls: Option<(ServerName, NewPathRequestTlsOptions)> = if let Some(tls) = tls {
-        match &remote_addr {
-            Address::Hostname(name, _) => {
-                match ServerName::try_from(name.as_str()) {
-                    Ok(name) => Some((name, tls)),
-                    Err(err) => { return Err(Error::IllegalServerName{ raw: name.clone(), err }); },
-                }
+        match ServerName::try_from(remote_addr.as_str()) {
+            Ok(name) => {
+                // Assert it's actually a DNS name, since rustls no like IPs
+                if matches!(name, ServerName::DnsName(_)) { return Err(Error::TlsWithNonHostnameError{ kind: remote_addr }); }
+                Some((name, tls))
             },
-
-            _ => { return Err(Error::TlsWithNonHostnameError{ kind: remote_addr.variant().to_string() }); },
+            Err(err) => { return Err(Error::IllegalServerName{ raw: remote_addr, err }); },
         }
     } else {
         None
@@ -144,7 +141,7 @@ pub async fn path_server_factory(context: &Arc<Context>, socket_addr: SocketAddr
 /// 
 /// # Errors
 /// This function does not error directly, but instead write errors to stderr (using the `log` crate) and then returns.
-pub async fn path_server(node_config_path: PathBuf, listener: TcpListener, client: RemoteClient, socket_addr: SocketAddr, address: Address, tls: Option<(ServerName, NewPathRequestTlsOptions)>) -> Never {
+pub async fn path_server(node_config_path: PathBuf, listener: TcpListener, client: RemoteClient, socket_addr: SocketAddr, address: String, tls: Option<(ServerName, NewPathRequestTlsOptions)>) -> Never {
     info!("Initiated new path ':{}' to '{}'", socket_addr, address);
     loop {
         // Wait for the next connection

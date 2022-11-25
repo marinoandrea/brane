@@ -4,7 +4,7 @@
 //  Created:
 //    31 Oct 2022, 11:21:14
 //  Last edited:
-//    23 Nov 2022, 14:08:36
+//    24 Nov 2022, 15:50:26
 //  Auto updated?
 //    Yes
 // 
@@ -53,7 +53,7 @@ use crate::spec::JobStatus;
 use crate::grpc::{CommitReply, CommitRequest, DataKind, JobService, PreprocessKind, PreprocessReply, PreprocessRequest, TaskReply, TaskRequest, TaskStatus};
 use crate::tools::decode_base64;
 use crate::api::get_package_index;
-use crate::docker::{self, ExecuteInfo, Network};
+use crate::docker::{self, ExecuteInfo, ImageSource, Network};
 
 
 /***** CONSTANTS *****/
@@ -672,7 +672,7 @@ async fn execute_task_local(node_config: &NodeConfig, dinfo: DockerInfo, tx: &Se
     let info: ExecuteInfo = ExecuteInfo::new(
         &tinfo.name,
         image,
-        Some(container_path.into()),
+        ImageSource::Path(container_path.into()),
         vec![
             "-d".into(),
             "--application-id".into(),

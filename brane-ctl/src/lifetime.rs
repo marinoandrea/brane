@@ -4,7 +4,7 @@
 //  Created:
 //    22 Nov 2022, 11:19:22
 //  Last edited:
-//    23 Nov 2022, 17:47:41
+//    25 Nov 2022, 16:36:33
 //  Auto updated?
 //    Yes
 // 
@@ -22,7 +22,7 @@ use console::style;
 use log::{debug, info};
 
 use brane_cfg::node::{CentralPaths, CentralPorts, CommonPaths, NodeConfig, NodeKind, NodeKindConfig, WorkerPaths, WorkerPorts};
-use brane_tsk::docker::{ensure_image, get_digest};
+use brane_tsk::docker::{ensure_image, get_digest, ImageSource};
 use specifications::container::Image;
 use specifications::version::Version;
 
@@ -63,6 +63,26 @@ fn resolve_node(path: impl AsRef<Path>, node: impl AsRef<str>) -> PathBuf {
     PathBuf::from(path.as_ref().to_string_lossy().replace("$NODE", node.as_ref()))
 }
 
+/// Resolves the given ImageSource to replace '$MODE' with the actual mode given.
+/// 
+/// # Arguments
+/// - `source`: The ImageSource to resolve.
+/// - `mode`: The mode to use. Effectively just a directory nested in `target`.
+/// 
+/// # Returns
+/// A new ImageSource that is the same but not with (potentially) $NODE removed.
+#[inline]
+fn resolve_mode(source: impl AsRef<ImageSource>, mode: impl AsRef<str>) -> ImageSource {
+    let source : &ImageSource = source.as_ref();
+    let mode   : &str         = mode.as_ref();
+
+    // Switch on the source type to do the thing
+    match source {
+        ImageSource::Path(path)       => ImageSource::Path(PathBuf::from(path.to_string_lossy().replace("$MODE", mode))),
+        ImageSource::Registry(source) => ImageSource::Registry(source.replace("$MODE", mode)),
+    }
+}
+
 /// Loads the given images.
 /// 
 /// # Arguments
@@ -75,31 +95,34 @@ fn resolve_node(path: impl AsRef<Path>, node: impl AsRef<str>) -> PathBuf {
 /// 
 /// # Errors
 /// This function errors if the given images could not be loaded.
-async fn load_images(docker: &Docker, images: HashMap<impl AsRef<str>, String>, version: &Version) -> Result<(), Error> {
+async fn load_images(docker: &Docker, images: HashMap<impl AsRef<str>, ImageSource>, version: &Version) -> Result<(), Error> {
     // Iterate over the images
-    for (name, from) in images {
+    for (name, source) in images {
         let name: &str = name.as_ref();
 
         // Determine whether to pull as file or as a repo thing
-        let image_path: PathBuf = PathBuf::from(&from);
-        let (image, image_path): (Image, Option<PathBuf>) = if image_path.exists() {
-            println!("Loading image {} from file {}...", style(name).green().bold(), style(image_path.display().to_string()).bold());
+        let image: Image = match &source {
+            ImageSource::Path(path) => {
+                println!("Loading image {} from file {}...", style(name).green().bold(), style(path.display().to_string()).bold());
 
-            // Load the digest, too
-            let digest: String = match get_digest(&image_path).await {
-                Ok(digest) => digest,
-                Err(err)   => { return Err(Error::ImageDigestError{ path: image_path, err }); },
-            };
+                // Load the digest, too
+                let digest: String = match get_digest(path).await {
+                    Ok(digest) => digest,
+                    Err(err)   => { return Err(Error::ImageDigestError{ path: path.into(), err }); },
+                };
 
-            // Return it
-            (Image::new(name, Some(version), Some(digest)), Some(image_path))
-        } else {
-            println!("Loading image {} from repository {}...", style(name).green().bold(), style(&from).bold());
-            (Image::new(&from, None::<&str>, None::<&str>), None)
+                // Return it
+                Image::new(name, Some(version), Some(digest))
+            },
+
+            ImageSource::Registry(source) => {
+                println!("Loading image {} from repository {}...", style(name).green().bold(), style(source).bold());
+                Image::new(name, Some(version), None::<&str>)
+            },
         };
 
         // Simply rely on ensure_image
-        if let Err(err) = ensure_image(docker, image, image_path).await { return Err(Error::ImageLoadError{ from, err }); }
+        if let Err(err) = ensure_image(docker, &image, &source).await { return Err(Error::ImageLoadError{ image, source, err }); }
     }
 
     // Done
@@ -172,6 +195,7 @@ fn construct_envs(version: &Version, node_config_path: &Path, node_config: &Node
     }
 
     // Done
+    debug!("Using environment: {:#?}", res);
     Ok(res)
 }
 
@@ -202,7 +226,7 @@ fn run_compose(file: impl AsRef<Path>, project: impl AsRef<str>, envs: HashMap<&
     cmd.envs(envs);
 
     // Run it
-    println!("Running docker-compose on {}...", style(file.display()).bold().green());
+    println!("Running docker-compose {} on {}...", style("up").bold().green(), style(file.display()).bold());
     debug!("Command: {:?}", cmd);
     let output: Output = match cmd.output() {
         Ok(output) => output,
@@ -227,6 +251,7 @@ fn run_compose(file: impl AsRef<Path>, project: impl AsRef<str>, envs: HashMap<&
 /// - `docker_version`: The Docker client API version to use.
 /// - `version`: The Brane version to start.
 /// - `node_config_path`: The path to the node config file to potentially override.
+/// - `mode`: The mode ('release' or 'debug', typically) to resolve certain image sources with.
 /// - `command`: The `StartSubcommand` that carries additional information, including which of the node types to launch.
 /// 
 /// # Returns
@@ -234,7 +259,7 @@ fn run_compose(file: impl AsRef<Path>, project: impl AsRef<str>, envs: HashMap<&
 /// 
 /// # Errors
 /// This function errors if we failed to run the `docker-compose` command or if we failed to assert that the given command matches the node kind of the `node.yml` file on disk.
-pub async fn start(file: impl Into<PathBuf>, docker_socket: PathBuf, docker_version: DockerClientVersion, version: Version, node_config_path: impl Into<PathBuf>, command: StartSubcommand) -> Result<(), Error> {
+pub async fn start(file: impl Into<PathBuf>, docker_socket: PathBuf, docker_version: DockerClientVersion, version: Version, node_config_path: impl Into<PathBuf>, mode: String, command: StartSubcommand) -> Result<(), Error> {
     let file             : PathBuf = file.into();
     let node_config_path : PathBuf = node_config_path.into();
     info!("Starting node from Docker compose file '{}', defined in '{}'", file.display(), node_config_path.display());
@@ -248,7 +273,7 @@ pub async fn start(file: impl Into<PathBuf>, docker_socket: PathBuf, docker_vers
 
     // Match on the command
     match command {
-        StartSubcommand::Central{ aux_kafka } => {
+        StartSubcommand::Central{ aux_scylla, aux_kafka, aux_zookeeper, aux_xenon, brane_prx, brane_api, brane_drv, brane_plr } => {
             // Assert we are building the correct one
             if node_config.node.kind() != NodeKind::Central { return Err(Error::UnmatchedNodeKind{ got: NodeKind::Central, expected: node_config.node.kind() }); }
 
@@ -258,9 +283,20 @@ pub async fn start(file: impl Into<PathBuf>, docker_socket: PathBuf, docker_vers
                 Err(err)   => { return Err(Error::DockerConnectError{ socket: docker_socket, version: docker_version.0, err }); },
             };
 
+            // Generate hosts file
+            generate_hosts().await?;
+
             // Map the images & load them
-            let images: HashMap<&'static str, String> = HashMap::from([
+            let images: HashMap<&'static str, ImageSource> = HashMap::from([
+                ("aux-scylla", aux_scylla),
                 ("aux-kafka", aux_kafka),
+                ("aux-zookeeper", aux_zookeeper),
+                ("aux-xenon", aux_xenon),
+
+                ("brane-prx", resolve_mode(brane_prx, &mode)),
+                ("brane-api", resolve_mode(brane_api, &mode)),
+                ("brane-drv", resolve_mode(brane_drv, &mode)),
+                ("brane-plr", resolve_mode(brane_plr, &mode)),
             ]);
             load_images(&docker, images, &version).await?;
 
@@ -271,7 +307,7 @@ pub async fn start(file: impl Into<PathBuf>, docker_socket: PathBuf, docker_vers
             run_compose(resolve_node(file, "central"), "brane-central", envs)?;
         },
 
-        StartSubcommand::Worker {} => {
+        StartSubcommand::Worker{ brane_prx, brane_reg, brane_job } => {
             // Assert we are building the correct one
             if node_config.node.kind() != NodeKind::Worker  { return Err(Error::UnmatchedNodeKind{ got: NodeKind::Worker, expected: node_config.node.kind() }); }
 
@@ -281,8 +317,15 @@ pub async fn start(file: impl Into<PathBuf>, docker_socket: PathBuf, docker_vers
                 Err(err)   => { return Err(Error::DockerConnectError{ socket: docker_socket, version: docker_version.0, err }); },
             };
 
+            // Generate hosts file
+            generate_hosts().await?;
+
             // Map the images & load them
-            let images: HashMap<&'static str, String> = HashMap::from([]);
+            let images: HashMap<&'static str, ImageSource> = HashMap::from([
+                ("brane-prx", resolve_mode(brane_prx, &mode)),
+                ("brane-reg", resolve_mode(brane_reg, &mode)),
+                ("brane-job", resolve_mode(brane_job, &mode)),
+            ]);
             load_images(&docker, images, &version).await?;
 
             // Construct the environment variables
@@ -295,5 +338,58 @@ pub async fn start(file: impl Into<PathBuf>, docker_socket: PathBuf, docker_vers
 
     // Done
     println!("\nSuccessfully launched node of type {}", style(node_config.node.kind()).bold().green());
+    Ok(())
+}
+
+
+
+/// Stops the (currently running) local node.
+/// 
+/// This is a very simple command, no more than a wrapper around docker-compose.
+/// 
+/// # Arguments
+/// - `file`: The docker-compose file file to use to stop.
+/// - `node_config_path`: The path to the node config file that we use to deduce the project name.
+/// 
+/// # Returns
+/// Nothing, but does change the local Docker daemon to stop the services if they are running.
+/// 
+/// # Errors
+/// This function errors if we failed to run docker-compose.
+pub fn stop(file: impl Into<PathBuf>, node_config_path: impl Into<PathBuf>) -> Result<(), Error> {
+    let file             : PathBuf = file.into();
+    let node_config_path : PathBuf = node_config_path.into();
+    info!("Stopping node from Docker compose file '{}', defined in '{}'", file.display(), node_config_path.display());
+
+    // Start by loading the node config file
+    debug!("Loading node config file '{}'...", node_config_path.display());
+    let node_config: NodeConfig = match NodeConfig::from_path(&node_config_path) {
+        Ok(config) => config,
+        Err(err)   => { return Err(Error::NodeConfigLoadError{ err }); },
+    };
+
+    // Resolve the filename and deduce the project name
+    let file  : PathBuf = resolve_node(file, if node_config.node.kind() == NodeKind::Central { "central" } else { "worker" });
+    let pname : String  = format!("brane-{}", match &node_config.node { NodeKindConfig::Central(_) => "central".into(), NodeKindConfig::Worker(node) => format!("worker-{}", node.location_id) });
+
+    // Now launch docker-compose
+    let mut cmd: Command = Command::new("docker-compose");
+    cmd.stdin(Stdio::inherit());
+    cmd.stdout(Stdio::inherit());
+    cmd.stderr(Stdio::inherit());
+    cmd.args([ "-p", pname.as_str(), "-f" ]);
+    cmd.arg(file.as_os_str());
+    cmd.args([ "down" ]);
+
+    // Run it
+    println!("Running docker-compose {} on {}...", style("down").bold().green(), style(file.display()).bold());
+    debug!("Command: {:?}", cmd);
+    let output: Output = match cmd.output() {
+        Ok(output) => output,
+        Err(err)   => { return Err(Error::JobLaunchError { command: cmd, err }); },
+    };
+    if !output.status.success() { return Err(Error::JobFailure { command: cmd, status: output.status }); }
+
+    // Done
     Ok(())
 }

@@ -4,7 +4,7 @@
 //  Created:
 //    21 Nov 2022, 15:46:26
 //  Last edited:
-//    23 Nov 2022, 17:00:54
+//    24 Nov 2022, 15:57:20
 //  Auto updated?
 //    Yes
 // 
@@ -22,6 +22,8 @@ use console::style;
 
 use brane_cfg::node::NodeKind;
 use brane_shr::debug::EnumDebug;
+use brane_tsk::docker::ImageSource;
+use specifications::container::Image;
 
 
 /***** LIBRARY *****/
@@ -58,7 +60,7 @@ pub enum LifetimeError {
     /// Failed to get the digest of the given image file.
     ImageDigestError{ path: PathBuf, err: brane_tsk::docker::Error },
     /// Failed to load/import the given image.
-    ImageLoadError{ from: String, err: brane_tsk::docker::Error },
+    ImageLoadError{ image: Image, source: ImageSource, err: brane_tsk::docker::Error },
 
     /// Failed to load the given node config file.
     NodeConfigLoadError{ err: brane_cfg::node::Error },
@@ -78,8 +80,8 @@ impl Display for LifetimeError {
         match self {
             CanonicalizeError{ path, err } => write!(f, "Failed to canonicalize path '{}': {}", path.display(), err),
     
-            ImageDigestError{ path, err } => write!(f, "Failed to get digest of image {}: {}", style(path.display()).bold(), err),
-            ImageLoadError{ from, err }   => write!(f, "Failed to load image {}: {}", style(from).bold(), err),
+            ImageDigestError{ path, err }        => write!(f, "Failed to get digest of image {}: {}", style(path.display()).bold(), err),
+            ImageLoadError{ image, source, err } => write!(f, "Failed to load image {} from '{}': {}", style(image).bold(), style(source).bold(), err),
 
             NodeConfigLoadError{ err }                 => write!(f, "Failed to load node.yml file: {}", err),
             DockerConnectError{ socket, version, err } => write!(f, "Failed to connect to local Docker socket '{}' using API version {}: {}", socket.display(), version, err),

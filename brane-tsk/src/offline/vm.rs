@@ -4,7 +4,7 @@
 //  Created:
 //    24 Oct 2022, 15:34:05
 //  Last edited:
-//    14 Nov 2022, 11:52:49
+//    24 Nov 2022, 15:53:54
 //  Auto updated?
 //    Yes
 // 
@@ -41,7 +41,7 @@ use crate::errors::{CommitError, ExecuteError, PreprocessError, StdoutError};
 use crate::spec::{LOCALHOST, Planner as _};
 use crate::tools::decode_base64;
 use crate::docker;
-use crate::docker::{ExecuteInfo, Network};
+use crate::docker::{ExecuteInfo, ImageSource, Network};
 use crate::offline::{GlobalState, LocalState};
 use crate::offline::planner::OfflinePlanner;
 
@@ -103,9 +103,9 @@ impl VmPlugin for OfflinePlugin {
         // Create an ExecuteInfo with that
         let image: Image = Image::new(info.package_name, Some(info.package_version), Some(pinfo.digest.as_ref().unwrap()));
         let einfo: ExecuteInfo = ExecuteInfo {
-            name       : info.name.into(),
-            image      : image.clone(),
-            image_file : Some(package_dir.join(info.package_name).join(info.package_version.to_string()).join("image.tar")),
+            name         : info.name.into(),
+            image        : image.clone(),
+            image_source : ImageSource::Path(package_dir.join(info.package_name).join(info.package_version.to_string()).join("image.tar")),
 
             command : vec![
                 "-d".into(),

@@ -37,6 +37,24 @@ ENTRYPOINT [ "/bin/bash" ]
 
 
 
+##### BRANE-PRX #####
+# This image contains the Brane proxy service.
+FROM brane-base AS brane-prx
+
+# Define the architecture argument
+ARG ARCH
+
+# Copy `brane-prx` from build stage
+COPY ./.container-bins/$ARCH/brane-prx /brane-prx
+RUN chmod +x /brane-prx
+
+# Run the compiled executable as base
+ENTRYPOINT [ "/brane-prx", "--debug" ]
+
+
+
+
+
 ##### BRANE-API #####
 # This image contains the Brane API service.
 FROM brane-base AS brane-api

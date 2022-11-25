@@ -34,5 +34,6 @@ uuid = "0.8"
 warp = "0.3"
 
 brane-cfg      = { path = "../brane-cfg" }
+brane-prx      = { path = "../brane-prx" }
 brane-shr      = { path = "../brane-shr" }
 specifications = { path = "../specifications" }

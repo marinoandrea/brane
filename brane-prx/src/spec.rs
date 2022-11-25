@@ -4,7 +4,7 @@
 //  Created:
 //    23 Nov 2022, 11:02:54
 //  Last edited:
-//    23 Nov 2022, 12:47:52
+//    25 Nov 2022, 16:09:30
 //  Auto updated?
 //    Yes
 // 
@@ -42,7 +42,7 @@ pub struct Context {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct NewPathRequest {
     /// The address to connect to.
-    pub address : Address,
+    pub address : String,
 
     /// If given, uses TLS with the given options.
     pub tls : Option<NewPathRequestTlsOptions>,

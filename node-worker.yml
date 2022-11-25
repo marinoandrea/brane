@@ -15,24 +15,23 @@
 proxy: ~
 paths:
   certs: "./config_test/certs"
-  packages: "/tmp/packages"
+  packages: "./config_test/packages"
 ports:
-  prx: "0.0.0.0:50050"
+  prx: "0.0.0.0:50056"
 services:
-  prx: "brane-prx:50050"
+  prx: "http://brane-prx:50056"
 node:
-  kind: central
+  kind: worker
+  location_id: test
   paths:
-    infra: "./config_test/infra.yml"
-    secrets: "./config_test/secrets.yml"
+    creds: "./config_test/creds.yml"
+    data: "./config_test/data"
+    results: "./config_test/results"
+    temp_data: /tmp/data
+    temp_results: /tmp/results
   ports:
-    api: "0.0.0.0:50051"
-    drv: "0.0.0.0:50053"
+    reg: "0.0.0.0:50057"
+    job: "0.0.0.0:50058"
   services:
-    brokers:
-      - "aux-kafka:9092"
-    scylla: "aux-scylla:9042"
-    api: "http://brane-api:50051"
-  topics:
-    planner_command: plr-cmd
-    planner_results: plr-res
+    reg: "https://brane-reg:50057"
+    chk: "http://brane-chk:50053"

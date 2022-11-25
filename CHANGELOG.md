@@ -9,6 +9,8 @@ This release basically sees the release of an entirely rebuilt framework. Expect
 
 ### Added
 - Extra example code that implements more advanced filesystem features, which may be used to inspect the shared `/data` partition at runtime.
+- `branectl` binary (as the `brane-ctl` crate) as a `brane` counterpart to servers. This takes over starting and stopping nodes from the `make.py` script as well, meaning it no longer offers `start-instance` (see below).
+- `node.yml` file as a "node config file", that defines IP addresses, necessary paths, the kind, w/e of a single node's environment.
 - `brane data ...` subcommand to manage local datasets.
 - `brane-ast` crate, which provides compiler methods for transforming the BraneScript/Bakery AST to the workflow representation (see below).
 - `brane-exe` crate, which replaces `brane-bvm` to execute the workflow representation (see below).
@@ -18,7 +20,6 @@ This release basically sees the release of an entirely rebuilt framework. Expect
 - TLS to data transfers. This means that setting up a domain is now marginally more complex, since certificates have to be generated.
 - `unpack` as a new section in `container.yml` files, which replaces the semantics of the old `install` section (see below).
 - `contrib/scripts/create_certs.sh` to generate scripts in the format that Brane wants.
-- `start.py` as alternative startup scripts that don't do compilation but just run already compiled images. As a consequence, `make.py` no longer offers 'start-instance' (see below).
 - Lots of BraneScript example/test files, which may be useful for understanding the language. Check `tests/branescript`.
 - A way of compiling the scripts to a workflow file offline (by use of `brane compile`; see below).
 

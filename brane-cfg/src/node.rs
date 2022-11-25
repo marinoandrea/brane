@@ -4,7 +4,7 @@
 //  Created:
 //    16 Nov 2022, 16:54:43
 //  Last edited:
-//    23 Nov 2022, 17:33:38
+//    25 Nov 2022, 16:18:40
 //  Auto updated?
 //    Yes
 // 
@@ -14,6 +14,7 @@
 //!   found, etc.
 // 
 
+use std::borrow::Cow;
 use std::fmt::{Display, Formatter, Result as FResult};
 use std::fs::File;
 use std::io::{Read, Write};
@@ -117,6 +118,36 @@ impl Address {
     #[inline]
     pub fn hostname(hostname: impl Into<String>, port: u16) -> Self {
         Self::Hostname(hostname.into(), port)
+    }
+
+
+
+    /// Returns the domain-part, as a (serialized) string version.
+    /// 
+    /// # Returns
+    /// A `Cow<str>` that either contains a reference to the already String hostname, or else a newly created string that is the serialized version of an IP.
+    #[inline]
+    pub fn domain(&self) -> Cow<'_, str> {
+        use Address::*;
+        match self {
+            Ipv4(addr, _)     => format!("{}", addr).into(),
+            Ipv6(addr, _)     => format!("{}", addr).into(),
+            Hostname(addr, _) => addr.into(),
+        }
+    }
+
+    /// Returns the port-part, as a number.
+    /// 
+    /// # Returns
+    /// A `u16` that is the port.
+    #[inline]
+    pub fn port(&self) -> u16 {
+        use Address::*;
+        match self {
+            Ipv4(_, port)     => *port,
+            Ipv6(_, port)     => *port,
+            Hostname(_, port) => *port,
+        }
     }
 
 

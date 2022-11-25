@@ -4,7 +4,7 @@
 //  Created:
 //    19 Sep 2022, 14:57:17
 //  Last edited:
-//    23 Nov 2022, 16:40:52
+//    25 Nov 2022, 11:08:50
 //  Auto updated?
 //    Yes
 // 
@@ -15,19 +15,22 @@
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter, Result as FResult};
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 
 use bollard::{API_DEFAULT_VERSION, ClientVersion, Docker};
 use bollard::container::{
     Config, CreateContainerOptions, LogOutput, LogsOptions, RemoveContainerOptions, StartContainerOptions,
     WaitContainerOptions
 };
-use bollard::image::{CreateImageOptions, ImportImageOptions, RemoveImageOptions};
+use bollard::image::{CreateImageOptions, ImportImageOptions, RemoveImageOptions, TagImageOptions};
 use bollard::models::{DeviceRequest, EndpointSettings, HostConfig};
 use futures_util::stream::TryStreamExt;
 use futures_util::StreamExt;
 use hyper::Body;
 use log::debug;
 use serde::{Deserialize, Serialize};
+use serde::de::{Deserializer, Visitor};
+use serde::ser::Serializer;
 use tokio::fs::{self as tfs, File as TFile};
 use tokio::io::AsyncReadExt;
 use tokio_tar::Archive;
@@ -65,6 +68,125 @@ struct DockerImageManifest {
 
 
 /***** AUXILLARY STRUCTS *****/
+/// Defines a serializer for the ImageSource.
+#[derive(Debug)]
+pub struct ImageSourceSerializer<'a> {
+    source : &'a ImageSource,
+}
+impl<'a> Display for ImageSourceSerializer<'a> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
+        use ImageSource::*;
+        match self.source {
+            Path(path)       => write!(f, "Path<{}>", path.to_string_lossy()),
+            Registry(source) => write!(f, "Registry<{}>", source),
+        }
+    }
+}
+
+/// Defines the source of an image (either a file or from a repo).
+#[derive(Clone, Debug)]
+pub enum ImageSource {
+    /// It's a file, and this is the path to load.
+    Path(PathBuf),
+    /// It's in a remote registry, and this is it.
+    Registry(String),
+}
+
+impl ImageSource {
+    /// Returns a formatter for the ImageSource that can serialize it in a deterministic manner. This method should be preferred if `ImageSource::from_str()` should read it.
+    #[inline]
+    pub fn serialize(&self) -> ImageSourceSerializer { ImageSourceSerializer{ source: self } }
+}
+
+impl Display for ImageSource {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
+        use ImageSource::*;
+        match self {
+            Path(path)     => write!(f, "{}", path.display()),
+            Registry(from) => write!(f, "{}", from),
+        }
+    }
+}
+
+impl<S: AsRef<str>> From<S> for ImageSource {
+    fn from(value: S) -> Self {
+        let value: &str = value.as_ref();
+
+        // Attempt to parse it using the wrappers first
+        if value.len() > 1 && &value[..5] == "Path<" && &value[value.len() - 1..] == ">" {
+            return Self::Path(value[5..value.len() - 1].into());
+        }
+        if value.len() > 1 && &value[..9] == "Registry<" && &value[value.len() - 1..] == ">" {
+            return Self::Registry(value[9..value.len() - 1].into());
+        }
+
+        // If not, then check if it's a path that exists
+        let path: PathBuf = PathBuf::from(value);
+        if path.exists() { return Self::Path(path); }
+
+        // Otherwise, we interpret it is a registry
+        Self::Registry(value.into())
+    }
+}
+impl Serialize for ImageSource {
+    #[inline]
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&self.serialize().to_string())
+    }
+}
+impl<'de> Deserialize<'de> for ImageSource {
+    #[inline]
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        // Define the visitor
+        struct ImageSourceVisitor;
+        impl<'de> Visitor<'de> for ImageSourceVisitor {
+            type Value = ImageSource;
+
+            fn expecting(&self, f: &mut Formatter) -> FResult {
+                write!(f, "an image source (as file or repository)")
+            }
+
+            #[inline]
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(ImageSource::from(v))
+            }
+        }
+
+        // Simply do the call
+        deserializer.deserialize_str(ImageSourceVisitor)
+    }
+}
+impl FromStr for ImageSource {
+    type Err = ();
+
+    #[inline]
+    fn from_str(s: &str) -> Result<Self, Self::Err> { Ok(Self::from(s)) }
+}
+
+impl AsRef<ImageSource> for ImageSource {
+    #[inline]
+    fn as_ref(&self) -> &Self { self }
+}
+impl From<&ImageSource> for ImageSource {
+    #[inline]
+    fn from(value: &ImageSource) -> Self { value.clone() }
+}
+impl From<&mut ImageSource> for ImageSource {
+    #[inline]
+    fn from(value: &mut ImageSource) -> Self { value.clone() }
+}
+
+
+
 /// Defines the (type of) network ot which a container should connect.
 #[derive(Clone, Debug)]
 pub enum Network {
@@ -115,11 +237,11 @@ impl From<&Network> for String {
 #[derive(Clone, Debug)]
 pub struct ExecuteInfo {
     /// The name of the container-to-be.
-    pub name       : String,
+    pub name         : String,
     /// The image name to use for the container.
-    pub image      : Image,
-    /// The raw image.tar file we would like to mount first if the image itself is missing. If omitted, then we're pulling the image's name as-is with the engine.
-    pub image_file : Option<PathBuf>,
+    pub image        : Image,
+    /// The location where we import (as file) or create (from repo) the image from.
+    pub image_source : ImageSource,
 
     /// The command(s) to pass to Branelet.
     pub command : Vec<String>,
@@ -137,7 +259,7 @@ impl ExecuteInfo {
     /// # Arguments
     /// - `name`: The name of the container-to-be.
     /// - `image`: The image name to use for the container.
-    /// - `image_file`: The raw image.tar file we would like to mount first if the image itself is missing. If omitted, then we're pulling the image's name as-is with the engine.
+    /// - `image_source`: The location where we import (as file) or create (from repo) the image from if it's not already loaded.
     /// - `command`: The command(s) to pass to Branelet.
     /// - `binds`: The extra mounts we want to add, if any (this includes any data folders).
     /// - `devices`: The extra device requests we want to add, if any (e.g., GPUs).
@@ -146,11 +268,11 @@ impl ExecuteInfo {
     /// # Returns
     /// A new ExecuteInfo instance populated with the given values.
     #[inline]
-    pub fn new(name: impl Into<String>, image: Image, image_file: Option<PathBuf>, command: Vec<String>, binds: Vec<VolumeBind>, devices: Vec<DeviceRequest>, network: Network) -> Self {
+    pub fn new(name: impl Into<String>, image: impl Into<Image>, image_source: impl Into<ImageSource>, command: Vec<String>, binds: Vec<VolumeBind>, devices: Vec<DeviceRequest>, network: Network) -> Self {
         ExecuteInfo {
-            name : name.into(),
-            image,
-            image_file,
+            name         : name.into(),
+            image        : image.into(),
+            image_source : image_source.into(),
 
             command,
             binds,
@@ -406,18 +528,20 @@ async fn remove_container(docker: &Docker, name: impl AsRef<str>) -> Result<(), 
 /// 
 /// # Arguments
 /// - `docker`: An already connected local instance of Docker.
-/// - `image_file`: Path to the image to import.
+/// - `image`: The image to pull.
+/// - `source`: Path to the image to import.
 /// 
 /// # Returns
 /// Nothing on success, or an ExecutorError otherwise.
-async fn import_image(docker: &Docker, image_file: impl AsRef<Path>) -> Result<(), Error> {
-    let image_file : &Path = image_file.as_ref();
-    let options            = ImportImageOptions { quiet: true };
+async fn import_image(docker: &Docker, image: impl Into<Image>, source: impl AsRef<Path>) -> Result<(), Error> {
+    let image  : Image = image.into();
+    let source : &Path = source.as_ref();
+    let options        = ImportImageOptions { quiet: true };
 
     // Try to read the file
-    let file = match TFile::open(image_file).await {
+    let file = match TFile::open(source).await {
         Ok(handle)  => handle,
-        Err(reason) => { return Err(Error::ImageFileOpenError{ path: PathBuf::from(image_file), err: reason }); }
+        Err(reason) => { return Err(Error::ImageFileOpenError{ path: PathBuf::from(source), err: reason }); }
     };
 
     // If successful, open the byte with a FramedReader, freezing all the chunk we read
@@ -428,9 +552,15 @@ async fn import_image(docker: &Docker, image_file: impl AsRef<Path>) -> Result<(
 
     // Finally, wrap it in a HTTP body and send it to the Docker API
     let body = Body::wrap_stream(byte_stream);
-    match docker.import_image(options, body, None).try_collect::<Vec<_>>().await {
-        Ok(_)       => Ok(()),
-        Err(reason) => Err(Error::ImageImportError{ path: PathBuf::from(image_file), err: reason })
+    if let Err(err) = docker.import_image(options, body, None).try_collect::<Vec<_>>().await {
+        return Err(Error::ImageImportError{ path: PathBuf::from(source), err });
+    }
+
+    // Tag it with the appropriate name & version
+    let options = Some(TagImageOptions{ repo: image.name.clone(), tag: image.version.clone().unwrap() });
+    match docker.tag_image(image.digest.as_ref().unwrap(), options).await {
+        Ok(_)    => Ok(()),
+        Err(err) => Err(Error::ImageTagError{ image, source: source.to_string_lossy().to_string(), err }),
     }
 }
 
@@ -439,20 +569,30 @@ async fn import_image(docker: &Docker, image_file: impl AsRef<Path>) -> Result<(
 /// # Arguments
 /// - `docker`: An already connected local instance of Docker.
 /// - `image`: The image to pull.
+/// - `source`: The `repo/image[:tag]` to pull it from.
 /// 
 /// # Errors
 /// This function errors if we failed to pull the image, e.g., the Docker engine did not know where to find it, or there was no internet.
-async fn pull_image(docker: &Docker, image: Image) -> Result<(), Error> {
+async fn pull_image(docker: &Docker, image: impl Into<Image>, source: impl Into<String>) -> Result<(), Error> {
+    let image  : Image  = image.into();
+    let source : String = source.into();
+
     // Define the options for this image
     let options = Some(CreateImageOptions {
-        from_image : image.name(),
+        from_image : source.clone(),
         ..Default::default()
     });
 
     // Try to create it
-    match docker.create_image(options, None, None).try_collect::<Vec<_>>().await {
+    if let Err(err) = docker.create_image(options, None, None).try_collect::<Vec<_>>().await {
+        return Err(Error::ImagePullError{ source: source.into(), err });
+    }
+
+    // Tag it with the appropriate name & version
+    let options = Some(TagImageOptions{ repo: image.name.clone(), tag: image.version.clone().unwrap() });
+    match docker.tag_image(&source, options).await {
         Ok(_)    => Ok(()),
-        Err(err) => Err(Error::ImagePullError{ image, err }),
+        Err(err) => Err(Error::ImageTagError{ image, source, err }),
     }
 }
 
@@ -599,12 +739,12 @@ pub async fn get_digest(path: impl AsRef<Path>) -> Result<String, Error> {
 /// 
 /// # Errors
 /// This function errors if it failed to ensure the image existed (i.e., import or pull failed).
-pub async fn ensure_image(docker: &Docker, image: impl AsRef<Image>, image_path: Option<impl AsRef<Path>>) -> Result<(), Error> {
-    let image      : &Image        = image.as_ref();
-    let image_path : Option<&Path> = image_path.as_ref().map(|p| p.as_ref());
+pub async fn ensure_image(docker: &Docker, image: impl Into<Image>, source: impl Into<ImageSource>) -> Result<(), Error> {
+    let image  : Image       = image.into();
+    let source : ImageSource = source.into();
 
     // Abort if image is already loaded
-    let simage: String = image.into();
+    let simage: String = (&image).into();
     if docker.inspect_image(&simage).await.is_ok() {
         // The image is present, and because we specified the hash in the name, it's also for sure up-to-date
         debug!("Image already exists in Docker deamon.");
@@ -614,12 +754,16 @@ pub async fn ensure_image(docker: &Docker, image: impl AsRef<Image>, image_path:
     }
 
     // Otherwise, import it if it is described or pull it
-    if let Some(image_path) = image_path {
-        debug!(" > Importing file '{}'...", image_path.display());
-        import_image(docker, image_path).await
-    } else {
-        debug!(" > Pulling image '{}'...", image);
-        pull_image(docker, image.clone()).await
+    match source {
+        ImageSource::Path(path) => {
+            debug!(" > Importing file '{}'...", path.display());
+            import_image(docker, image, path).await
+        },
+
+        ImageSource::Registry(source) => {
+            debug!(" > Pulling image '{}'...", image);
+            pull_image(docker, image, source).await
+        },
     }
 }
 
@@ -652,7 +796,7 @@ pub async fn launch(exec: ExecuteInfo, path: impl AsRef<Path>, version: ClientVe
     };
 
     // Either import or pull image, if not already present
-    ensure_image(&docker, &exec.image, exec.image_file.as_ref()).await?;
+    ensure_image(&docker, &exec.image, &exec.image_source).await?;
 
     // Start container, return immediately (propagating any errors that occurred)
     create_and_start_container(&docker, &exec).await
@@ -707,7 +851,7 @@ pub async fn run_and_wait(exec: ExecuteInfo, keep_container: bool) -> Result<(i3
     };
 
     // Either import or pull image, if not already present
-    ensure_image(&docker, &exec.image, exec.image_file.as_ref()).await?;
+    ensure_image(&docker, &exec.image, &exec.image_source).await?;
 
     // Start container, return immediately (propagating any errors that occurred)
     let name: String = create_and_start_container(&docker, &exec).await?;
