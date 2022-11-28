@@ -4,7 +4,7 @@
 //  Created:
 //    12 Sep 2022, 16:18:11
 //  Last edited:
-//    21 Nov 2022, 15:10:22
+//    28 Nov 2022, 16:27:45
 //  Auto updated?
 //    Yes
 // 
@@ -25,10 +25,12 @@ use tonic::{Request, Response, Status};
 use brane_ast::Workflow;
 use brane_cfg::node::NodeConfig;
 use brane_exe::FullValue;
-use brane_tsk::errors::TaskError;
 use brane_tsk::spec::{AppId, Planner};
 use brane_tsk::grpc;
-use brane_tsk::instance::{InstancePlanner, InstanceVm};
+
+use crate::errors::RemoteVmError;
+use crate::planner::InstancePlanner;
+use crate::vm::InstanceVm;
 
 
 /***** HELPER MACROS *****/
@@ -207,7 +209,7 @@ impl grpc::DriverService for DriverHandler {
 
             // We now have a runnable plan ( ͡° ͜ʖ ͡°), so run it
             debug!("Executing workflow of {} edges", plan.graph.len());
-            let (vm, res): (InstanceVm, Result<FullValue, TaskError>) = vm.exec(tx.clone(), plan).await;
+            let (vm, res): (InstanceVm, Result<FullValue, RemoteVmError>) = vm.exec(tx.clone(), plan).await;
 
             // Insert the VM again
             debug!("Saving state session state");

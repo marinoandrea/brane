@@ -4,7 +4,7 @@
 //  Created:
 //    18 Oct 2022, 13:47:17
 //  Last edited:
-//    22 Nov 2022, 12:01:32
+//    28 Nov 2022, 16:26:56
 //  Auto updated?
 //    Yes
 // 
@@ -22,7 +22,8 @@ use tonic::transport::Server;
 
 use brane_cfg::node::NodeConfig;
 use brane_tsk::grpc::JobServiceServer;
-use brane_tsk::instance::worker::WorkerServer;
+
+use brane_job::worker::WorkerServer;
 
 
 /***** ARGUMENTS *****/

@@ -4,7 +4,7 @@
 //  Created:
 //    30 Sep 2022, 11:59:58
 //  Last edited:
-//    22 Nov 2022, 12:02:08
+//    28 Nov 2022, 16:27:58
 //  Auto updated?
 //    Yes
 // 
@@ -22,8 +22,8 @@ use tonic::transport::Server;
 
 use brane_cfg::node::NodeConfig;
 use brane_tsk::grpc::DriverServiceServer;
-use brane_tsk::instance::InstancePlanner;
 
+use brane_drv::planner::InstancePlanner;
 use brane_drv::handler::DriverHandler;
 
 

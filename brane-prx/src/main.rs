@@ -4,7 +4,7 @@
 //  Created:
 //    23 Nov 2022, 10:52:33
 //  Last edited:
-//    23 Nov 2022, 12:48:08
+//    28 Nov 2022, 14:11:39
 //  Auto updated?
 //    Yes
 // 
@@ -12,6 +12,7 @@
 //!   Entrypoint to the `brane-prx` service.
 // 
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
@@ -111,8 +112,9 @@ async fn main() {
     let context: Arc<Context> = Arc::new(Context {
         node_config_path : args.node_config_path,
 
-        proxy : node_config.proxy,
-        ports : Mutex::new(PortAllocator::new(start, end)),
+        proxy  : node_config.proxy,
+        opened : Mutex::new(HashMap::new()),
+        ports  : Mutex::new(PortAllocator::new(start, end)),
     });
     let context = warp::any().map(move || context.clone());
 

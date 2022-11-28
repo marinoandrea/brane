@@ -4,7 +4,7 @@
 //  Created:
 //    12 Sep 2022, 16:42:57
 //  Last edited:
-//    18 Nov 2022, 15:47:00
+//    28 Nov 2022, 16:04:59
 //  Auto updated?
 //    Yes
 // 
@@ -28,17 +28,17 @@ use brane_ast::state::CompileState;
 // use brane_cfg::certs::{load_cert, load_keypair};
 use brane_dsl::Language;
 use brane_exe::FullValue;
-use brane_tsk::errors::TaskError;
 use brane_tsk::spec::{LOCALHOST, AppId};
 use brane_tsk::grpc::{CreateSessionRequest, DriverServiceClient, ExecuteRequest};
-use brane_tsk::offline::OfflineVm;
 use specifications::data::{AccessKind, DataIndex, DataInfo};
 use specifications::package::PackageIndex;
 use specifications::registry::RegistryConfig;
 
 pub use crate::errors::RunError as Error;
+use crate::errors::OfflineVmError;
 use crate::data;
 use crate::utils::{ensure_datasets_dir, ensure_packages_dir, get_datasets_dir, get_packages_dir, get_registry_file};
+use crate::vm::OfflineVm;
 
 
 /***** HELPER FUNCTIONS *****/
@@ -310,7 +310,7 @@ pub async fn run_offline_vm(state: &mut OfflineVmState, what: impl AsRef<str>, s
     let workflow: Workflow = compile(&mut state.state, &mut state.source, &state.pindex, &state.dindex, &state.options, what, snippet)?;
 
     // Run it in the local VM (which is a bit ugly do to the need to consume the VM itself)
-    let res: (OfflineVm, Result<FullValue, TaskError>) = state.vm.take().unwrap().exec(workflow).await;
+    let res: (OfflineVm, Result<FullValue, OfflineVmError>) = state.vm.take().unwrap().exec(workflow).await;
     state.vm = Some(res.0);
     let res: FullValue = match res.1 {
         Ok(res)  => res,

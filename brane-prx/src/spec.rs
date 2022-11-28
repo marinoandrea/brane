@@ -4,7 +4,7 @@
 //  Created:
 //    23 Nov 2022, 11:02:54
 //  Last edited:
-//    25 Nov 2022, 16:09:30
+//    28 Nov 2022, 14:14:03
 //  Auto updated?
 //    Yes
 // 
@@ -13,6 +13,7 @@
 //!   crate.
 // 
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
@@ -31,9 +32,11 @@ pub struct Context {
     pub node_config_path : PathBuf,
 
     /// The address to proxy to if at all.
-    pub proxy : Option<Address>,
+    pub proxy  : Option<Address>,
+    /// Specificies ports we're already serving on.
+    pub opened : Mutex<HashMap<(String, Option<NewPathRequestTlsOptions>), u16>>,
     /// Specificies available path ports.
-    pub ports : Mutex<PortAllocator>,
+    pub ports  : Mutex<PortAllocator>,
 }
 
 
@@ -49,7 +52,7 @@ pub struct NewPathRequest {
 }
 
 /// Defines the body for TLS options.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct NewPathRequestTlsOptions {
     /// The location for which we use TLS. Effectively this means a root certificate to use.
     pub location        : String,

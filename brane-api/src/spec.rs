@@ -4,7 +4,7 @@
 //  Created:
 //    17 Oct 2022, 15:16:04
 //  Last edited:
-//    22 Nov 2022, 14:54:39
+//    28 Nov 2022, 17:15:19
 //  Auto updated?
 //    Yes
 // 
@@ -17,6 +17,8 @@ use std::sync::Arc;
 
 use scylla::Session;
 
+use brane_prx::client::ProxyClient;
+
 
 /***** LIBRARY *****/
 /// Defines the context of all the path calls.
@@ -26,4 +28,6 @@ pub struct Context {
     pub node_config_path : PathBuf,
     /// Points to the Scylla database where we store package information.
     pub scylla           : Arc<Session>,
+    /// The proxy client through which we send our requests.
+    pub proxy            : Arc<ProxyClient>,
 }

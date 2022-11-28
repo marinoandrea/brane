@@ -4,7 +4,7 @@
 //  Created:
 //    16 Nov 2022, 16:54:43
 //  Last edited:
-//    25 Nov 2022, 16:18:40
+//    28 Nov 2022, 12:20:32
 //  Auto updated?
 //    Yes
 // 
@@ -15,11 +15,12 @@
 // 
 
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::fmt::{Display, Formatter, Result as FResult};
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::str::FromStr;
 
 use log::debug;
@@ -268,8 +269,6 @@ impl From<&mut Address> for Address {
     fn from(value: &mut Address) -> Self { value.clone() }
 }
 
-    
-
 
 
 /// Defines the possible node types.
@@ -322,9 +321,13 @@ impl FromStr for NodeKind {
 /// Defines a `node.json` file that describes the environment layout of a node (what type it is, its location ID, where to find folders/services, etc).
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct NodeConfig {
+    /// Defines any custom hostname -> IP mappings.
+    pub hosts : HashMap<String, IpAddr>,
     /// Defines the proxy address to use for control messages, if any.
     pub proxy : Option<Address>,
 
+    /// Defines the names of the services that occur on every kind of node.
+    pub names    : CommonNames,
     /// Defines the paths used by various services that occur on every kind of node.
     pub paths    : CommonPaths,
     /// Defines the ports where various services hosts themselves that occur on any kind of node.
@@ -528,6 +531,14 @@ impl From<&mut NodeKindConfig> for NodeKindConfig {
 
 
 
+/// Defines common services names used on every kind of node.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct CommonNames {
+    /// Defines the name of the proxy service.
+    #[serde(alias = "proxy")]
+    pub prx : String,
+}
+
 /// Defines common paths used on every kind of node.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct CommonPaths {
@@ -558,6 +569,8 @@ pub struct CommonServices {
 /// Defines the properties that are specific to a central node.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct CentralConfig {
+    /// Defines the names of services on the central node.
+    pub names    : CentralNames,
     /// Defines the paths configuration for the central node.
     pub paths    : CentralPaths,
     /// Defines where various externally available services bind themselves to.
@@ -566,6 +579,20 @@ pub struct CentralConfig {
     pub services : CentralServices,
     /// Defines Kafka topics shared across services.
     pub topics   : CentralKafkaTopics,
+}
+
+/// Defines service names used on a central node.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct CentralNames {
+    /// Defines the name of the API service.
+    #[serde(alias = "registry")]
+    pub api : String,
+    /// Defines the name of the driver service.
+    #[serde(alias = "driver")]
+    pub drv : String,
+    /// Defines the name of the planner service.
+    #[serde(alias = "planner")]
+    pub plr : String,
 }
 
 /// Defines where to find various paths for a central node.
@@ -621,12 +648,28 @@ pub struct WorkerConfig {
     #[serde(alias = "id")]
     pub location_id : String,
 
+    /// Defines the names of services on the worker node.
+    pub names    : WorkerNames,
     /// Defines the paths configuration for the worker node.
     pub paths    : WorkerPaths,
     /// Defines the ports for various _external_ services on this worker node.
     pub ports    : WorkerPorts,
     /// Defines where to find the various worker services.
     pub services : WorkerServices,
+}
+
+/// Defines service names used on a worker node.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct WorkerNames {
+    /// Defines the name of the local registr service.
+    #[serde(alias = "registr")]
+    pub reg : String,
+    /// Defines the name of the local delegate service.
+    #[serde(alias = "delegate")]
+    pub job : String,
+    /// Defines the name of the local checker service.
+    #[serde(alias = "checker")]
+    pub chk : String,
 }
 
 /// Defines where to find various paths for a worker node.

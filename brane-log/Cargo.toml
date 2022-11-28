@@ -1,7 +1,7 @@
 [package]
 name = "brane-log"
-version = "1.0.0"
-authors = ["Onno Valkering", "Tim Müller"]
+version = { workspace = true }
+authors = { workspace = true }
 edition = "2018"
 
 [dependencies]
@@ -19,7 +19,7 @@ juniper_graphql_ws = "0.3"
 juniper_warp = { version = "0.7", features = ["subscriptions"] }
 log = "0.4"
 prost = "0.8"
-rdkafka = { version = "0.26", features = ["cmake-build"] }
+rdkafka = { version = "0.29", features = ["cmake-build"] }
 scylla = "0.2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

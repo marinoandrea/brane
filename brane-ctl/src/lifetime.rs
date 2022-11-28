@@ -4,7 +4,7 @@
 //  Created:
 //    22 Nov 2022, 11:19:22
 //  Last edited:
-//    25 Nov 2022, 16:36:33
+//    28 Nov 2022, 13:23:26
 //  Auto updated?
 //    Yes
 // 
@@ -14,12 +14,17 @@
 
 use std::collections::HashMap;
 use std::ffi::OsString;
+use std::fs::File;
+use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
 use bollard::Docker;
 use console::style;
 use log::{debug, info};
+use rand::Rng;
+use rand::distributions::Alphanumeric;
+use serde::{Deserialize, Serialize};
 
 use brane_cfg::node::{CentralPaths, CentralPorts, CommonPaths, NodeConfig, NodeKind, NodeKindConfig, WorkerPaths, WorkerPorts};
 use brane_tsk::docker::{ensure_image, get_digest, ImageSource};
@@ -28,6 +33,29 @@ use specifications::version::Version;
 
 pub use crate::errors::LifetimeError as Error;
 use crate::spec::{DockerClientVersion, StartSubcommand};
+
+
+/***** HELPER STRUCTS *****/
+/// Defines a struct that writes to a valid compose file for overriding hostnames.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct ComposeHostsFile {
+    /// The version number to use
+    version  : &'static str,
+    /// The services themselves
+    services : HashMap<&'static str, ComposeHostsFileService>,
+}
+
+
+
+/// Defines a struct that defines how a service looks like in a valid compose file for overriding hostnames.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct ComposeHostsFileService {
+    /// Defines the extra hosts themselves.
+    extra_hosts: Vec<String>,
+}
+
+
+
 
 
 /***** HELPER FUNCTIONS *****/
@@ -80,6 +108,62 @@ fn resolve_mode(source: impl AsRef<ImageSource>, mode: impl AsRef<str>) -> Image
     match source {
         ImageSource::Path(path)       => ImageSource::Path(PathBuf::from(path.to_string_lossy().replace("$MODE", mode))),
         ImageSource::Registry(source) => ImageSource::Registry(source.replace("$MODE", mode)),
+    }
+}
+
+/// Generate an additional, temporary `docker-compose.yml` file that adds additional hostnames.
+/// 
+/// # Arguments
+/// - `kind`: The kind of this node.
+/// - `hosts`: The map of hostnames -> IP addresses to include.
+/// 
+/// # Returns
+/// The path to the generated compose file if it was necessary. If not (i.e., no hosts given), returns `None`.
+/// 
+/// # Errors
+/// This function errors if we failed to write the file.
+fn generate_hosts(kind: NodeKind, hosts: &HashMap<String, IpAddr>) -> Result<Option<PathBuf>, Error> {
+    // Early quit if there's nothing to do
+    if hosts.is_empty() { return Ok(None); }
+
+    // Generate the ComposeHostsFileService
+    let svc: ComposeHostsFileService = ComposeHostsFileService {
+        extra_hosts : hosts.into_iter().map(|(hostname, ip)| format!("{}:{}", hostname, ip)).collect(),
+    };
+
+    // Generate the ComposeHostsFile
+    let extra_hosts: ComposeHostsFile = match kind {
+        NodeKind::Central =>  ComposeHostsFile {
+            version  : "3.6",
+            services : HashMap::from([
+                ("brane-prx", svc.clone()),
+                ("brane-api", svc.clone()),
+                ("brane-drv", svc.clone()),
+                ("brane-plr", svc),
+            ]),
+        },
+
+        NodeKind::Worker =>  ComposeHostsFile {
+            version  : "3.6",
+            services : HashMap::from([
+                ("brane-prx", svc.clone()),
+                ("brane-reg", svc.clone()),
+                ("brane-job", svc),
+            ]),
+        },
+    };
+
+    // Attemp to open the file to write that to
+    let compose_path: PathBuf = PathBuf::from("/tmp").join(format!("docker-compose-hosts-{}.yml", rand::thread_rng().sample_iter(&Alphanumeric).take(3).map(char::from).collect::<String>()));
+    let handle: File = match File::create(&compose_path) {
+        Ok(handle) => handle,
+        Err(err)   => { return Err(Error::HostsFileCreateError{ path: compose_path, err }); },  
+    };
+
+    // Now write the map in the correct format
+    match serde_yaml::to_writer(handle, &extra_hosts) {
+        Ok(_)    => Ok(Some(compose_path)),
+        Err(err) => Err(Error::HostsFileWriteError{ path: compose_path, err }),
     }
 }
 
@@ -149,6 +233,7 @@ fn construct_envs(version: &Version, node_config_path: &Path, node_config: &Node
     ]);
 
     // Match on the node kind
+    let node_config_dir: &Path = node_config_path.parent().unwrap();
     match &node_config.node {
         NodeKindConfig::Central(central) => {
             // Now we do a little ugly something, but we unpack the paths and ports here so that we get compile errors if we add more later on
@@ -158,11 +243,17 @@ fn construct_envs(version: &Version, node_config_path: &Path, node_config: &Node
 
             // Add the environment variables, which are basically just central-specific paths and ports to mount in the compose file
             res.extend([
+                // Names
+                ("PRX_NAME", OsString::from(&node_config.names.prx.as_str())),
+                ("API_NAME", OsString::from(&node_config.node.central().names.api.as_str())),
+                ("DRV_NAME", OsString::from(&node_config.node.central().names.drv.as_str())),
+                ("PLR_NAME", OsString::from(&node_config.node.central().names.plr.as_str())),
+
                 // Paths
-                ("INFRA", canonicalize(infra)?.as_os_str().into()),
-                ("SECRETS", canonicalize(secrets)?.as_os_str().into()),
-                ("CERTS", canonicalize(certs)?.as_os_str().into()),
-                ("PACKAGES", canonicalize(packages)?.as_os_str().into()),
+                ("INFRA", canonicalize(node_config_dir.join(infra))?.as_os_str().into()),
+                ("SECRETS", canonicalize(node_config_dir.join(secrets))?.as_os_str().into()),
+                ("CERTS", canonicalize(node_config_dir.join(certs))?.as_os_str().into()),
+                ("PACKAGES", canonicalize(node_config_dir.join(packages))?.as_os_str().into()),
     
                 // Ports
                 ("API_PORT", OsString::from(format!("{}", api.port()))),
@@ -178,14 +269,20 @@ fn construct_envs(version: &Version, node_config_path: &Path, node_config: &Node
 
             // Add the environment variables, which are basically just central-specific paths to mount in the compose file
             res.extend([
+                // Names
+                ("PRX_NAME", OsString::from(&node_config.names.prx.as_str())),
+                ("REG_NAME", OsString::from(&node_config.node.worker().names.reg.as_str())),
+                ("JOB_NAME", OsString::from(&node_config.node.worker().names.job.as_str())),
+                ("CHK_NAME", OsString::from(&node_config.node.worker().names.chk.as_str())),
+
                 // Paths
-                ("CREDS", canonicalize(creds)?.as_os_str().into()),
-                ("CERTS", canonicalize(certs)?.as_os_str().into()),
-                ("PACKAGES", canonicalize(packages)?.as_os_str().into()),
-                ("DATA", canonicalize(data)?.as_os_str().into()),
-                ("RESULTS", canonicalize(results)?.as_os_str().into()),
-                ("TEMP_DATA", canonicalize(temp_data)?.as_os_str().into()),
-                ("TEMP_RESULTS", canonicalize(temp_results)?.as_os_str().into()),
+                ("CREDS", canonicalize(node_config_dir.join(creds))?.as_os_str().into()),
+                ("CERTS", canonicalize(node_config_dir.join(certs))?.as_os_str().into()),
+                ("PACKAGES", canonicalize(node_config_dir.join(packages))?.as_os_str().into()),
+                ("DATA", canonicalize(node_config_dir.join(data))?.as_os_str().into()),
+                ("RESULTS", canonicalize(node_config_dir.join(results))?.as_os_str().into()),
+                ("TEMP_DATA", canonicalize(node_config_dir.join(temp_data))?.as_os_str().into()),
+                ("TEMP_RESULTS", canonicalize(node_config_dir.join(temp_results))?.as_os_str().into()),
 
                 // Ports
                 ("REG_PORT", OsString::from(format!("{}", reg.port()))),
@@ -204,6 +301,7 @@ fn construct_envs(version: &Version, node_config_path: &Path, node_config: &Node
 /// # Arguments
 /// - `file`: The DockerFile to run.
 /// - `project`: The project name to launch the containers for.
+/// - `hostfile`: If given, an additional `docker-compose` file that overrides the default one with extra hosts.
 /// - `envs`: The map of environment variables to set.
 /// 
 /// # Returns
@@ -211,7 +309,7 @@ fn construct_envs(version: &Version, node_config_path: &Path, node_config: &Node
 /// 
 /// # Errors
 /// This function fails if we failed to launch the command, or the command itself failed.
-fn run_compose(file: impl AsRef<Path>, project: impl AsRef<str>, envs: HashMap<&'static str, OsString>) -> Result<(), Error> {
+fn run_compose(file: impl AsRef<Path>, project: impl AsRef<str>, hostfile: Option<PathBuf>, envs: HashMap<&'static str, OsString>) -> Result<(), Error> {
     let file    : &Path = file.as_ref();
     let project : &str  = project.as_ref();
 
@@ -222,6 +320,10 @@ fn run_compose(file: impl AsRef<Path>, project: impl AsRef<str>, envs: HashMap<&
     cmd.stderr(Stdio::inherit());
     cmd.args([ "-p", project, "-f" ]);
     cmd.arg(file.as_os_str());
+    if let Some(hostfile) = hostfile {
+        cmd.arg("-f");
+        cmd.arg(hostfile);
+    }
     cmd.args([ "up", "-d" ]);
     cmd.envs(envs);
 
@@ -284,7 +386,7 @@ pub async fn start(file: impl Into<PathBuf>, docker_socket: PathBuf, docker_vers
             };
 
             // Generate hosts file
-            generate_hosts().await?;
+            let hostfile: Option<PathBuf> = generate_hosts(node_config.node.kind(), &node_config.hosts)?;
 
             // Map the images & load them
             let images: HashMap<&'static str, ImageSource> = HashMap::from([
@@ -304,7 +406,7 @@ pub async fn start(file: impl Into<PathBuf>, docker_socket: PathBuf, docker_vers
             let envs: HashMap<&str, OsString> = construct_envs(&version, &node_config_path, &node_config)?;
 
             // Launch the docker-compose command
-            run_compose(resolve_node(file, "central"), "brane-central", envs)?;
+            run_compose(resolve_node(file, "central"), "brane-central", hostfile, envs)?;
         },
 
         StartSubcommand::Worker{ brane_prx, brane_reg, brane_job } => {
@@ -318,7 +420,7 @@ pub async fn start(file: impl Into<PathBuf>, docker_socket: PathBuf, docker_vers
             };
 
             // Generate hosts file
-            generate_hosts().await?;
+            let hostfile: Option<PathBuf> = generate_hosts(node_config.node.kind(), &node_config.hosts)?;
 
             // Map the images & load them
             let images: HashMap<&'static str, ImageSource> = HashMap::from([
@@ -332,7 +434,7 @@ pub async fn start(file: impl Into<PathBuf>, docker_socket: PathBuf, docker_vers
             let envs: HashMap<&str, OsString> = construct_envs(&version, &node_config_path, &node_config)?;
 
             // Launch the docker-compose command
-            run_compose(resolve_node(file, "worker"), format!("brane-worker-{}", node_config.node.worker().location_id), envs)?;
+            run_compose(resolve_node(file, "worker"), format!("brane-worker-{}", node_config.node.worker().location_id), hostfile, envs)?;
         },
     }
 

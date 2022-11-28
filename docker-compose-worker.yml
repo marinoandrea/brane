@@ -13,10 +13,19 @@ services:
   ## BRANE ##
   ###########
 
+  # "Proxy" service that can be targeted by local connections to be proxied (and encrypted with client auth) to remote hosts.
+  brane-prx:
+    image: brane-prx:${BRANE_VERSION:-latest}
+    container_name: ${PRX_NAME:-brane-prx}
+    restart: always
+    volumes:
+    - ${NODE_CONFIG_PATH}:/node.yml
+    - ${CERTS}:${CERTS}
+
   # The service in charge of the local container- and data registry
   brane-reg:
     image: brane-reg:${BRANE_VERSION:-latest}
-    container_name: brane-reg
+    container_name: ${REG_NAME:-brane-reg}
     ports:
     - "0.0.0.0:${REG_PORT}:${REG_PORT}"
     restart: always
@@ -30,7 +39,7 @@ services:
   # The service that is the 'main' service on the worker.
   brane-job:
     image: brane-job:${BRANE_VERSION:-latest}
-    container_name: brane-job
+    container_name: ${JOB_NAME:-brane-job}
     ports:
     - "0.0.0.0:${JOB_PORT}:${JOB_PORT}"
     restart: always

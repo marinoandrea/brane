@@ -4,7 +4,7 @@
 //  Created:
 //    24 Oct 2022, 16:40:21
 //  Last edited:
-//    14 Nov 2022, 10:54:39
+//    28 Nov 2022, 16:02:05
 //  Auto updated?
 //    Yes
 // 
@@ -22,10 +22,9 @@ use log::debug;
 
 use brane_ast::Workflow;
 use brane_ast::ast::{DataName, Edge, SymTable};
+use brane_tsk::errors::PlanError;
+use brane_tsk::spec::{LOCALHOST, Planner};
 use specifications::data::{AccessKind, AvailabilityKind, DataIndex};
-
-use crate::errors::PlanError;
-use crate::spec::{self, LOCALHOST};
 
 
 /***** HELPER FUNCTIONS *****/
@@ -148,7 +147,7 @@ impl OfflinePlanner {
 }
 
 #[async_trait::async_trait]
-impl spec::Planner for OfflinePlanner {
+impl Planner for OfflinePlanner {
     async fn plan(&self, workflow: brane_ast::Workflow) -> Result<Workflow, PlanError> {
         let mut workflow = workflow;
 

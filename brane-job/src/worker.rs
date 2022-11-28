@@ -4,7 +4,7 @@
 //  Created:
 //    31 Oct 2022, 11:21:14
 //  Last edited:
-//    24 Nov 2022, 15:50:26
+//    28 Nov 2022, 16:38:46
 //  Auto updated?
 //    Yes
 // 
@@ -43,17 +43,16 @@ use brane_exe::FullValue;
 use brane_shr::debug::BlockFormatter;
 use brane_shr::fs::{copy_dir_recursively_async, unarchive_async};
 use brane_shr::utilities::is_ip_addr;
+use brane_tsk::errors::{AuthorizeError, CommitError, ExecuteError, PreprocessError};
+use brane_tsk::spec::JobStatus;
+use brane_tsk::grpc::{CommitReply, CommitRequest, DataKind, JobService, PreprocessKind, PreprocessReply, PreprocessRequest, TaskReply, TaskRequest, TaskStatus};
+use brane_tsk::tools::decode_base64;
+use brane_tsk::api::get_package_index;
+use brane_tsk::docker::{self, ExecuteInfo, ImageSource, Network};
 use specifications::container::{Image, VolumeBind};
 use specifications::data::{AccessKind, AssetInfo};
 use specifications::package::{PackageIndex, PackageInfo, PackageKind};
 use specifications::version::Version;
-
-use crate::errors::{AuthorizeError, CommitError, ExecuteError, PreprocessError};
-use crate::spec::JobStatus;
-use crate::grpc::{CommitReply, CommitRequest, DataKind, JobService, PreprocessKind, PreprocessReply, PreprocessRequest, TaskReply, TaskRequest, TaskStatus};
-use crate::tools::decode_base64;
-use crate::api::get_package_index;
-use crate::docker::{self, ExecuteInfo, ImageSource, Network};
 
 
 /***** CONSTANTS *****/
@@ -460,7 +459,7 @@ async fn assert_workflow_permission(_node_config: &NodeConfig, _workflow: &Workf
     // (man would I have liked to integrate eFLINT into this)
 
     // Allow it if it's the hash of Rosanne's container
-    let rosanne_hash: &str = "YLfIN1RaWYtm2CO3cbjcdtmxuf04hySNq26MGyx5924=";
+    let rosanne_hash: &str = "QS43h4ycr/PdYZTwUAKwOc68qKEZiz9oDWCo0kMdgGE=";
     debug!("Asserting if container hash '{}' equals Rosanne's container hash '{}'...", container_hash, rosanne_hash);
     if container_hash == rosanne_hash { return Ok(true) }
 
@@ -755,7 +754,9 @@ async fn execute_task(node_config: &NodeConfig, tx: Sender<Result<TaskReply, Sta
 
 
     /* CALL PREPARATION */
-    // Next, query the API for a package index
+    // Next, query the API for a package index. To do that, we get a path in the proxy node.
+    
+
     let index: PackageIndex = match get_package_index(&format!("{}/graphql", cinfo.api_endpoint)).await {
         Ok(index) => index,
         Err(err)  => { return err!(tx, ExecuteError::PackageIndexError{ endpoint: cinfo.api_endpoint.clone(), err }); },

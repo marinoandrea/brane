@@ -4,7 +4,7 @@
 //  Created:
 //    26 Sep 2022, 17:20:55
 //  Last edited:
-//    25 Nov 2022, 16:21:36
+//    28 Nov 2022, 17:29:11
 //  Auto updated?
 //    Yes
 // 
@@ -24,7 +24,6 @@ use warp::hyper::Body;
 use brane_cfg::{InfraFile, InfraPath};
 use brane_cfg::node::NodeConfig;
 use brane_prx::spec::NewPathRequestTlsOptions;
-use brane_prx::client::create_path;
 use specifications::data::{AssetInfo, DataInfo};
 
 pub use crate::errors::DataError as Error;
@@ -81,26 +80,19 @@ pub async fn list(context: Context) -> Result<impl Reply, Rejection> {
 
     // Iterate through all the locations (each of which have their own registry service)
     let mut datasets: HashMap<String, DataInfo> = HashMap::new();
-    for (name, loc) in infra {
-        // Ensure that a path exists to this location on the `brane-prx` node.
-        let address: String = format!("{}/data/info/{}", loc.registry, name);
-        let port: u16 = match create_path(&node_config.services.prx, &address, Some(NewPathRequestTlsOptions {
-            location        : name.clone(),
-            use_client_auth : true,
-        })).await {
-            Ok(port) => port,
-            Err(err) => {
-                error!("{}", Error::ProxyPathCreateError{ proxy: node_config.services.prx, address, err });
-                return Err(warp::reject::custom(Error::SecretError));
+    for (loc_name, loc) in infra {
+        // Run a GET-request on `/data/info` to fetch all datasets in this domain
+        let address: String = format!("{}/data/info", loc.registry);
+        let res: reqwest::Response = match context.proxy.get(&address, Some(NewPathRequestTlsOptions{ location: loc_name.clone(), use_client_auth: false })).await {
+            Ok(res)  => match res {
+                Ok(res)  => res,
+                Err(err) => {
+                    error!("{} (skipping domain)", Error::RequestError{ address, err });
+                    continue;
+                },
             },
-        };
-
-        // Run a GET-request on `/data` to fetch the specific dataset we're asked for
-        let address: String = format!("{}:{}", node_config.services.prx.domain(), port);
-        let res: reqwest::Response = match reqwest::get(&address).await {
-            Ok(res)  => res,
             Err(err) => {
-                error!("{} (skipping domain)", Error::RequestError { address, err });
+                error!("{} (skipping domain)", Error::ProxyError{ err });
                 continue;
             },
         };
@@ -130,9 +122,9 @@ pub async fn list(context: Context) -> Result<impl Reply, Rejection> {
         for (n, d) in local_sets {
             if let Some(info) = datasets.get_mut(&n) {
                 // Add this location
-                info.access.insert(name.clone(), d.access);
+                info.access.insert(loc_name.clone(), d.access);
             } else {
-                datasets.insert(n, d.into_data_info(name.clone()));
+                datasets.insert(n, d.into_data_info(loc_name.clone()));
             }
         }
     }
@@ -199,25 +191,18 @@ pub async fn get(name: String, context: Context) -> Result<impl Reply, Rejection
     // Iterate through all the locations (each of which have their own registry service)
     let mut dataset: Option<DataInfo> = None;
     for (loc_name, loc) in infra {
-        // Ensure that a path exists to this location on the `brane-prx` node.
-        let address: String = format!("{}/data/info/{}", loc.registry, name);
-        let port: u16 = match create_path(&node_config.services.prx, &address, Some(NewPathRequestTlsOptions {
-            location        : loc_name.clone(),
-            use_client_auth : true,
-        })).await {
-            Ok(port) => port,
-            Err(err) => {
-                error!("{}", Error::ProxyPathCreateError{ proxy: node_config.services.prx, address, err });
-                return Err(warp::reject::custom(Error::SecretError));
-            },
-        };
-
         // Run a GET-request on `/data` to fetch the specific dataset we're asked for
-        let address: String = format!("{}:{}", node_config.services.prx.domain(), port);
-        let res: reqwest::Response = match reqwest::get(&address).await {
-            Ok(res)  => res,
+        let address: String = format!("{}/data/info/{}", loc.registry, name);
+        let res: reqwest::Response = match context.proxy.get(&address, Some(NewPathRequestTlsOptions{ location: loc_name.clone(), use_client_auth: false })).await {
+            Ok(res)  => match res {
+                Ok(res)  => res,
+                Err(err) => {
+                    error!("{} (skipping domain)", Error::RequestError{ address, err });
+                    continue;
+                },
+            },
             Err(err) => {
-                error!("{} (skipping domain datasets)", Error::RequestError { address, err });
+                error!("{} (skipping domain)", Error::ProxyError{ err });
                 continue;
             },
         };

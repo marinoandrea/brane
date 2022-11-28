@@ -4,7 +4,7 @@
 //  Created:
 //    01 Nov 2022, 11:15:17
 //  Last edited:
-//    08 Nov 2022, 11:23:49
+//    28 Nov 2022, 14:05:22
 //  Auto updated?
 //    Yes
 // 
@@ -128,9 +128,7 @@ where
             let service = service::service_fn(move |mut req| {
                 // Inject the certificate, if any
                 // Note: sadly, we clone client_cert twice, but we have little choice...
-                if let Some(cert) = client_cert.clone() {
-                    req.extensions_mut().insert(cert);
-                }
+                req.extensions_mut().insert(client_cert.clone());
 
                 // Now we call the service
                 svc.call(req)

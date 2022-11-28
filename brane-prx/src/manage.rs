@@ -4,7 +4,7 @@
 //  Created:
 //    23 Nov 2022, 11:07:05
 //  Last edited:
-//    23 Nov 2022, 12:50:46
+//    28 Nov 2022, 14:20:51
 //  Auto updated?
 //    Yes
 // 
@@ -12,6 +12,7 @@
 //!   Defines warp-paths that relate to management of the proxy service.
 // 
 
+use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::{Display, Formatter, Result as FResult};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
@@ -23,7 +24,7 @@ use warp::http::StatusCode;
 use warp::hyper::{Body, Response};
 use warp::hyper::body::Bytes;
 
-use crate::spec::{Context, NewPathRequest};
+use crate::spec::{Context, NewPathRequest, NewPathRequestTlsOptions};
 use crate::ports::PortAllocator;
 use crate::redirect::path_server_factory;
 
@@ -88,6 +89,16 @@ pub async fn new_path(body: Bytes, context: Arc<Context>) -> Result<impl Reply, 
         },
     };
 
+    // If the port already exists, shortcut here
+    {
+        let opened: MutexGuard<HashMap<(String, Option<NewPathRequestTlsOptions>), u16>> = context.opened.lock().unwrap();
+        if let Some(port) = opened.get(&(body.address.clone(), body.tls.clone())) {
+            debug!("A path to '{}' with the same TLS options already exists", body.address);
+            debug!("OK, returning port {} to client", port);
+            return Ok(Response::new(Body::from(port.to_string())));
+        }
+    }
+
     // Attempt to find a free port in the allocator
     debug!("Finding available port...");
     let port: u16 = {
@@ -105,7 +116,7 @@ pub async fn new_path(body: Bytes, context: Arc<Context>) -> Result<impl Reply, 
     // Create the future with those settings
     debug!("Launching service...");
     let address: SocketAddr = SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), port).into();
-    let server = match path_server_factory(&context, address, body.address, body.tls).await {
+    let server = match path_server_factory(&context, address, body.address.clone(), body.tls.clone()).await {
         Ok(server) => server,
         Err(err)   => {
             error!("Failed to create the path server: {}", err);
@@ -115,7 +126,13 @@ pub async fn new_path(body: Bytes, context: Arc<Context>) -> Result<impl Reply, 
     // Spawn it as a separate task
     tokio::spawn(server);
 
+    // Note it down as working
+    {
+        let mut opened: MutexGuard<HashMap<(String, Option<NewPathRequestTlsOptions>), u16>> = context.opened.lock().unwrap();
+        opened.insert((body.address, body.tls), port);
+    }
+
     // Done, return the port
-    debug!("OK, returning port to client");
+    debug!("OK, returning port {} to client", port);
     Ok(Response::new(Body::from(port.to_string())))
 }

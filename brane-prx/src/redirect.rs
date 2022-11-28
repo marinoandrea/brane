@@ -4,7 +4,7 @@
 //  Created:
 //    23 Nov 2022, 11:26:46
 //  Last edited:
-//    25 Nov 2022, 16:12:41
+//    28 Nov 2022, 13:59:07
 //  Auto updated?
 //    Yes
 // 
@@ -15,6 +15,7 @@
 use std::future::Future;
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::sync::Arc;
 
 use log::{debug, error, info};
@@ -25,6 +26,7 @@ use socksx::Socks6Client;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_rustls::TlsConnector;
 use tokio_rustls::client::TlsStream;
+use url::Url;
 
 use brane_cfg::certs::{load_certstore, load_identity};
 use brane_cfg::node::{Address, NodeConfig};
@@ -87,15 +89,25 @@ impl RemoteClient {
 /// # Errors
 /// This function errors if we failed to bind a TCP server on the given port.
 pub async fn path_server_factory(context: &Arc<Context>, socket_addr: SocketAddr, remote_addr: String, tls: Option<NewPathRequestTlsOptions>) -> Result<impl Future<Output = Never>, Error> {
+    // Parse the address to discover the hostname
+    let remote_addr: Url = match Url::from_str(&remote_addr) {
+        Ok(url)  => url,
+        Err(err) => { return Err(Error::IllegalUrl{ raw: remote_addr, err }); },
+    };
+    let hostname: &str = match remote_addr.domain() {
+        Some(hostname) => hostname,
+        None           => { return Err(Error::NoDomainName { raw: remote_addr.to_string() }); },
+    };
+
     // Parse the given domain as a hostname first, if required by TLS
     let tls: Option<(ServerName, NewPathRequestTlsOptions)> = if let Some(tls) = tls {
-        match ServerName::try_from(remote_addr.as_str()) {
+        match ServerName::try_from(hostname) {
             Ok(name) => {
                 // Assert it's actually a DNS name, since rustls no like IPs
-                if matches!(name, ServerName::DnsName(_)) { return Err(Error::TlsWithNonHostnameError{ kind: remote_addr }); }
+                if !matches!(name, ServerName::DnsName(_)) { return Err(Error::TlsWithNonHostnameError{ kind: hostname.into() }); }
                 Some((name, tls))
             },
-            Err(err) => { return Err(Error::IllegalServerName{ raw: remote_addr, err }); },
+            Err(err) => { return Err(Error::IllegalServerName{ raw: hostname.into(), err }); },
         }
     } else {
         None
@@ -141,7 +153,7 @@ pub async fn path_server_factory(context: &Arc<Context>, socket_addr: SocketAddr
 /// 
 /// # Errors
 /// This function does not error directly, but instead write errors to stderr (using the `log` crate) and then returns.
-pub async fn path_server(node_config_path: PathBuf, listener: TcpListener, client: RemoteClient, socket_addr: SocketAddr, address: String, tls: Option<(ServerName, NewPathRequestTlsOptions)>) -> Never {
+pub async fn path_server(node_config_path: PathBuf, listener: TcpListener, client: RemoteClient, socket_addr: SocketAddr, address: Url, tls: Option<(ServerName, NewPathRequestTlsOptions)>) -> Never {
     info!("Initiated new path ':{}' to '{}'", socket_addr, address);
     loop {
         // Wait for the next connection
@@ -156,11 +168,12 @@ pub async fn path_server(node_config_path: PathBuf, listener: TcpListener, clien
         debug!(":{}->{}: Got new connection from '{}'", socket_addr.port(), address, client_addr);
 
         // Now we establish a new connection to the remote host
-        debug!("Connecting to '{}'...", address);
-        let mut oconn: TcpStream = match client.connect(&address).await {
+        let addr: String = format!("{}:{}", address.domain().unwrap(), address.port().unwrap());
+        debug!("Connecting to '{}'...", addr);
+        let mut oconn: TcpStream = match client.connect(&addr).await {
             Ok(oconn) => oconn,
             Err(err)  => {
-                error!(":{}->{}: Failed to connect to remote '{}': {}", socket_addr.port(), address, address, err);
+                error!(":{}->{}: Failed to connect to remote '{}': {}", socket_addr.port(), address, addr, err);
                 continue;
             },
         };

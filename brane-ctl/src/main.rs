@@ -4,7 +4,7 @@
 //  Created:
 //    15 Nov 2022, 09:18:40
 //  Last edited:
-//    25 Nov 2022, 16:39:08
+//    28 Nov 2022, 10:33:11
 //  Auto updated?
 //    Yes
 // 
@@ -12,18 +12,16 @@
 //!   Entrypoint to the `branectl` executable.
 // 
 
-use std::net::SocketAddr;
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 use dotenvy::dotenv;
 use log::{error, LevelFilter};
 
-use brane_cfg::node::{Address, CommonPaths, CommonPorts, CommonServices};
+use brane_cfg::node::Address;
 use specifications::version::Version;
 
-use brane_ctl::spec::{DockerClientVersion, GenerateSubcommand, StartSubcommand};
-use brane_ctl::utils::resolve_config_path;
+use brane_ctl::spec::{DockerClientVersion, GenerateSubcommand, HostnamePair, StartSubcommand};
 use brane_ctl::{generate, lifetime};
 
 
@@ -58,27 +56,16 @@ struct Arguments {
 enum CtlSubcommand {
     #[clap(name = "generate", about = "Generates a new 'node.yml' file at the location indicated by --node-config.")]
     Generate {
+        /// Defines one or more additional hostnames to define in the nested Docker container.
+        #[clap(short = 'H', long, help = "One or more additional hostnames to set in the spawned Docker containers. Should be given as '<hostname>:<ip>' pairs.")]
+        hosts : Vec<HostnamePair>,
         /// Defines any proxy node to proxy control messages through.
         #[clap(long, help = "If given, reroutes all control network traffic for this node through the given proxy.")]
         proxy : Option<Address>,
 
         /// Custom config path.
         #[clap(short='C', long, default_value = "./config", help = "A common ancestor for --infra-path, --secrets-path and --certs-path. See their descriptions for more info.")]
-        config_path   : PathBuf,
-        /// Custom certificates path.
-        #[clap(short, long, default_value = "$CONFIG/certs", help = "The location of the certificate directory. Use '$CONFIG' to reference the value given by --config-path.")]
-        certs_path    : PathBuf,
-        /// Custom packages path.
-        #[clap(short, long, default_value = "./packages", help = "The location of the package directory.")]
-        packages_path : PathBuf,
-
-        /// The address on which to launch the proxy service.
-        #[clap(long, default_value = "0.0.0.0:50050", help = "The address on which the proxy service is hosted. Note that this is not picked up by Docker, so only docker services will be able to find it no matter what.")]
-        prx_addr : SocketAddr,
-
-        /// The address on which the API srevice is locally available.
-        #[clap(long, default_value = "brane-prx:50050", help = "The address on which the proxy service is discoverable to other *local* services.")]
-        prx_svc  : Address,
+        config_path : PathBuf,
 
         /// Defines the possible nodes to generate a new node.yml file for.
         #[clap(subcommand)]
@@ -189,14 +176,9 @@ async fn main() {
 
     // Now match on the command
     match args.subcommand {
-        CtlSubcommand::Generate{ proxy, config_path, certs_path, packages_path, prx_addr, prx_svc, kind } => {
-            // Create the common structs
-            let paths    : CommonPaths    = CommonPaths{ certs: resolve_config_path(certs_path, &config_path), packages: resolve_config_path(packages_path, &config_path) };
-            let ports    : CommonPorts    = CommonPorts{ prx: prx_addr };
-            let services : CommonServices = CommonServices{ prx: prx_svc };
-
-            // Call the thing with them
-            if let Err(err) = generate::generate(args.node_config, proxy, config_path, paths, ports, services, kind) { error!("{}", err); std::process::exit(1); }
+        CtlSubcommand::Generate{ hosts, proxy, config_path, kind } => {
+            // Call the thing
+            if let Err(err) = generate::generate(args.node_config, hosts, proxy, config_path, kind) { error!("{}", err); std::process::exit(1); }
         },
 
         CtlSubcommand::Certs(subcommand) => match subcommand {

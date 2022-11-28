@@ -4,7 +4,7 @@
 //  Created:
 //    21 Nov 2022, 15:46:26
 //  Last edited:
-//    24 Nov 2022, 15:57:20
+//    28 Nov 2022, 13:24:05
 //  Auto updated?
 //    Yes
 // 
@@ -30,6 +30,9 @@ use specifications::container::Image;
 /// Errors that relate to generating files.
 #[derive(Debug)]
 pub enum GenerateError {
+    /// Failed to canonicalize the given path.
+    CanonicalizeError{ path: PathBuf, err: std::io::Error },
+
     /// Failed to create a new file.
     FileCreateError{ path: PathBuf, err: std::io::Error },
     /// Failed to write the header to the new file.
@@ -41,6 +44,8 @@ impl Display for GenerateError {
     fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
         use GenerateError::*;
         match self {
+            CanonicalizeError{ path, err } => write!(f, "Failed to canonicalize path '{}': {}", path.display(), err),
+
             FileCreateError{ path, err }      => write!(f, "Failed to create new node.yml file '{}': {}", path.display(), err),
             FileHeaderWriteError{ path, err } => write!(f, "Failed to write header to node.yml file '{}': {}", path.display(), err),
             FileBodyWriteError{ err, .. }     => write!(f, "Failed to write body to node.yml file: {}", err),
@@ -56,6 +61,11 @@ impl Error for GenerateError {}
 pub enum LifetimeError {
     /// Failed to canonicalize the given path.
     CanonicalizeError{ path: PathBuf, err: std::io::Error },
+
+    /// Failed to open the extra hosts file.
+    HostsFileCreateError{ path: PathBuf, err: std::io::Error },
+    /// Failed to write to the extra hosts file.
+    HostsFileWriteError{ path: PathBuf, err: serde_yaml::Error },
 
     /// Failed to get the digest of the given image file.
     ImageDigestError{ path: PathBuf, err: brane_tsk::docker::Error },
@@ -79,6 +89,9 @@ impl Display for LifetimeError {
         use LifetimeError::*;
         match self {
             CanonicalizeError{ path, err } => write!(f, "Failed to canonicalize path '{}': {}", path.display(), err),
+
+            HostsFileCreateError{ path, err } => write!(f, "Failed to create extra hosts file '{}': {}", path.display(), err),
+            HostsFileWriteError{ path, err }  => write!(f, "Failed to write to extra hosts file '{}': {}", path.display(), err),
     
             ImageDigestError{ path, err }        => write!(f, "Failed to get digest of image {}: {}", style(path.display()).bold(), err),
             ImageLoadError{ image, source, err } => write!(f, "Failed to load image {} from '{}': {}", style(image).bold(), style(source).bold(), err),
@@ -117,3 +130,24 @@ impl Display for DockerClientVersionParseError {
     }
 }
 impl Error for DockerClientVersionParseError {}
+
+
+
+/// Errors that relate to parsing HostnamePairs.
+#[derive(Debug)]
+pub enum HostnamePairParseError {
+    /// Missing a colon in the pair.
+    MissingColon{ raw: String },
+    /// Failed to parse the given IP as an IPv4 or an IPv6
+    IllegalIpAddr{ raw: String, err: std::net::AddrParseError },
+}
+impl Display for HostnamePairParseError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
+        use HostnamePairParseError::*;
+        match self {
+            MissingColon{ raw }       => write!(f, "Missing ':' in hostname/IP pair '{}'", raw),
+            IllegalIpAddr{ raw, err } => write!(f, "Failed to parse '{}' as a valid IP address: {}", raw, err),
+        }
+    }
+}
+impl Error for HostnamePairParseError {}

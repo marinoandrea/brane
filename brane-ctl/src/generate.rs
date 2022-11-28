@@ -4,7 +4,7 @@
 //  Created:
 //    21 Nov 2022, 15:40:47
 //  Last edited:
-//    25 Nov 2022, 16:29:21
+//    28 Nov 2022, 13:33:39
 //  Auto updated?
 //    Yes
 // 
@@ -12,21 +12,42 @@
 //!   Handles commands relating to node.yml generation.
 // 
 
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::net::{IpAddr, Ipv4Addr, SocketAddrV4};
 
 use console::style;
-use log::{debug, info};
+use log::{debug, info, warn};
 
-use brane_cfg::node::{Address, CentralConfig, CentralKafkaTopics, CentralPaths, CentralPorts, CentralServices, CommonPaths, CommonPorts, CommonServices, NodeConfig, NodeKindConfig, WorkerConfig, WorkerPaths, WorkerPorts, WorkerServices};
+use brane_cfg::node::{Address, CentralConfig, CentralKafkaTopics, CentralNames, CentralPaths, CentralPorts, CentralServices, CommonNames, CommonPaths, CommonPorts, CommonServices, NodeConfig, NodeKindConfig, WorkerConfig, WorkerNames, WorkerPaths, WorkerPorts, WorkerServices};
 
 pub use crate::errors::GenerateError as Error;
-use crate::spec::GenerateSubcommand;
+use crate::spec::{GenerateSubcommand, HostnamePair};
 use crate::utils::resolve_config_path;
 
 
 /***** HELPER FUNCTIONS ******/
+/// Makes the given path canonical, casting the error for convenience.
+/// 
+/// # Arguments
+/// - `path`: The path to make canonical.
+/// 
+/// # Returns
+/// The same path but canonical.
+/// 
+/// # Errors
+/// This function errors if we failed to make the path canonical (i.e., something did not exist).
+#[inline]
+fn canonicalize(path: impl AsRef<Path>) -> Result<PathBuf, Error> {
+    let path: &Path = path.as_ref();
+    match path.canonicalize() {
+        Ok(path) => Ok(path),
+        Err(err) => Err(Error::CanonicalizeError{ path: path.into(), err }),
+    }
+}
+
 /// Function that writes the standard node.yml header to the given writer.
 /// 
 /// # Arguments
@@ -66,11 +87,9 @@ fn write_header(writer: &mut impl Write) -> Result<(), std::io::Error> {
 /// 
 /// # Arguments
 /// - `path`: The path to write the central node.yml to.
+/// - `hosts`: List of additional hostnames to set in the launched containers.
 /// - `proxy`: The address to proxy to, if any (not the address of the proxy service, but rather that of a 'real' proxy).
 /// - `config_path`: The path to the config directory that other paths may use as their base.
-/// - `common_paths`: Paths that are used by any kind of node.
-/// - `common_ports': Ports for services that occur on any kind of node.
-/// - `common_services`: Addresses to services that occur on any kind of node.
 /// - `command`: The GenerateSubcommand that contains the specific values to write, as well as whether to write a central or worker node.
 /// 
 /// # Returns
@@ -78,55 +97,80 @@ fn write_header(writer: &mut impl Write) -> Result<(), std::io::Error> {
 /// 
 /// # Errors
 /// This function may error if I/O errors occur while writing the file.
-pub fn generate(path: impl Into<PathBuf>, proxy: Option<Address>, config_path: impl Into<PathBuf>, common_paths: CommonPaths, common_ports: CommonPorts, common_services: CommonServices, command: GenerateSubcommand) -> Result<(), Error> {
+pub fn generate(path: impl Into<PathBuf>, hosts: Vec<HostnamePair>, proxy: Option<Address>, config_path: impl Into<PathBuf>, command: GenerateSubcommand) -> Result<(), Error> {
     let path        : PathBuf = path.into();
     let config_path : PathBuf = config_path.into();
     info!("Generating default node.yml for a {}...", match &command { GenerateSubcommand::Central { .. } => { "central node".into() }, GenerateSubcommand::Worker{ location_id, .. } => { format!("worker node with location ID '{}'", location_id) } });
+
+    // Generate the host -> IP map from the pairs.
+    let hosts: HashMap<String, IpAddr> = {
+        let mut res: HashMap<String, IpAddr> = HashMap::with_capacity(hosts.len());
+        for pair in hosts {
+            // Ensure it doesn't already exist
+            if res.insert(pair.0.clone(), pair.1).is_some() {
+                warn!("Duplicate IP given for hostname '{}': using only {}", pair.0, pair.1);
+            }
+        }
+        res
+    };
 
     // Build the NodeConfig
     debug!("Generating node config...");
     let node_config: NodeConfig = match command {
         // Generate the central node
-        GenerateSubcommand::Central { infra_path, secrets_path, api_addr, drv_addr, brokers, scylla_svc, api_svc, plr_cmd_topic, plr_res_topic } => {
+        GenerateSubcommand::Central { infra, secrets, certs, packages, prx_name, api_name, drv_name, plr_name, prx_port, api_port, drv_port, plr_cmd_topic, plr_res_topic } => {
             NodeConfig {
+                hosts,
                 proxy,
 
-                paths    : common_paths,
-                ports    : common_ports,
-                services : common_services,
+                names    : CommonNames{ prx : prx_name.clone() },
+                paths    : CommonPaths{ certs: canonicalize(resolve_config_path(certs, &config_path))?, packages: canonicalize(resolve_config_path(packages, &config_path))? },
+                ports    : CommonPorts{ prx : SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), prx_port).into() },
+                services : CommonServices{ prx : Address::Hostname(prx_name, prx_port) },
 
                 node : NodeKindConfig::Central(CentralConfig {
+                    names : CentralNames{ api: api_name.clone(), drv: drv_name, plr: plr_name },
                     paths : CentralPaths {
-                        infra    : resolve_config_path(infra_path, &config_path),
-                        secrets  : resolve_config_path(secrets_path, &config_path),
+                        infra    : canonicalize(resolve_config_path(infra, &config_path))?,
+                        secrets  : canonicalize(resolve_config_path(secrets, &config_path))?,
                     },
-                    ports    : CentralPorts { api: api_addr, drv: drv_addr },
-                    services : CentralServices{ brokers, scylla: scylla_svc, api: api_svc },
+                    ports    : CentralPorts { api: SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), api_port).into(), drv: SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), drv_port).into() },
+                    services : CentralServices{ brokers: vec![ Address::Hostname("aux-kafka".into(), 9092) ], scylla: Address::Hostname("aux-scylla".into(), 9042), api: Address::Hostname(format!("http://{}", api_name), api_port) },
                     topics   : CentralKafkaTopics{ planner_command: plr_cmd_topic, planner_results: plr_res_topic },
                 }),
             }
         },
 
         // Generate the worker node
-        GenerateSubcommand::Worker { location_id, creds_path, data_path, results_path, temp_data_path, temp_results_path, reg_addr, job_addr, reg_svc, chk_svc } => {
+        GenerateSubcommand::Worker { location_id, creds, certs, packages, data, results, temp_data, temp_results, prx_name, reg_name, job_name, chk_name, prx_port, reg_port, job_port, chk_port } => {
+            // Resolve the service names
+            let prx_name: String = prx_name.replace("$LOCATION", &location_id);
+            let reg_name: String = reg_name.replace("$LOCATION", &location_id);
+            let job_name: String = job_name.replace("$LOCATION", &location_id);
+            let chk_name: String = chk_name.replace("$LOCATION", &location_id);
+
+            // Return the config itself
             NodeConfig {
+                hosts,
                 proxy,
 
-                paths    : common_paths,
-                ports    : common_ports,
-                services : common_services,
+                names    : CommonNames{ prx: prx_name.clone() },
+                paths    : CommonPaths{ certs: canonicalize(resolve_config_path(certs, &config_path))?, packages: canonicalize(resolve_config_path(packages, &config_path))? },
+                ports    : CommonPorts{ prx : SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), prx_port).into() },
+                services : CommonServices{ prx : Address::Hostname(prx_name, prx_port) },
 
                 node : NodeKindConfig::Worker(WorkerConfig {
                     location_id,
+                    names : WorkerNames { reg: reg_name.clone(), job: job_name, chk: chk_name.clone() },
                     paths : WorkerPaths {
-                        creds        : resolve_config_path(creds_path, &config_path),
-                        data         : data_path,
-                        results      : results_path,
-                        temp_data    : temp_data_path,
-                        temp_results : temp_results_path,
+                        creds        : canonicalize(resolve_config_path(creds, &config_path))?,
+                        data         : canonicalize(data)?,
+                        results      : canonicalize(results)?,
+                        temp_data    : canonicalize(temp_data)?,
+                        temp_results : canonicalize(temp_results)?,
                     },
-                    ports    : WorkerPorts { reg: reg_addr, job: job_addr },
-                    services : WorkerServices { reg: reg_svc, chk: chk_svc },
+                    ports    : WorkerPorts { reg: SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), reg_port).into(), job: SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), job_port).into() },
+                    services : WorkerServices { reg: Address::Hostname(format!("https://{}", reg_name), reg_port), chk: Address::Hostname(format!("http://{}", chk_name), chk_port) },
                 }),
             }
         },

@@ -5,7 +5,7 @@
 # Created:
 #   09 Jun 2022, 12:20:28
 # Last edited:
-#   24 Nov 2022, 14:52:35
+#   28 Nov 2022, 14:44:30
 # Auto updated?
 #   Yes
 #
@@ -2918,6 +2918,50 @@ class ImageTarget(Target):
         # Return the commands to run
         return [ mkdir, build ]
 
+class ImagePullTarget(Target):
+    """
+        Defines a build target that saves an image from a remote repository to a local .tar file.
+    """
+
+    _registry : str
+
+
+    def __init__(self, name: str, output: str, registry: str, deps: list[str] = [], description: str = "") -> None:
+        """
+            Constructor for the DownloadTarget class.
+
+            Arguments:
+            - `name`: The name of the target. Only used within this script to reference it later.
+            - `output`: The location of the downloaded file.
+            - `registry`: The Docker `registry/image:tag` identifier that describes the container to download.
+            - `deps`: A list of dependencies for the Target. If any of these strong dependencies needs to be recompiled _any_ incurred changes, then this Target will be rebuild as well.
+            - `description`: If a non-empty string, then it's a description of the target s.t. it shows up in the list of all Targets.
+        """
+
+        # Set the toplevel stuff
+        super().__init__(name, [], {}, [ output ], deps, description)
+
+        # Store the address and the getter (the output is the only destination file for this Target)
+        self._registry = registry
+
+
+
+    def _cmds(self, args: argparse.Namespace) -> list[Command]:
+        """
+            Returns the commands to run to build the target given the given
+            architecture and release mode.
+
+            Will raise errors if it somehow fails to do so.
+        """
+
+        # Generate the three commands
+        mkdir = ShellCommand("mkdir", "-p", f"{os.path.dirname(self._dsts[0])}")
+        pull  = ShellCommand("docker", "pull", f"{self._registry}")
+        save  = ShellCommand("docker", "save", "--output", f"{self._dsts[0]}", f"{self._registry}")
+
+        # Return them
+        return [ mkdir, pull, save ]
+
 class InContainerTarget(Target):
     """
         Target that builds something in a container (e.g., OpenSSL).
@@ -3322,11 +3366,10 @@ for svc in CENTRAL_SERVICES + WORKER_SERVICES:
 for svc in AUX_CENTRAL_SERVICES + AUX_WORKER_SERVICES:
     # We might do different things
     if svc == "scylla":
-        # We generate the image tar using a shell command
-        targets[f"{svc}-image"] = ShellTarget(f"{svc}-image",
-            [ ShellCommand("mkdir", "-p", "./target/release"), ShellCommand("docker", "pull", "scylladb/scylla:4.6.3"), ShellCommand("docker", "save", "--output", f"./target/release/aux-{svc}.tar", "scylladb/scylla:4.6.3") ],
-            srcs=[ f"./target/release/aux-{svc}.tar" ],
-            dsts=[ f"./target/release/aux-{svc}.tar" ],
+        # We generate the image tar using an image pull target
+        targets[f"{svc}-image"] = ImagePullTarget(f"{svc}-image",
+            f"./target/release/aux-{svc}.tar",
+            "scylladb/scylla:4.6.3",
             description=f"Saves the container image for the aux-{svc} auxillary service to a .tar file."
         )
 
@@ -3338,11 +3381,10 @@ for svc in AUX_CENTRAL_SERVICES + AUX_WORKER_SERVICES:
         )
 
     elif svc == "kafka":
-        # We generate the image tar using a shell command
-        targets[f"{svc}-image"] = ShellTarget(f"{svc}-image",
-            [ ShellCommand("mkdir", "-p", "./target/release"), ShellCommand("docker", "pull", "ubuntu/kafka:3.1-22.04_beta"), ShellCommand("docker", "save", "--output", f"./target/release/aux-{svc}.tar", "ubuntu/kafka:3.1-22.04_beta") ],
-            srcs=[ f"./target/release/aux-{svc}.tar" ],
-            dsts=[ f"./target/release/aux-{svc}.tar" ],
+        # We generate the image tar using an image pull target
+        targets[f"{svc}-image"] = ImagePullTarget(f"{svc}-image",
+            f"./target/release/aux-{svc}.tar",
+            "ubuntu/kafka:3.1-22.04_beta",
             description=f"Saves the container image for the aux-{svc} auxillary service to a .tar file."
         )
 
@@ -3354,11 +3396,10 @@ for svc in AUX_CENTRAL_SERVICES + AUX_WORKER_SERVICES:
         )
 
     elif svc == "zookeeper":
-        # We generate the image tar using a shell command
-        targets[f"{svc}-image"] = ShellTarget(f"{svc}-image",
-            [ ShellCommand("mkdir", "-p", "./target/release"), ShellCommand("docker", "pull", "ubuntu/zookeeper:3.1-22.04_beta"), ShellCommand("docker", "save", "--output", f"./target/release/aux-{svc}.tar", "ubuntu/zookeeper:3.1-22.04_beta") ],
-            srcs=[ f"./target/release/aux-{svc}.tar" ],
-            dsts=[ f"./target/release/aux-{svc}.tar" ],
+        # We generate the image tar using an image pull target
+        targets[f"{svc}-image"] = ImagePullTarget(f"{svc}-image",
+            f"./target/release/aux-{svc}.tar",
+            "ubuntu/zookeeper:3.1-22.04_beta",
             description=f"Saves the container image for the aux-{svc} auxillary service to a .tar file."
         )
 

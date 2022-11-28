@@ -4,7 +4,7 @@
 //  Created:
 //    17 Oct 2022, 17:27:16
 //  Last edited:
-//    22 Nov 2022, 12:02:32
+//    28 Nov 2022, 16:26:45
 //  Auto updated?
 //    Yes
 // 
@@ -32,7 +32,8 @@ use clap::Parser;
 use dotenvy::dotenv;
 use log::{debug, error, info, LevelFilter};
 use brane_cfg::node::NodeConfig;
-use brane_tsk::instance::InstancePlanner;
+
+use brane_plr::planner::planner_server;
 
 
 /***** ARGUMENTS *****/
@@ -83,10 +84,10 @@ async fn main() {
     if !node_config.node.is_central() { error!("Given NodeConfig file '{}' does not have properties for a central node.", opts.node_config_path.display()); std::process::exit(1); }
 
     // We simply start a new planner, which takes over this function
-    if let Err(err) = InstancePlanner::planner_server(opts.node_config_path, node_config, opts.group_id).await {
+    if let Err(err) = planner_server(opts.node_config_path, node_config, opts.group_id).await {
         error!("Failed to run InstancePlanner server: {}", err);
         std::process::exit(1);
     }
 
-    // If the planner ever returns, so do we
+    // We're done if the stream is done
 }

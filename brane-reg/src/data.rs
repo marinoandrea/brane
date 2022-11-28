@@ -4,7 +4,7 @@
 //  Created:
 //    26 Sep 2022, 15:40:40
 //  Last edited:
-//    13 Nov 2022, 15:19:45
+//    28 Nov 2022, 14:33:06
 //  Auto updated?
 //    Yes
 // 
@@ -42,14 +42,20 @@ use crate::store::Store;
 /// Retrieves the client name from the given Certificate provided by the, well, client.
 /// 
 /// # Arguments
-/// - `certificate`: The Certificate to analyze.
+/// - `certificate`: The Certificate to analyze, if any.
 /// 
 /// # Returns
 /// The name of the client, as provided by the Certificate's `CN` field.
 /// 
 /// # Errors
 /// This function errors if we could not extract the name for some reason. You should consider the client unauthenticated, in that case.
-pub fn extract_client_name(cert: Certificate) -> Result<String, AuthorizeError> {
+pub fn extract_client_name(cert: Option<Certificate>) -> Result<String, AuthorizeError> {
+    // Extract the cert
+    let cert: Certificate = match cert {
+        Some(cert) => cert,
+        None       => { return Err(AuthorizeError::ClientNoCert); },
+    };
+
     // Attempt to parse the certificate as a real x509 one
     match X509Certificate::from_der(&cert.0) {
         Ok((_, cert)) => {
@@ -139,9 +145,10 @@ pub async fn assert_result_permission(identifier: impl AsRef<str>, _result: impl
 /// # Errors
 /// This function may error (i.e., reject) if we could not serialize the given store.
 pub async fn list(context: Arc<Context>) -> Result<impl Reply, Rejection> {
-    debug!("Handling GET on `/data/info` (i.e., list all datasets)...");
+    info!("Handling GET on `/data/info` (i.e., list all datasets)...");
 
     // Load the store
+    debug!("Loading data ('{}') and results ('{}')...", context.data_path.display(), context.results_path.display());
     let store: Store = match Store::from_dirs(&context.data_path, &context.results_path).await {
         Ok(store) => store,
         Err(err)  => {
@@ -151,6 +158,7 @@ pub async fn list(context: Arc<Context>) -> Result<impl Reply, Rejection> {
     };
 
     // Simply parse to a string
+    debug!("Writing list of datasets as response...");
     let body: String = match serde_json::to_string(&store.datasets) {
         Ok(body) => body,
         Err(err) => {
@@ -184,9 +192,10 @@ pub async fn list(context: Arc<Context>) -> Result<impl Reply, Rejection> {
 /// # Errors
 /// This function may error (i.e., reject) if we didn't know the given name or we failred to serialize the relevant AssetInfo.
 pub async fn get(name: String, context: Arc<Context>) -> Result<impl Reply, Rejection> {
-    debug!("Handling GET on `/data/info/{}` (i.e., get dataset metdata)...", name);
+    info!("Handling GET on `/data/info/{}` (i.e., get dataset metdata)...", name);
 
     // Load the store
+    debug!("Loading data ('{}') and results ('{}')...", context.data_path.display(), context.results_path.display());
     let store: Store = match Store::from_dirs(&context.data_path, &context.results_path).await {
         Ok(store) => store,
         Err(err)  => {
@@ -205,6 +214,7 @@ pub async fn get(name: String, context: Arc<Context>) -> Result<impl Reply, Reje
     };
 
     // Serialize it (or at least, try so)
+    debug!("Dataset found, returning results");
     let body: String = match serde_json::to_string(info) {
         Ok(body) => body,
         Err(err) => {
@@ -238,10 +248,11 @@ pub async fn get(name: String, context: Arc<Context>) -> Result<impl Reply, Reje
 /// 
 /// # Errors
 /// This function may error (i.e., reject) if we didn't know the given name or we failed to serialize the relevant AssetInfo.
-pub async fn download_data(cert: Certificate, name: String, context: Arc<Context>) -> Result<impl Reply, Rejection> {
-    debug!("Handling GET on `/data/download/{}` (i.e., download dataset)...", name);
+pub async fn download_data(cert: Option<Certificate>, name: String, context: Arc<Context>) -> Result<impl Reply, Rejection> {
+    info!("Handling GET on `/data/download/{}` (i.e., download dataset)...", name);
 
     // Load the store
+    debug!("Loading data ('{}') and results ('{}')...", context.data_path.display(), context.results_path.display());
     let store: Store = match Store::from_dirs(&context.data_path, &context.results_path).await {
         Ok(store) => store,
         Err(err)  => {
@@ -370,10 +381,11 @@ pub async fn download_data(cert: Certificate, name: String, context: Arc<Context
 /// 
 /// # Errors
 /// This function may error (i.e., reject) if we didn't know the given name or we failed to serialize the relevant AssetInfo.
-pub async fn download_result(cert: Certificate, name: String, context: Arc<Context>) -> Result<impl Reply, Rejection> {
-    debug!("Handling GET on `/results/download/{}` (i.e., download intermediate result)...", name);
+pub async fn download_result(cert: Option<Certificate>, name: String, context: Arc<Context>) -> Result<impl Reply, Rejection> {
+    info!("Handling GET on `/results/download/{}` (i.e., download intermediate result)...", name);
 
     // Load the store
+    debug!("Loading data ('{}') and results ('{}')...", context.data_path.display(), context.results_path.display());
     let store: Store = match Store::from_dirs(&context.data_path, &context.results_path).await {
         Ok(store) => store,
         Err(err)  => {

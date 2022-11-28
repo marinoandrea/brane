@@ -4,7 +4,7 @@
 //  Created:
 //    17 Oct 2022, 15:15:36
 //  Last edited:
-//    22 Nov 2022, 15:10:38
+//    28 Nov 2022, 17:30:48
 //  Auto updated?
 //    Yes
 // 
@@ -24,6 +24,7 @@ use scylla::{Session, SessionBuilder};
 use warp::Filter;
 
 use brane_cfg::node::NodeConfig;
+use brane_prx::client::ProxyClient;
 
 use brane_api::errors::ApiError;
 use brane_api::spec::Context;
@@ -98,11 +99,13 @@ async fn main() {
     if let Err(err) = packages::ensure_db_table(&scylla).await { error!("Failed to ensure database table: {}", err) };
 
     // Configure Juniper.
-    let node_config_path : PathBuf = opts.node_config_path;
-    let scylla                     = Arc::new(scylla);
+    let node_config_path : PathBuf          = opts.node_config_path;
+    let scylla                              = Arc::new(scylla);
+    let proxy            : Arc<ProxyClient> = Arc::new(ProxyClient::new(node_config.services.prx));
     let context = warp::any().map(move || Context {
         node_config_path : node_config_path.clone(),
         scylla           : scylla.clone(),
+        proxy            : proxy.clone(),
     });
 
     let schema = Schema::new(Query {}, Mutations {}, EmptySubscription::new());

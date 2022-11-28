@@ -54,7 +54,7 @@ services:
   # "Proxy" service that can be targeted by local connections to be proxied (and encrypted with client auth) to remote hosts.
   brane-prx:
     image: brane-prx:${BRANE_VERSION:-latest}
-    container_name: brane-prx
+    container_name: ${PRX_NAME:-brane-prx}
     restart: always
     volumes:
     - ${NODE_CONFIG_PATH}:/node.yml
@@ -63,7 +63,7 @@ services:
   # The service in charge of package registry, downloading, uploading, etc
   brane-api:
     image: brane-api:${BRANE_VERSION:-latest}
-    container_name: brane-api
+    container_name: ${API_NAME:-brane-api}
     restart: always
     ports:
     - "0.0.0.0:${API_PORT}:${API_PORT}"
@@ -84,7 +84,7 @@ services:
   # The service that accepts client connections and executes workflow control flow
   brane-drv:
     image: brane-drv:${BRANE_VERSION:-latest}
-    container_name: brane-drv
+    container_name: ${DRV_NAME:-brane-drv}
     restart: always
     ports:
     - "0.0.0.0:${DRV_PORT}:${DRV_PORT}"
@@ -120,7 +120,7 @@ services:
   # The service that chooses the appropriate domain to run a job on
   brane-plr:
     image: brane-plr:${BRANE_VERSION:-latest}
-    container_name: brane-plr
+    container_name: ${PLR_NAME:-brane-plr}
     restart: always
     volumes:
     - ${NODE_CONFIG_PATH}:/node.yml

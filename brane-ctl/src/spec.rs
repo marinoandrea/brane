@@ -4,7 +4,7 @@
 //  Created:
 //    21 Nov 2022, 17:27:52
 //  Last edited:
-//    25 Nov 2022, 16:32:45
+//    28 Nov 2022, 13:05:28
 //  Auto updated?
 //    Yes
 // 
@@ -12,24 +12,23 @@
 //!   Defines specifications and interfaces used across modules.
 // 
 
-use std::net::SocketAddr;
+use std::fmt::{Display, Formatter, Result as FResult};
+use std::net::IpAddr;
 use std::path::PathBuf;
 use std::str::FromStr;
 
 use bollard::ClientVersion;
 use clap::Subcommand;
 
-use brane_cfg::node::Address;
 use brane_tsk::docker::ImageSource;
 
-use crate::errors::DockerClientVersionParseError;
+use crate::errors::{DockerClientVersionParseError, HostnamePairParseError};
 
 
 /***** AUXILLARY *****/
 /// Defines a wrapper around ClientVersion that allows it to be parsed.
 #[derive(Clone, Copy, Debug)]
 pub struct DockerClientVersion(pub ClientVersion);
-
 impl FromStr for DockerClientVersion {
     type Err = DockerClientVersionParseError;
 
@@ -61,6 +60,54 @@ impl FromStr for DockerClientVersion {
 
 
 
+/// Defines a `<hostname>:<ip>` pair that is conveniently parseable.
+#[derive(Clone, Debug)]
+pub struct HostnamePair(pub String, pub IpAddr);
+
+impl Display for HostnamePair {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
+        write!(f, "{} -> {}", self.0, self.1)
+    }
+}
+
+impl FromStr for HostnamePair {
+    type Err = HostnamePairParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        // Find the colon to split on
+        let colon_pos: usize = match s.find(':') {
+            Some(pos) => pos,
+            None      => { return Err(HostnamePairParseError::MissingColon{ raw: s.into() }); },
+        };
+
+        // Split it
+        let hostname : &str = &s[..colon_pos];
+        let ip       : &str = &s[colon_pos + 1..];
+
+        // Attempt to parse the IP as either an IPv4 _or_ an IPv6
+        match IpAddr::from_str(ip) {
+            Ok(ip)   => Ok(Self(hostname.into(), ip)),
+            Err(err) => Err(HostnamePairParseError::IllegalIpAddr{ raw: ip.into(), err }),
+        }
+    }
+}
+
+impl AsRef<HostnamePair> for HostnamePair {
+    #[inline]
+    fn as_ref(&self) -> &Self { self }
+}
+impl From<&HostnamePair> for HostnamePair {
+    #[inline]
+    fn from(value: &HostnamePair) -> Self { value.clone() }
+}
+impl From<&mut HostnamePair> for HostnamePair {
+    #[inline]
+    fn from(value: &mut HostnamePair) -> Self { value.clone() }
+}
+
+
+
+
 
 
 /***** LIBRARY *****/
@@ -68,42 +115,54 @@ impl FromStr for DockerClientVersion {
 #[derive(Debug, Subcommand)]
 pub enum GenerateSubcommand {
     /// Starts a central node.
-    #[clap(name = "central", about = "Generates a node.yml file for a central node with default values. Check TODO to find the default values used.")]
+    #[clap(name = "central", about = "Generates a node.yml file for a central node with default values.")]
     Central {
         /// Custom `infra.yml` path.
         #[clap(short, long, default_value = "$CONFIG/infra.yml", help = "The location of the 'infra.yml' file. Use '$CONFIG' to reference the value given by --config-path.")]
-        infra_path    : PathBuf,
+        infra    : PathBuf,
         /// Custom `secrets.yml` path.
         #[clap(short, long, default_value = "$CONFIG/secrets.yml", help = "The location of the 'secrets.yml' file. Use '$CONFIG' to reference the value given by --config-path.")]
-        secrets_path  : PathBuf,
+        secrets  : PathBuf,
+        /// Custom certificates path.
+        #[clap(short, long, default_value = "$CONFIG/certs", help = "The location of the certificate directory. Use '$CONFIG' to reference the value given by --config-path.")]
+        certs    : PathBuf,
+        /// Custom packages path.
+        #[clap(long, default_value = "./packages", help = "The location of the package directory.")]
+        packages : PathBuf,
 
-        /// The address on which to launch the API service.
-        #[clap(short, long, default_value = "0.0.0.0:50051", help = "The address on which the global registry service (API services) is hosted.")]
-        api_addr : SocketAddr,
-        /// The address on which to launch the driver service.
-        #[clap(short, long, default_value = "0.0.0.0:50053", help = "The address on which the driver service is hosted.")]
-        drv_addr : SocketAddr,
+        /// The name of the proxy service.
+        #[clap(long, default_value = "brane-prx", help = "The name of the proxy service's container.")]
+        prx_name : String,
+        /// The name of the API service.
+        #[clap(long, default_value = "brane-api", help = "The name of the API service's container.")]
+        api_name : String,
+        /// The name of the driver service.
+        #[clap(long, default_value = "brane-drv", help = "The name of the driver service's container.")]
+        drv_name : String,
+        /// The name of the planner service.
+        #[clap(long, default_value = "brane-plr", help = "The name of the planner service's container.")]
+        plr_name : String,
 
-        /// The address on which the Kafka broker(s) is/are locally available.
-        #[clap(short = 'B', long, default_value = "aux-kafka:9092", help = "The address on which the Kafka backend service is discoverable to other *local* services.")]
-        brokers    : Vec<Address>,
-        /// The address on which the Scylla database is locally available.
-        #[clap(short = 'S', long, default_value = "aux-scylla:9042", help = "The address on which the Scylla database is discoverable to other *local* services.")]
-        scylla_svc : Address,
-        /// The address on which the API srevice is locally available.
-        #[clap(short = 'A', long, default_value = "http://brane-api:50051", help = "The address on which the API service is discoverable to other *local* services.")]
-        api_svc    : Address,
+        /// The port of the proxy service.
+        #[clap(short, long, default_value = "50050", help = "The port on which the proxy service is available.")]
+        prx_port : u16,
+        /// The port of the API service.
+        #[clap(short, long, default_value = "50051", help = "The port on which the API service is available.")]
+        api_port : u16,
+        /// The port of the driver service.
+        #[clap(short, long, default_value = "50053", help = "The port on which the driver service is available.")]
+        drv_port : u16,
 
         /// The topic for planner commands.
-        #[clap(short = 't', long, default_value = "plr-cmd", help = "The Kafka topic used to submit planner commands on.")]
+        #[clap(long, default_value = "plr-cmd", help = "The Kafka topic used to submit planner commands on.")]
         plr_cmd_topic : String,
         /// The topic for planner results.
-        #[clap(short = 'T', long, default_value = "plr-res", help = "The Kafka topic used to emit planner results on.")]
+        #[clap(long, default_value = "plr-res", help = "The Kafka topic used to emit planner results on.")]
         plr_res_topic : String,
     },
 
     /// Starts a worker node.
-    #[clap(name = "worker", about = "Generate a node.yml file for a worker node with default values. Check TODO to find the default values used.")]
+    #[clap(name = "worker", about = "Generate a node.yml file for a worker node with default values.")]
     Worker {
         /// The location ID of this node.
         #[clap(name = "LOCATION_ID", help = "The location identifier (location ID) of this node.")]
@@ -111,33 +170,51 @@ pub enum GenerateSubcommand {
 
         /// Custom credentials file path.
         #[clap(long, default_value = "$CONFIG/creds.yml", help = "The location of the `creds.yml` file. Use `$CONFIG` to reference the value given by --config-path. ")]
-        creds_path        : PathBuf,
+        creds        : PathBuf,
+        /// Custom certificates path.
+        #[clap(short, long, default_value = "$CONFIG/certs", help = "The location of the certificate directory. Use '$CONFIG' to reference the value given by --config-path.")]
+        certs        : PathBuf,
+        /// Custom packages path.
+        #[clap(long, default_value = "./packages", help = "The location of the package directory.")]
+        packages     : PathBuf,
         /// Custom data path,
         #[clap(short, long, default_value = "./data", help = "The location of the data directory.")]
-        data_path         : PathBuf,
+        data         : PathBuf,
         /// Custom results path.
         #[clap(short, long, default_value = "./results", help = "The location of the results directory.")]
-        results_path      : PathBuf,
+        results      : PathBuf,
         /// Custom results path.
         #[clap(short = 'D', long, default_value = "/tmp/data", help = "The location of the temporary/downloaded data directory.")]
-        temp_data_path    : PathBuf,
+        temp_data    : PathBuf,
         /// Custom results path.
         #[clap(short = 'R', long, default_value = "/tmp/results", help = "The location of the temporary/download results directory.")]
-        temp_results_path : PathBuf,
+        temp_results : PathBuf,
 
+        /// The name of the proxy service.
+        #[clap(long, default_value = "brane-prx-$LOCATION", help = "The name of the local proxy service's container. Use '$LOCATION' to use the location ID.")]
+        prx_name : String,
         /// The address on which to launch the registry service.
-        #[clap(long, default_value = "0.0.0.0:50051", help = "The address on which the local registry service is hosted.")]
-        reg_addr : SocketAddr,
+        #[clap(long, default_value = "brane-reg-$LOCATION", help = "The name of the local registry service's container. Use '$LOCATION' to use the location ID.")]
+        reg_name : String,
         /// The address on which to launch the driver service.
-        #[clap(long, default_value = "0.0.0.0:50052", help = "The address on which the local delegate service is hosted.")]
-        job_addr : SocketAddr,
+        #[clap(long, default_value = "brane-job-$LOCATION", help = "The name of the local delegate service's container. Use '$LOCATION' to use the location ID.")]
+        job_name : String,
+        /// The address on which to launch the checker service.
+        #[clap(long, default_value = "brane-chk-$LOCATION", help = "The name of the local checker service's container. Use '$LOCATION' to use the location ID.")]
+        chk_name : String,
 
-        /// The address on which the registry service is locally available.
-        #[clap(long, default_value = "https://brane-reg:50051", help = "The address on which the local registry service is discoverable to other *local* services.")]
-        reg_svc : Address,
-        /// The address on which the checker service is locally available.
-        #[clap(long, default_value = "http://brane-chk:50053", help = "The address on which the local checker service is discoverable to other *local* services.")]
-        chk_svc : Address,
+        /// The port of the proxy service.
+        #[clap(short, long, default_value = "50050", help = "The port on which the local proxy service is available.")]
+        prx_port : u16,
+        /// The address on which to launch the registry service.
+        #[clap(long, default_value = "50051", help = "The port on which the local registry service is available.")]
+        reg_port : u16,
+        /// The address on which to launch the driver service.
+        #[clap(long, default_value = "50052", help = "The port on which the local delegate service is available.")]
+        job_port : u16,
+        /// The address on which to launch the checker service.
+        #[clap(long, default_value = "50053", help = "The port on which the local checker service is available.")]
+        chk_port : u16,
     },
 }
 

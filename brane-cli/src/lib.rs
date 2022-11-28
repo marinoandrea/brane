@@ -14,13 +14,16 @@ pub mod build_oas;
 pub mod data;
 pub mod errors;
 pub mod packages;
+pub mod planner;
 pub mod registry;
 pub mod repl;
 pub mod run;
+pub mod spec;
 pub mod test;
 pub mod utils;
 pub mod verify;
 pub mod version;
+pub mod vm;
 
 
 

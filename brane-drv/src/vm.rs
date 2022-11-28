@@ -4,7 +4,7 @@
 //  Created:
 //    27 Oct 2022, 10:14:26
 //  Last edited:
-//    22 Nov 2022, 16:17:46
+//    28 Nov 2022, 16:11:32
 //  Auto updated?
 //    Yes
 // 
@@ -32,14 +32,14 @@ use brane_cfg::node::NodeConfig;
 use brane_exe::{Error as VmError, FullValue, RunState, Vm};
 use brane_exe::spec::{TaskInfo, VmPlugin};
 use brane_shr::debug::EnumDebug;
+use brane_tsk::errors::{CommitError, ExecuteError, PreprocessError, StdoutError};
+use brane_tsk::spec::{AppId, JobStatus, Planner};
+use brane_tsk::grpc::{self, CommitReply, CommitRequest, DataKind, ExecuteReply, PreprocessKind as RawPreprocessKind, PreprocessReply, PreprocessRequest, TaskReply, TaskRequest, TaskStatus};
 use specifications::data::{AccessKind, PreprocessKind};
 
-pub use crate::errors::TaskError as Error;
-use crate::errors::{CommitError, ExecuteError, PreprocessError, StdoutError};
-use crate::spec::{AppId, JobStatus, Planner};
-use crate::grpc::{self, CommitReply, CommitRequest, DataKind, ExecuteReply, PreprocessKind as RawPreprocessKind, PreprocessReply, PreprocessRequest, TaskReply, TaskRequest, TaskStatus};
-use crate::instance::{GlobalState, LocalState};
-use crate::instance::planner::InstancePlanner;
+pub use crate::errors::RemoteVmError as Error;
+use crate::spec::{GlobalState, LocalState};
+use crate::planner::InstancePlanner;
 
 
 /***** HELPER MACROS *****/

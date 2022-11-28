@@ -1,6 +1,6 @@
 [package]
 name = "brane-cfg"
-version = "1.0.0"
+version = { workspace = true }
 authors = ["Onno Valkering", "Tim Müller"]
 edition = "2018"
 

@@ -4,7 +4,7 @@
 //  Created:
 //    17 Feb 2022, 10:27:28
 //  Last edited:
-//    18 Nov 2022, 15:44:57
+//    28 Nov 2022, 16:05:11
 //  Auto updated?
 //    Yes
 // 
@@ -718,7 +718,7 @@ pub enum RunError {
     /// Failed to parse the value returned by the remote driver.
     ValueParseError{ address: String, raw: String, err: serde_json::Error },
     /// Failed to run the workflow
-    ExecError{ err: brane_tsk::errors::TaskError },
+    ExecError{ err: OfflineVmError },
 
     /// The returned dataset was unknown.
     UnknownDataset{ name: String },
@@ -1049,6 +1049,29 @@ impl Display for UtilError {
 }
 
 impl Error for UtilError {}
+
+
+
+/// Declares errors that relate to the offline VM.
+#[derive(Debug)]
+pub enum OfflineVmError {
+    /// Failed to plan a workflow.
+    PlanError{ err: brane_tsk::errors::PlanError },
+    /// Failed to run a workflow.
+    ExecError{ err: brane_exe::Error },
+}
+
+impl Display for OfflineVmError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
+        use OfflineVmError::*;
+        match self {
+            PlanError{ err } => write!(f, "Failed to plan workflow: {}", err),
+            ExecError{ err } => write!(f, "Faield to execute workflow: {}", err),
+        }
+    }
+}
+
+impl Error for OfflineVmError {}
 
 
 
