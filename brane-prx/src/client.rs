@@ -4,7 +4,7 @@
 //  Created:
 //    25 Nov 2022, 15:09:17
 //  Last edited:
-//    28 Nov 2022, 18:01:17
+//    29 Nov 2022, 11:56:13
 //  Auto updated?
 //    Yes
 // 
@@ -193,6 +193,7 @@ impl ProxyClient {
 
         // Inject the new address into the request
         let url: Url = url.clone();
+        if let Err(_)   = request.url_mut().set_scheme(self.endpoint.scheme()) { return Err(Error::UrlSchemeUpdateError{ url: request.url().clone(), scheme: self.endpoint.scheme().into() }); }
         if let Err(err) = request.url_mut().set_host(Some(self.endpoint.domain().unwrap())) { return Err(Error::UrlHostUpdateError{ url: request.url().clone(), host: self.endpoint.domain().unwrap().into(), err }); }
         if let Err(_)   = request.url_mut().set_port(Some(port)) { return Err(Error::UrlPortUpdateError{ url: request.url().clone(), port }); }
 

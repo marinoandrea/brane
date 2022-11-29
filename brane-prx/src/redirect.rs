@@ -4,7 +4,7 @@
 //  Created:
 //    23 Nov 2022, 11:26:46
 //  Last edited:
-//    28 Nov 2022, 13:59:07
+//    29 Nov 2022, 11:29:57
 //  Auto updated?
 //    Yes
 // 
@@ -239,7 +239,7 @@ pub async fn path_server(node_config_path: PathBuf, listener: TcpListener, clien
             let mut oconn: TlsStream<TcpStream> = match connector.connect(domain.clone(), oconn).await {
                 Ok(oconn) => oconn,
                 Err(err)  => {
-                    error!(":{}->{}: Failed to start a TLS connection with '{}': {}", socket_addr.port(), address, client_addr, err);
+                    error!(":{}->{}: Failed to start a TLS connection with '{}': {}", socket_addr.port(), address, addr, err);
                     continue;
                 },
             };

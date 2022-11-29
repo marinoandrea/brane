@@ -4,7 +4,7 @@
 //  Created:
 //    21 Nov 2022, 15:40:47
 //  Last edited:
-//    28 Nov 2022, 13:33:39
+//    29 Nov 2022, 10:50:56
 //  Auto updated?
 //    Yes
 // 
@@ -157,7 +157,7 @@ pub fn generate(path: impl Into<PathBuf>, hosts: Vec<HostnamePair>, proxy: Optio
                 names    : CommonNames{ prx: prx_name.clone() },
                 paths    : CommonPaths{ certs: canonicalize(resolve_config_path(certs, &config_path))?, packages: canonicalize(resolve_config_path(packages, &config_path))? },
                 ports    : CommonPorts{ prx : SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), prx_port).into() },
-                services : CommonServices{ prx : Address::Hostname(prx_name, prx_port) },
+                services : CommonServices{ prx : Address::Hostname(format!("http://{}", prx_name), prx_port) },
 
                 node : NodeKindConfig::Worker(WorkerConfig {
                     location_id,

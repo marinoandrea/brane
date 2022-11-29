@@ -4,7 +4,7 @@
 //  Created:
 //    23 Nov 2022, 11:43:56
 //  Last edited:
-//    28 Nov 2022, 17:43:02
+//    29 Nov 2022, 11:55:59
 //  Auto updated?
 //    Yes
 // 
@@ -69,6 +69,8 @@ impl Error for RedirectError {}
 pub enum ClientError {
     /// The given URL was not a URL
     IllegalUrl{ raw: String, err: url::ParseError },
+    /// Failed to update the given URL with a new scheme.
+    UrlSchemeUpdateError{ url: Url, scheme: String },
     /// Failed to update the given URL with a new host.
     UrlHostUpdateError{ url: Url, host: String, err: url::ParseError },
     /// Failed to update the given URL with a new port.
@@ -90,6 +92,7 @@ impl Display for ClientError {
         use ClientError::*;
         match self {
             IllegalUrl{ raw, err }               => write!(f, "'{}' is not a valid URL: {}", raw, err),
+            UrlSchemeUpdateError{ url, scheme }  => write!(f, "Failed to update '{}' with new scheme '{}'", url, scheme),
             UrlHostUpdateError{ url, host, err } => write!(f, "Failed to update '{}' with new host '{}': {}", url, host, err),
             UrlPortUpdateError{ url, port }      => write!(f, "Failed to update '{}' with new port '{}'", url, port),
 

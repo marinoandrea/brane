@@ -4,7 +4,7 @@
 //  Created:
 //    02 Nov 2022, 11:47:55
 //  Last edited:
-//    23 Nov 2022, 14:34:57
+//    29 Nov 2022, 11:43:59
 //  Auto updated?
 //    Yes
 // 
@@ -139,6 +139,7 @@ pub fn load_identity(file: impl AsRef<Path>) -> Result<(Vec<Certificate>, Privat
     };
 
     // Done, return
+    debug!("Loaded client identity file '{}' with {} certificate(s) and {} key(s)", file.display(), certs.len(), 1);
     Ok((certs, key))
 }
 
@@ -207,7 +208,7 @@ pub fn load_certstore(storefile: impl AsRef<Path>) -> Result<RootCertStore, Erro
     // Read the certificates in the file to the store.
     let mut store: RootCertStore = RootCertStore::empty();
     let (added, ignored): (usize, usize) = store.add_parsable_certificates(&certs);
-    debug!("Created client trust store with {} certificates (ignored {})", added, ignored);
+    debug!("Created client trust store from '{}' with {} certificates (ignored {})", storefile.display(), added, ignored);
 
     // Done, for now
     Ok(store)
