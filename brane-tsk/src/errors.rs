@@ -4,7 +4,7 @@
 //  Created:
 //    24 Oct 2022, 15:27:26
 //  Last edited:
-//    24 Nov 2022, 16:26:02
+//    29 Nov 2022, 13:25:59
 //  Auto updated?
 //    Yes
 // 
@@ -153,6 +153,8 @@ pub enum PreprocessError {
     InfraReadError{ path: PathBuf, err: brane_cfg::Error },
     /// The given location was unknown.
     UnknownLocationError{ loc: Location },
+    /// Failed to connect to a proxy.
+    ProxyError{ err: String },
     /// Failed to connect to a delegate node with gRPC
     GrpcConnectError{ endpoint: String, err: tonic::transport::Error },
     /// Failed to send a preprocess request to a delegate node with gRPC
@@ -218,6 +220,7 @@ impl Display for PreprocessError {
             NodeConfigReadError{ err, .. }               => write!(f, "Failed to load node config file: {}", err),
             InfraReadError{ path, err }                  => write!(f, "Failed to load infrastructure file '{}': {}", path.display(), err),
             UnknownLocationError{ loc }                  => write!(f, "Unknown location '{}'", loc),
+            ProxyError{ err }                            => write!(f, "Failed to prepare proxy service: {}", err),
             GrpcConnectError{ endpoint, err }            => write!(f, "Failed to start gRPC connection with delegate node '{}': {}", endpoint, err),
             GrpcRequestError{ what, endpoint, err }      => write!(f, "Failed to send {} request to delegate node '{}': {}", what, endpoint, err),
             PreprocessError{ endpoint, kind, name, err } => write!(f, "Remote delegate '{}' failed to preprocess {} '{}': {}", endpoint, kind, name, err),
@@ -299,6 +302,8 @@ pub enum ExecuteError {
     InfraReadError{ path: PathBuf, err: brane_cfg::Error },
     /// The given location was unknown.
     UnknownLocationError{ loc: Location },
+    /// Failed to prepare the proxy service.
+    ProxyError{ err: String },
     /// Failed to connect to a delegate node with gRPC
     GrpcConnectError{ endpoint: String, err: tonic::transport::Error },
     /// Failed to send a preprocess request to a delegate node with gRPC
@@ -368,6 +373,7 @@ impl Display for ExecuteError {
             NodeConfigReadError{ err, .. }              => write!(f, "Failed to load node config file: {}", err),
             InfraReadError{ path, err }                 => write!(f, "Failed to load infrastructure file '{}': {}", path.display(), err),
             UnknownLocationError{ loc }                 => write!(f, "Unknown location '{}'", loc),
+            ProxyError{ err }                           => write!(f, "Failed to prepare proxy service: {}", err),
             GrpcConnectError{ endpoint, err }           => write!(f, "Failed to start gRPC connection with delegate node '{}': {}", endpoint, err),
             GrpcRequestError{ what, endpoint, err }     => write!(f, "Failed to send {} request to delegate node '{}': {}", what, endpoint, err),
             ExecuteError{ endpoint, name, status, err } => write!(f, "Remote delegate '{}' returned status '{:?}' while executing task '{}': {}", endpoint, status, name, err),
@@ -468,6 +474,8 @@ pub enum CommitError {
     InfraReadError{ path: PathBuf, err: brane_cfg::Error },
     /// The given location was unknown.
     UnknownLocationError{ loc: Location },
+    /// Failed to prepare the proxy service.
+    ProxyError{ err: String },
     /// Failed to connect to a delegate node with gRPC
     GrpcConnectError{ endpoint: String, err: tonic::transport::Error },
     /// Failed to send a preprocess request to a delegate node with gRPC
@@ -503,6 +511,7 @@ impl Display for CommitError {
             NodeConfigReadError{ err, .. }          => write!(f, "Failed to load node config file: {}", err),
             InfraReadError{ path, err }             => write!(f, "Failed to load infrastructure file '{}': {}", path.display(), err),
             UnknownLocationError{ loc }             => write!(f, "Unknown location '{}'", loc),
+            ProxyError{ err }                       => write!(f, "Failed to prepare proxy service: {}", err),
             GrpcConnectError{ endpoint, err }       => write!(f, "Failed to start gRPC connection with delegate node '{}': {}", endpoint, err),
             GrpcRequestError{ what, endpoint, err } => write!(f, "Failed to send {} request to delegate node '{}': {}", what, endpoint, err),
             CommitError{ endpoint, name, err }      => write!(f, "Remote delegate '{}' failed to commit intermediate result '{}'{}", endpoint, name, if let Some(err) = err { format!(": {}", err) } else { String::new() }),

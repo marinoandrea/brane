@@ -4,7 +4,7 @@
 //  Created:
 //    25 Nov 2022, 15:09:17
 //  Last edited:
-//    29 Nov 2022, 11:56:13
+//    29 Nov 2022, 13:37:21
 //  Auto updated?
 //    Yes
 // 
@@ -19,9 +19,11 @@ use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use log::{debug, info};
 use reqwest::{Client, Response, Request};
+use tonic::transport::Channel;
 use url::Url;
 
 use brane_cfg::node::Address;
+use brane_tsk::grpc::JobServiceClient;
 
 pub use crate::errors::ClientError as Error;
 use crate::spec::{NewPathRequest, NewPathRequestTlsOptions};
@@ -193,12 +195,15 @@ impl ProxyClient {
 
         // Inject the new address into the request
         let url: Url = url.clone();
-        if let Err(_)   = request.url_mut().set_scheme(self.endpoint.scheme()) { return Err(Error::UrlSchemeUpdateError{ url: request.url().clone(), scheme: self.endpoint.scheme().into() }); }
+        if url.scheme() == "https" {
+            // Replace with http, since the proxy will take care of TLS
+            if let Err(_) = request.url_mut().set_scheme("http") { return Err(Error::UrlSchemeUpdateError{ url: request.url().clone(), scheme: "http".into() }); }
+        }
         if let Err(err) = request.url_mut().set_host(Some(self.endpoint.domain().unwrap())) { return Err(Error::UrlHostUpdateError{ url: request.url().clone(), host: self.endpoint.domain().unwrap().into(), err }); }
         if let Err(_)   = request.url_mut().set_port(Some(port)) { return Err(Error::UrlPortUpdateError{ url: request.url().clone(), port }); }
 
         // We can now perform the request
-        debug!("Performing request to '{}' (secretly '{}')...", request.url(), url);
+        debug!("Performing request to '{}' (secretly '{}')...", url, request.url());
         Ok(match client.execute(request).await {
             Ok(res)  => Ok(res),
             Err(err) => {
@@ -208,5 +213,64 @@ impl ProxyClient {
                 Err(err)
             },
         })
+    }
+
+
+
+    /// Connects to the given `brane-job` service using gRPC.
+    /// 
+    /// This effectively creates a JobServiceClient, but through the proxy node.
+    /// 
+    /// # Arguments
+    /// - `address`: The address of the remote to connect to.
+    /// 
+    /// # Returns
+    /// The result of the connection, as a `Result<>`.
+    /// 
+    /// # Errors
+    /// This function errors if we fail to reserve any new paths if necessary.
+    pub async fn connect_to_job(&self, address: impl AsRef<str>) -> Result<Result<JobServiceClient<Channel>, tonic::transport::Error>, Error> {
+        let address: &str = address.as_ref();
+
+        // Parse the address as a URL
+        let mut address: Url = match Url::from_str(address) {
+            Ok(address) => address,
+            Err(err)    => { return Err(Error::IllegalUrl { raw: address.into(), err }); },
+        };
+        // Assert it has the appropriate fields
+        if address.domain().is_none() { panic!("URL {} does not have a domain defined", address); }
+        if address.port().is_none() { panic!("URL {} does not have a port defined", address); }
+
+        // Check if we already have a path for this
+        let remote: String = format!("{}://{}:{}", address.scheme(), address.domain().unwrap(), address.port().unwrap());
+        let port: Option<u16> = {
+            let lock: RwLockReadGuard<HashMap<(String, Option<NewPathRequestTlsOptions>), u16>> = self.paths.read().unwrap();
+            lock.get(&(remote.clone(), None)).cloned()
+        };
+
+        // If not, request one
+        let port: u16 = match port {
+            Some(port) => port,
+            None       => {
+                // Create the path
+                let port: u16 = create_path(&self.endpoint, &remote, &None).await?;
+
+                // Store it in the internal map for next time
+                let mut lock: RwLockWriteGuard<HashMap<(String, Option<NewPathRequestTlsOptions>), u16>> = self.paths.write().unwrap();
+                lock.insert((remote.clone(), None), port);
+
+                // And return the port
+                port
+            },
+        };
+
+        // Inject the new target in the URL
+        let original: Url = address.clone();
+        if let Err(err) = address.set_host(Some(self.endpoint.domain().unwrap())) { return Err(Error::UrlHostUpdateError{ url: address, host: self.endpoint.domain().unwrap().into(), err }); }
+        if let Err(_)   = address.set_port(Some(port)) { return Err(Error::UrlPortUpdateError{ url: address, port }); }
+
+        // We can now perform the request
+        debug!("Performing request to '{}' (secretly '{}')...", original, address);
+        Ok(JobServiceClient::connect(address.to_string()).await)
     }
 }

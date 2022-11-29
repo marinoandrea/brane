@@ -18,7 +18,7 @@ juniper = "0.15"
 juniper_graphql_ws = "0.3"
 juniper_warp = { version = "0.7", features = ["subscriptions"] }
 log = "0.4"
-prost = "0.8"
+prost = "0.11"
 rdkafka = { version = "0.29", features = ["cmake-build"] }
 scylla = "0.2"
 serde = { version = "1", features = ["derive"] }

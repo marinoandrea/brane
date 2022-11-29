@@ -4,7 +4,7 @@
 //  Created:
 //    28 Nov 2022, 16:08:36
 //  Last edited:
-//    28 Nov 2022, 16:10:30
+//    29 Nov 2022, 12:55:42
 //  Auto updated?
 //    Yes
 // 
@@ -19,6 +19,7 @@ use tokio::sync::mpsc::Sender;
 use tonic::Status;
 
 use brane_exe::spec::CustomGlobalState;
+use brane_prx::client::ProxyClient;
 use brane_tsk::spec::AppId;
 use brane_tsk::grpc::ExecuteReply;
 
@@ -31,6 +32,8 @@ pub struct GlobalState {
     pub node_config_path : PathBuf,
     /// The application identifier for this session.
     pub app_id           : AppId,
+    /// The (shared) proxy client we use to communicate, well, through proxies.
+    pub proxy            : Arc<ProxyClient>,
 
     /// The workflow for this session, which will be updated when a new one is received.
     pub workflow : Option<String>,

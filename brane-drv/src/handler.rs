@@ -4,7 +4,7 @@
 //  Created:
 //    12 Sep 2022, 16:18:11
 //  Last edited:
-//    28 Nov 2022, 16:27:45
+//    29 Nov 2022, 13:20:10
 //  Auto updated?
 //    Yes
 // 
@@ -25,6 +25,7 @@ use tonic::{Request, Response, Status};
 use brane_ast::Workflow;
 use brane_cfg::node::NodeConfig;
 use brane_exe::FullValue;
+use brane_prx::client::ProxyClient;
 use brane_tsk::spec::{AppId, Planner};
 use brane_tsk::grpc;
 
@@ -90,6 +91,8 @@ macro_rules! fatal_err {
 pub struct DriverHandler {
     /// The path to the `node.yml` file that describes this node's environment. For the handler, this is the path to the `infra.yml` file (and an optional `secrets.yml`) and the topic to send commands to the planner on.
     node_config_path : PathBuf,
+    /// The ProxyClient that we use to connect to/through `brane-prx`.
+    proxy            : Arc<ProxyClient>,
     /// The planner we use to plan stuff.
     planner          : Arc<InstancePlanner>,
 
@@ -102,14 +105,16 @@ impl DriverHandler {
     /// 
     /// # Arguments
     /// - `node_config_path`: The path to the `node.yml` file that describes this node's environment. For the handler, this is the path to the `infra.yml` file (and an optional `secrets.yml`) and the topic to send commands to the planner on.
+    /// - `proxy`: The (shared) ProxyClient that we use to connect to/through `brane-prx`.
     /// - `planner`: The InstancePlanner that handles our side of planning.
     /// 
     /// # Returns
     /// A new DriverHandler instance.
     #[inline]
-    pub fn new(node_config_path: impl Into<PathBuf>, planner: Arc<InstancePlanner>) -> Self {
+    pub fn new(node_config_path: impl Into<PathBuf>, proxy: Arc<ProxyClient>, planner: Arc<InstancePlanner>) -> Self {
         Self {
             node_config_path : node_config_path.into(),
+            proxy,
             planner,
 
             sessions : Arc::new(DashMap::new()),
@@ -134,7 +139,7 @@ impl grpc::DriverService for DriverHandler {
     async fn create_session(&self, _request: Request<grpc::CreateSessionRequest>) -> Result<Response<grpc::CreateSessionReply>, Status> {
         // Create a new VM for this session
         let app_id: AppId = AppId::generate();
-        self.sessions.insert(app_id.clone(), InstanceVm::new(&self.node_config_path, app_id.clone(), self.planner.clone()));
+        self.sessions.insert(app_id.clone(), InstanceVm::new(&self.node_config_path, app_id.clone(), self.proxy.clone(), self.planner.clone()));
 
         // Now return the ID to the user for future reference
         debug!("Created new session '{}'", app_id);

@@ -22,7 +22,7 @@ serde_json_any_key = "2.0.0"
 sha2 = "0.10.6"
 tokio = { version = "1", features = [] }
 tokio-stream = "0.1"
-tonic = "0.5"
+tonic = "0.8"
 xenon-rs = "0.4"
 
 brane-ast = { path = "../brane-ast" }
