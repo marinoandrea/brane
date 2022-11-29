@@ -4,7 +4,7 @@
 //  Created:
 //    22 Nov 2022, 11:19:22
 //  Last edited:
-//    28 Nov 2022, 13:23:26
+//    29 Nov 2022, 15:17:36
 //  Auto updated?
 //    Yes
 // 
@@ -269,6 +269,9 @@ fn construct_envs(version: &Version, node_config_path: &Path, node_config: &Node
 
             // Add the environment variables, which are basically just central-specific paths to mount in the compose file
             res.extend([
+                // Also add the location ID
+                ("LOCATION_ID", OsString::from(&worker.location_id)),
+
                 // Names
                 ("PRX_NAME", OsString::from(&node_config.names.prx.as_str())),
                 ("REG_NAME", OsString::from(&node_config.node.worker().names.reg.as_str())),

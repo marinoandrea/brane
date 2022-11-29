@@ -28,6 +28,7 @@ xenon-rs = "0.4"
 brane-ast = { path = "../brane-ast" }
 brane-cfg = { path = "../brane-cfg" }
 brane-exe = { path = "../brane-exe" }
+brane-prx = { path = "../brane-prx" }
 brane-shr = { path = "../brane-shr" }
 brane-tsk = { path = "../brane-tsk" }
 specifications = { path = "../specifications" }

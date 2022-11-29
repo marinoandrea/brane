@@ -4,7 +4,7 @@
 //  Created:
 //    25 Nov 2022, 15:09:17
 //  Last edited:
-//    29 Nov 2022, 13:37:21
+//    29 Nov 2022, 13:56:49
 //  Auto updated?
 //    Yes
 // 
@@ -24,6 +24,7 @@ use url::Url;
 
 use brane_cfg::node::Address;
 use brane_tsk::grpc::JobServiceClient;
+use specifications::package::PackageIndex;
 
 pub use crate::errors::ClientError as Error;
 use crate::spec::{NewPathRequest, NewPathRequestTlsOptions};
@@ -217,6 +218,71 @@ impl ProxyClient {
 
 
 
+    /// Requests the package index from the `brane-api` service at the given endpoint.
+    /// 
+    /// # Arguments
+    /// - `address`: The endpoint (including path) to fetch the package index from.
+    /// 
+    /// # Returns
+    /// The result of the request, as a `Result<PackageIndex, brane_tsk::api::Error>`.
+    /// 
+    /// # Errors
+    /// This function errors if we fail to reserve any new paths if necessary.
+    pub async fn get_package_index(&self, address: impl AsRef<str>) -> Result<Result<PackageIndex, brane_tsk::api::Error>, Error> {
+        let address: &str = address.as_ref();
+
+        // Parse the address as a URL
+        let mut address: Url = match Url::from_str(address) {
+            Ok(address) => address,
+            Err(err)    => { return Err(Error::IllegalUrl { raw: address.into(), err }); },
+        };
+        // Assert it has the appropriate fields
+        if address.domain().is_none() { panic!("URL {} does not have a domain defined", address); }
+        if address.port().is_none() { panic!("URL {} does not have a port defined", address); }
+
+        // Check if we already have a path for this
+        let remote: String = format!("{}://{}:{}", address.scheme(), address.domain().unwrap(), address.port().unwrap());
+        let port: Option<u16> = {
+            let lock: RwLockReadGuard<HashMap<(String, Option<NewPathRequestTlsOptions>), u16>> = self.paths.read().unwrap();
+            lock.get(&(remote.clone(), None)).cloned()
+        };
+
+        // If not, request one
+        let port: u16 = match port {
+            Some(port) => port,
+            None       => {
+                // Create the path
+                let port: u16 = create_path(&self.endpoint, &remote, &None).await?;
+
+                // Store it in the internal map for next time
+                let mut lock: RwLockWriteGuard<HashMap<(String, Option<NewPathRequestTlsOptions>), u16>> = self.paths.write().unwrap();
+                lock.insert((remote.clone(), None), port);
+
+                // And return the port
+                port
+            },
+        };
+
+        // Inject the new target in the URL
+        let original: Url = address.clone();
+        if let Err(err) = address.set_host(Some(self.endpoint.domain().unwrap())) { return Err(Error::UrlHostUpdateError{ url: address, host: self.endpoint.domain().unwrap().into(), err }); }
+        if let Err(_)   = address.set_port(Some(port)) { return Err(Error::UrlPortUpdateError{ url: address, port }); }
+
+        // Run the normal function
+        debug!("Performing request to '{}' (secretly '{}')...", original, address);
+        Ok(match brane_tsk::api::get_package_index(address).await {
+            Ok(res)  => Ok(res),
+            Err(err) => {
+                // If it fails, remove the mapping so we are forced to ask a new one next time
+                let mut lock: RwLockWriteGuard<HashMap<(String, Option<NewPathRequestTlsOptions>), u16>> = self.paths.write().unwrap();
+                lock.remove(&(remote, None));
+                Err(err)
+            },
+        })
+    }
+
+
+
     /// Connects to the given `brane-job` service using gRPC.
     /// 
     /// This effectively creates a JobServiceClient, but through the proxy node.
@@ -225,7 +291,7 @@ impl ProxyClient {
     /// - `address`: The address of the remote to connect to.
     /// 
     /// # Returns
-    /// The result of the connection, as a `Result<>`.
+    /// The result of the connection, as a `Result<JobServiceClient<Channel>, tonic::transport::Error>`.
     /// 
     /// # Errors
     /// This function errors if we fail to reserve any new paths if necessary.
@@ -270,7 +336,15 @@ impl ProxyClient {
         if let Err(_)   = address.set_port(Some(port)) { return Err(Error::UrlPortUpdateError{ url: address, port }); }
 
         // We can now perform the request
-        debug!("Performing request to '{}' (secretly '{}')...", original, address);
-        Ok(JobServiceClient::connect(address.to_string()).await)
+        debug!("Connecting to '{}' (secretly '{}')...", original, address);
+        Ok(match JobServiceClient::connect(address.to_string()).await {
+            Ok(res)  => Ok(res),
+            Err(err) => {
+                // If it fails, remove the mapping so we are forced to ask a new one next time
+                let mut lock: RwLockWriteGuard<HashMap<(String, Option<NewPathRequestTlsOptions>), u16>> = self.paths.write().unwrap();
+                lock.remove(&(remote, None));
+                Err(err)
+            },
+        })
     }
 }

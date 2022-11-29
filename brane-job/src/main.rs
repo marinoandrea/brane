@@ -4,7 +4,7 @@
 //  Created:
 //    18 Oct 2022, 13:47:17
 //  Last edited:
-//    28 Nov 2022, 16:26:56
+//    29 Nov 2022, 13:59:43
 //  Auto updated?
 //    Yes
 // 
@@ -13,6 +13,7 @@
 // 
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use clap::Parser;
 use dotenvy::dotenv;
@@ -21,6 +22,7 @@ use log::{debug, error, info};
 use tonic::transport::Server;
 
 use brane_cfg::node::NodeConfig;
+use brane_prx::client::ProxyClient;
 use brane_tsk::grpc::JobServiceServer;
 
 use brane_job::worker::WorkerServer;
@@ -83,6 +85,7 @@ async fn main() {
     let server = WorkerServer::new(
         opts.node_config_path,
         opts.keep_containers,
+        Arc::new(ProxyClient::new(node_config.services.prx)),
     );
 
     // Start gRPC server with callback service.

@@ -131,7 +131,7 @@ services:
 
 networks:
   default:
-    name: brane
+    name: brane-central
 
 volumes:
   data:

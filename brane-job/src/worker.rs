@@ -4,7 +4,7 @@
 //  Created:
 //    31 Oct 2022, 11:21:14
 //  Last edited:
-//    28 Nov 2022, 16:38:46
+//    29 Nov 2022, 13:59:04
 //  Auto updated?
 //    Yes
 // 
@@ -17,6 +17,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::sync::Arc;
 
 use base64ct::{Base64, Encoding};
 use bollard::{API_DEFAULT_VERSION, ClientVersion};
@@ -24,7 +25,6 @@ use chrono::Utc;
 use futures_util::StreamExt;
 use hyper::body::Bytes;
 use log::{debug, error, info, warn};
-use reqwest::{Certificate, Client, ClientBuilder, Identity, Proxy};
 use serde_json_any_key::json_to_map;
 use sha2::{Digest, Sha256};
 use tokio::fs as tfs;
@@ -38,16 +38,16 @@ use brane_ast::locations::Location;
 use brane_ast::ast::DataName;
 use brane_cfg::CredsFile;
 use brane_cfg::creds::Credentials;
-use brane_cfg::node::{Address, NodeConfig};
+use brane_cfg::node::NodeConfig;
 use brane_exe::FullValue;
+use brane_prx::spec::NewPathRequestTlsOptions;
+use brane_prx::client::ProxyClient;
 use brane_shr::debug::BlockFormatter;
 use brane_shr::fs::{copy_dir_recursively_async, unarchive_async};
-use brane_shr::utilities::is_ip_addr;
 use brane_tsk::errors::{AuthorizeError, CommitError, ExecuteError, PreprocessError};
 use brane_tsk::spec::JobStatus;
 use brane_tsk::grpc::{CommitReply, CommitRequest, DataKind, JobService, PreprocessKind, PreprocessReply, PreprocessRequest, TaskReply, TaskRequest, TaskStatus};
 use brane_tsk::tools::decode_base64;
-use brane_tsk::api::get_package_index;
 use brane_tsk::docker::{self, ExecuteInfo, ImageSource, Network};
 use specifications::container::{Image, VolumeBind};
 use specifications::data::{AccessKind, AssetInfo};
@@ -229,7 +229,7 @@ impl TaskInfo {
 /// 
 /// # Arguments
 /// - `node_config`: The configuration for this node's environment. For us, contains the path where we may find certificates and where to download data & result files to.
-/// - `proxy`: The proxy address to route this data transfer to, if any. Note that this is not (necessarily) the same address as given in `node_config`, since this one may refer to a different BFC.
+/// - `proxy`: The proxy client we use to proxy the data transfer.
 /// - `location`: The location to download the tarball from.
 /// - `address`: The address to download the tarball from.
 /// - `data_name`: The type of the data (i.e., Data or IntermediateResult) combined with its identifier.
@@ -239,41 +239,10 @@ impl TaskInfo {
 /// 
 /// # Errors
 /// This function can error for literally a million reasons - but they mostly relate to IO (file access, request success etc).
-pub async fn preprocess_transfer_tar(node_config: &NodeConfig, proxy: Option<Address>, location: Location, address: impl AsRef<str>, data_name: DataName) -> Result<AccessKind, PreprocessError> {
+pub async fn preprocess_transfer_tar(node_config: &NodeConfig, proxy: Arc<ProxyClient>, location: Location, address: impl AsRef<str>, data_name: DataName) -> Result<AccessKind, PreprocessError> {
     debug!("Preprocessing by executing a data transfer");
     let address: &str  = address.as_ref();
     debug!("Downloading from {} ({})", location, address);
-
-
-
-    debug!("Loading certificate for location '{}'...", location);
-    let (identity, ca_cert): (Identity, Certificate) = {
-        // Compute the paths
-        let cert_dir : PathBuf = node_config.paths.certs.join(&location);
-        let idfile   : PathBuf = cert_dir.join("client-id.pem");
-        let cafile   : PathBuf = cert_dir.join("ca.pem");
-
-        // Load the keypair for this location as an Identity file (for which we just smash 'em together and hope that works)
-        let ident: Identity = match tfs::read(&idfile).await {
-            Ok(raw) => match Identity::from_pem(&raw) {
-                Ok(identity) => identity,
-                Err(err)     => { return Err(PreprocessError::IdentityFileError{ path: idfile, err }); },
-            },
-            Err(err) => { return Err(PreprocessError::FileReadError{ what: "client identity", path: idfile, err }); },
-        };
-
-        // Load the root store for this location (also as a list of certificates)
-        let root: Certificate = match tfs::read(&cafile).await {
-            Ok(raw) => match Certificate::from_pem(&raw) {
-                Ok(root) => root,
-                Err(err) => { return Err(PreprocessError::CertificateError{ path: cafile, err }); },
-            },
-            Err(err) => { return Err(PreprocessError::FileReadError{ what: "server cert root", path: cafile, err }); },
-        };
-
-        // Return them, with the cert and key as identity
-        (ident, root)
-    };
 
 
 
@@ -340,28 +309,14 @@ pub async fn preprocess_transfer_tar(node_config: &NodeConfig, proxy: Option<Add
 
 
 
-    // Build the client
-    debug!("Sending download request...");
-    let mut client: ClientBuilder = Client::builder()
-        .use_rustls_tls()
-        .add_root_certificate(ca_cert)
-        .identity(identity)
-        .tls_sni(!is_ip_addr(&address));
-    if let Some(proxy_addr) = proxy {
-        client = client.proxy(match Proxy::all(proxy_addr.to_string()) {
-            Ok(proxy) => proxy,
-            Err(err)  => { return Err(PreprocessError::ProxyCreateError{ address: proxy_addr, err }) },
-        });
-    }
-    let client: Client = match client.build() {
-        Ok(client) => client,
-        Err(err)   => { return Err(PreprocessError::ClientCreateError{ err }); },
-    };
-
     // Send a reqwest
-    let res = match client.get(address).send().await {
-        Ok(res)  => res,
-        Err(err) => { return Err(PreprocessError::DownloadRequestError{ address: address.into(), err }); },
+    debug!("Sending download request...");
+    let res = match proxy.get(address, Some(NewPathRequestTlsOptions{ location: location.clone(), use_client_auth: true })).await {
+        Ok(result) => match result {
+            Ok(res)  => res,
+            Err(err) => { return Err(PreprocessError::DownloadRequestError{ address: address.into(), err }); },
+        },
+        Err(err) => { return Err(PreprocessError::ProxyError { err: err.to_string() }); },
     };
     if !res.status().is_success() {
         return Err(PreprocessError::DownloadRequestFailure { address: address.into(), code: res.status(), message: res.text().await.ok() });
@@ -473,6 +428,7 @@ async fn assert_workflow_permission(_node_config: &NodeConfig, _workflow: &Workf
 /// 
 /// # Arguments
 /// - `node_config`: The configuration for this node's environment. For us, contains if and where we should proxy the request through and where we may download package images to.
+/// - `proxy`: The proxy client we use to proxy the data transfer.
 /// - `endpoint`: The address where to download the container from.
 /// - `image`: The image name (including digest, for caching) to download.
 /// 
@@ -483,7 +439,7 @@ async fn assert_workflow_permission(_node_config: &NodeConfig, _workflow: &Workf
 /// 
 /// # Errors
 /// This function may error if we failed to reach the remote host, download the file or write the file.
-async fn download_container(node_config: &NodeConfig, endpoint: impl AsRef<str>, image: &mut Image) -> Result<(PathBuf, String), ExecuteError> {
+async fn download_container(node_config: &NodeConfig, proxy: Arc<ProxyClient>, endpoint: impl AsRef<str>, image: &mut Image) -> Result<(PathBuf, String), ExecuteError> {
     let endpoint: &str = endpoint.as_ref();
     debug!("Downloading image '{}' from '{}'...", image, endpoint);
 
@@ -525,25 +481,15 @@ async fn download_container(node_config: &NodeConfig, endpoint: impl AsRef<str>,
         debug!("Local image is outdated; overwriting...");
     }
 
-    // Setup the reqwest client
-    let mut builder: ClientBuilder = Client::builder();
-    if let Some(proxy) = &node_config.proxy {
-        builder = builder.proxy(match Proxy::all(proxy.to_string()) {
-            Ok(proxy) => proxy,
-            Err(err)  => { return Err(ExecuteError::ProxyCreateError { address: proxy.clone(), err }) },
-        });
-    }
-    let client: Client = match builder.build() {
-        Ok(client) => client,
-        Err(err)   => { return Err(ExecuteError::ClientCreateError{ err }); },
-    };
-
     // Send a GET-request to the correct location
     let address: String = format!("{}/packages/{}/{}", endpoint, image.name, image.version.as_ref().unwrap_or(&"latest".into()));
     debug!("Performing request to '{}'...", address);
-    let res = match client.get(&address).send().await {
-        Ok(res)  => res,
-        Err(err) => { return Err(ExecuteError::DownloadRequestError{ address, err }); },
+    let res = match proxy.get(&address, None).await {
+        Ok(result) => match result {
+            Ok(res)  => res,
+            Err(err) => { return Err(ExecuteError::DownloadRequestError{ address, err }); },
+        },
+        Err(err) => { return Err(ExecuteError::ProxyError{ err: err.to_string() }); },
     };
     if !res.status().is_success() {
         return Err(ExecuteError::DownloadRequestFailure{ address, code: res.status(), message: res.text().await.ok() });
@@ -733,6 +679,7 @@ async fn execute_task_local(node_config: &NodeConfig, dinfo: DockerInfo, tx: &Se
 /// 
 /// # Arguments
 /// - `node_config`: The configuration for this node's environment. For us, contains the location ID of this location and where to find data & intermediate results.
+/// - `proxy`: The proxy client we use to proxy the data transfer.
 /// - `tx`: The channel to transmit stuff back to the client on.
 /// - `workflow`: The Workflow that we're executing. Useful for communicating with the eFLINT backend.
 /// - `cinfo`: The ControlNodeInfo that specifies where to find services over at the control node.
@@ -744,7 +691,7 @@ async fn execute_task_local(node_config: &NodeConfig, dinfo: DockerInfo, tx: &Se
 /// 
 /// # Errors
 /// This fnction may error for many many reasons, but chief among those are unavailable backends or a crashing task.
-async fn execute_task(node_config: &NodeConfig, tx: Sender<Result<TaskReply, Status>>, workflow: Workflow, cinfo: ControlNodeInfo, tinfo: TaskInfo, keep_container: bool) -> Result<(), ExecuteError> {
+async fn execute_task(node_config: &NodeConfig, proxy: Arc<ProxyClient>, tx: Sender<Result<TaskReply, Status>>, workflow: Workflow, cinfo: ControlNodeInfo, tinfo: TaskInfo, keep_container: bool) -> Result<(), ExecuteError> {
     let mut tinfo          = tinfo;
 
     // We update the user first on that the job has been received
@@ -754,12 +701,13 @@ async fn execute_task(node_config: &NodeConfig, tx: Sender<Result<TaskReply, Sta
 
 
     /* CALL PREPARATION */
-    // Next, query the API for a package index. To do that, we get a path in the proxy node.
-    
-
-    let index: PackageIndex = match get_package_index(&format!("{}/graphql", cinfo.api_endpoint)).await {
-        Ok(index) => index,
-        Err(err)  => { return err!(tx, ExecuteError::PackageIndexError{ endpoint: cinfo.api_endpoint.clone(), err }); },
+    // Next, query the API for a package index.
+    let index: PackageIndex = match proxy.get_package_index(&format!("{}/graphql", cinfo.api_endpoint)).await {
+        Ok(result) => match result {
+            Ok(index) => index,
+            Err(err)  => { return err!(tx, ExecuteError::PackageIndexError{ endpoint: cinfo.api_endpoint.clone(), err }); },
+        },
+        Err(err) => { return err!(tx, ExecuteError::ProxyError{ err: err.to_string() }); },
     };
 
     // Get the info
@@ -779,7 +727,7 @@ async fn execute_task(node_config: &NodeConfig, tx: Sender<Result<TaskReply, Sta
     };
 
     // Download the container from the central node
-    let (container_path, container_hash): (PathBuf, String) = download_container(node_config, &cinfo.api_endpoint, tinfo.image.as_mut().unwrap()).await?;
+    let (container_path, container_hash): (PathBuf, String) = download_container(node_config, proxy, &cinfo.api_endpoint, tinfo.image.as_mut().unwrap()).await?;
 
 
 
@@ -1020,6 +968,9 @@ pub struct WorkerServer {
     node_config_path : PathBuf,
     /// Whether to remove containers after execution or not (but negated).
     keep_containers  : bool,
+
+    /// The proxy client to connect to the proxy service with.
+    proxy : Arc<ProxyClient>,
 }
 
 impl WorkerServer {
@@ -1028,14 +979,16 @@ impl WorkerServer {
     /// # Arguments
     /// - `node_config_path`: The path to the `node.yml` file that describes this node's environment.
     /// - `keep_containers`: If true, then we will not remove containers after execution (useful for debugging).
+    /// - `proxy`: The proxy client to connect to the proxy service with.
     /// 
     /// # Returns
     /// A new JobHandler instance.
     #[inline]
-    pub fn new(node_config_path: impl Into<PathBuf>, keep_containers: bool) -> Self {
+    pub fn new(node_config_path: impl Into<PathBuf>, keep_containers: bool, proxy: Arc<ProxyClient>) -> Self {
         Self {
             node_config_path : node_config_path.into(),
             keep_containers,
+            proxy,
         }
     }
 }
@@ -1086,7 +1039,7 @@ impl JobService for WorkerServer {
                 };
 
                 // Run the function that way
-                let access: AccessKind = match preprocess_transfer_tar(&node_config, node_config.proxy.clone(), location, address, data_name).await {
+                let access: AccessKind = match preprocess_transfer_tar(&node_config, self.proxy.clone(), location, address, data_name).await {
                     Ok(access) => access,
                     Err(err)   => {
                         error!("{}", err);
@@ -1190,10 +1143,11 @@ impl JobService for WorkerServer {
         );
 
         // Now move the rest to a separate task so we can return the start of the stream
-        let keep_containers: bool = self.keep_containers;
+        let keep_containers : bool             = self.keep_containers;
+        let proxy           : Arc<ProxyClient> = self.proxy.clone();
         tokio::spawn(async move {
             let node_config: NodeConfig = node_config;
-            execute_task(&node_config, tx, workflow, cinfo, tinfo, keep_containers).await
+            execute_task(&node_config, proxy, tx, workflow, cinfo, tinfo, keep_containers).await
         });
 
         // Return the stream so the user can get updates

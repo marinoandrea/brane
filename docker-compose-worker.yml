@@ -56,4 +56,4 @@ services:
 
 networks:
   default:
-    name: brane
+    name: brane-worker-${LOCATION_ID}
