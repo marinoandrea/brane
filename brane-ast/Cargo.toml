@@ -7,7 +7,7 @@ authors = [ "Tim Müller" ]
 [dependencies]
 brane-dsl = { path = "../brane-dsl" }
 brane-shr = { path = "../brane-shr" }
-console = "0.14"
+console = "0.15"
 lazy_static = "1.4.0"
 log = "0.4"
 serde = { version = "1", features = ["rc"] }

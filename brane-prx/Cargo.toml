@@ -8,7 +8,7 @@ authors = [ "Lut99" ]
 anyhow = "1.0.66"
 clap = { version = "4.0.24", features = ["derive","env"] }
 dotenvy = "0.15"
-env_logger = "0.9"
+env_logger = "0.10"
 log = "0.4"
 never-say-never = "6.6.666"
 reqwest = { version = "0.11", features = ["json"] }
