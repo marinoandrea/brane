@@ -6,7 +6,7 @@
 # Created:
 #   23 May 2022, 16:23:31
 # Last edited:
-#   23 May 2022, 16:26:48
+#   30 Nov 2022, 16:25:02
 # Auto updated?
 #   Yes
 #
@@ -21,10 +21,10 @@
 
 # Imports
 import base64
+import json
 import os
 import sys
 import yaml
-
 
 
 # The functions
@@ -59,7 +59,6 @@ def decode(b: str) -> str:
     return s.decode("utf-8")
 
 
-
 # The entrypoint of the script
 if __name__ == "__main__":
     # Make sure that at least one argument is given, that is either 'encode' or 'decode'
@@ -70,9 +69,13 @@ if __name__ == "__main__":
     # If it checks out, call the appropriate function
     command = sys.argv[1]
     if command == "encode":
-        result = encode(os.environ["INPUT"])
+        # Parse the input as JSON, then pass that to the `encode` function
+        arg = json.loads(os.environ["INPUT"])
+        result = encode(arg)
     else:
-        result = decode(os.environ["INPUT"])
+        # Parse the input as JSON, then pass that to the `encode` function
+        arg = json.loads(os.environ["INPUT"])
+        result = decode(arg)
 
     # Print the result with the YAML package
     print(yaml.dump({ "output": result }))
