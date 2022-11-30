@@ -124,7 +124,7 @@ pub fn logout() -> Result<()> {
 /// Pulls packages from a remote registry to the local registry. 
 /// 
 /// # Arguments
-/// - `packages`: The list of NAME[:VERSION] pairs indicating what to pull.
+/// - `packages`: The list of `NAME[:VERSION]` pairs indicating what to pull.
 /// 
 /// # Errors
 /// This function may error for about a million different reasons, chief of which are the remote not being reachable, the user not being logged-in, not being able to write to the package folder, etc.

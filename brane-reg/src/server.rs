@@ -4,7 +4,7 @@
 //  Created:
 //    01 Nov 2022, 11:15:17
 //  Last edited:
-//    28 Nov 2022, 14:05:22
+//    30 Nov 2022, 11:39:05
 //  Auto updated?
 //    Yes
 // 
@@ -14,7 +14,7 @@
 //!   certificates used.
 //! 
 //!   Most of the logic in this module is taken from:
-//!   https://gist.github.com/darwindarak/9b18e49d0d5b384dd332d2c8d9e785fe
+//!   <https://gist.github.com/darwindarak/9b18e49d0d5b384dd332d2c8d9e785fe>
 // 
 
 use std::net::SocketAddr;
