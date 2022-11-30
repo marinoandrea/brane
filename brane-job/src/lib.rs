@@ -4,7 +4,7 @@
 //  Created:
 //    28 Nov 2022, 16:21:40
 //  Last edited:
-//    28 Nov 2022, 16:22:07
+//    30 Nov 2022, 18:09:31
 //  Auto updated?
 //    Yes
 // 
@@ -14,4 +14,6 @@
 // 
 
 // Declare modules
+pub mod errors;
+pub mod spec;
 pub mod worker;

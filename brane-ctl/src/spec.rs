@@ -4,7 +4,7 @@
 //  Created:
 //    21 Nov 2022, 17:27:52
 //  Last edited:
-//    28 Nov 2022, 13:05:28
+//    30 Nov 2022, 17:57:51
 //  Auto updated?
 //    Yes
 // 
@@ -171,6 +171,9 @@ pub enum GenerateSubcommand {
         /// Custom credentials file path.
         #[clap(long, default_value = "$CONFIG/creds.yml", help = "The location of the `creds.yml` file. Use `$CONFIG` to reference the value given by --config-path. ")]
         creds        : PathBuf,
+        /// Custom hash file path.
+        #[clap(long, default_value = "$CONFIG/hashes.yml", help = "The location of the `hashes.yml` file that determines which containers are allowed to be executed. Use `$CONFIG` to reference the value given by --config-path.")]
+        hashes       : PathBuf,
         /// Custom certificates path.
         #[clap(short, long, default_value = "$CONFIG/certs", help = "The location of the certificate directory. Use '$CONFIG' to reference the value given by --config-path.")]
         certs        : PathBuf,

@@ -4,7 +4,7 @@
 //  Created:
 //    21 Nov 2022, 15:40:47
 //  Last edited:
-//    29 Nov 2022, 10:50:56
+//    30 Nov 2022, 17:56:56
 //  Auto updated?
 //    Yes
 // 
@@ -142,7 +142,7 @@ pub fn generate(path: impl Into<PathBuf>, hosts: Vec<HostnamePair>, proxy: Optio
         },
 
         // Generate the worker node
-        GenerateSubcommand::Worker { location_id, creds, certs, packages, data, results, temp_data, temp_results, prx_name, reg_name, job_name, chk_name, prx_port, reg_port, job_port, chk_port } => {
+        GenerateSubcommand::Worker { location_id, creds, hashes, certs, packages, data, results, temp_data, temp_results, prx_name, reg_name, job_name, chk_name, prx_port, reg_port, job_port, chk_port } => {
             // Resolve the service names
             let prx_name: String = prx_name.replace("$LOCATION", &location_id);
             let reg_name: String = reg_name.replace("$LOCATION", &location_id);
@@ -164,6 +164,7 @@ pub fn generate(path: impl Into<PathBuf>, hosts: Vec<HostnamePair>, proxy: Optio
                     names : WorkerNames { reg: reg_name.clone(), job: job_name, chk: chk_name.clone() },
                     paths : WorkerPaths {
                         creds        : canonicalize(resolve_config_path(creds, &config_path))?,
+                        hashes       : canonicalize(resolve_config_path(hashes, &config_path))?,
                         data         : canonicalize(data)?,
                         results      : canonicalize(results)?,
                         temp_data    : canonicalize(temp_data)?,

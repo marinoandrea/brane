@@ -4,7 +4,7 @@
 //  Created:
 //    16 Nov 2022, 16:54:43
 //  Last edited:
-//    28 Nov 2022, 12:20:32
+//    30 Nov 2022, 17:55:54
 //  Auto updated?
 //    Yes
 // 
@@ -676,7 +676,9 @@ pub struct WorkerNames {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct WorkerPaths {
     /// The path of the credentials file (`creds.yml`).
-    pub creds : PathBuf,
+    pub creds  : PathBuf,
+    /// The path to the hash file (`hashes.yml`)
+    pub hashes : PathBuf,
 
     /// The path of the dataset directory.
     pub data         : PathBuf,

@@ -4,7 +4,7 @@
 //  Created:
 //    31 Oct 2022, 11:21:14
 //  Last edited:
-//    29 Nov 2022, 13:59:04
+//    30 Nov 2022, 18:06:38
 //  Auto updated?
 //    Yes
 // 
@@ -53,6 +53,8 @@ use specifications::container::{Image, VolumeBind};
 use specifications::data::{AccessKind, AssetInfo};
 use specifications::package::{PackageIndex, PackageInfo, PackageKind};
 use specifications::version::Version;
+
+use crate::spec::ContainerHashes;
 
 
 /***** CONSTANTS *****/
@@ -377,7 +379,7 @@ pub async fn preprocess_transfer_tar(node_config: &NodeConfig, proxy: Arc<ProxyC
 /// 
 /// # Errors
 /// This function errors if we failed to reach the checker, or the checker itself crashed.
-async fn assert_workflow_permission(_node_config: &NodeConfig, _workflow: &Workflow, container_hash: impl AsRef<str>) -> Result<bool, AuthorizeError> {
+async fn assert_workflow_permission(node_config: &NodeConfig, _workflow: &Workflow, container_hash: impl AsRef<str>) -> Result<bool, AuthorizeError> {
     let container_hash : &str = container_hash.as_ref();
 
     // // Prepare the input struct
@@ -413,10 +415,22 @@ async fn assert_workflow_permission(_node_config: &NodeConfig, _workflow: &Workf
     // Due to time constraints, we have to use some hardcoded policies :(
     // (man would I have liked to integrate eFLINT into this)
 
-    // Allow it if it's the hash of Rosanne's container
-    let rosanne_hash: &str = "QS43h4ycr/PdYZTwUAKwOc68qKEZiz9oDWCo0kMdgGE=";
-    debug!("Asserting if container hash '{}' equals Rosanne's container hash '{}'...", container_hash, rosanne_hash);
-    if container_hash == rosanne_hash { return Ok(true) }
+    // Load the list of hashes from the Hash File(c)
+    let hashes: String = match tfs::read_to_string(&node_config.node.worker().paths.hashes).await {
+        Ok(hashes) => hashes,
+        Err(err)   => { return Err(AuthorizeError::HashFileReadError{ path: node_config.node.worker().paths.hashes.clone(), err }); },
+    };
+
+    // Read it all to a ContainerHashes struct
+    let hashes: ContainerHashes = match serde_yaml::from_str(&hashes) {
+        Ok(hashes) => hashes,
+        Err(err)   => { return Err(AuthorizeError::HashFileParseError{ path: node_config.node.worker().paths.hashes.clone(), err }); },  
+    };
+
+    // Allow it if it's in there
+    // let rosanne_hash: &str = "QS43h4ycr/PdYZTwUAKwOc68qKEZiz9oDWCo0kMdgGE=";
+    debug!("Asserting if container hash '{}' is in hash file '{}'...", container_hash, node_config.node.worker().paths.hashes.display());
+    if hashes.contains(&container_hash) { return Ok(true) }
 
     // Otherwise, not allowed
     Ok(false)

@@ -4,7 +4,7 @@
 //  Created:
 //    24 Oct 2022, 15:27:26
 //  Last edited:
-//    29 Nov 2022, 13:25:59
+//    30 Nov 2022, 18:05:29
 //  Auto updated?
 //    Yes
 // 
@@ -407,15 +407,18 @@ impl Error for ExecuteError {}
 /// A special case of the execute error, this relates to authorization errors in the backend eFLINT reasoner (or other reasoners).
 #[derive(Debug)]
 pub enum AuthorizeError {
-    // Placeholder until we encounter an error
-    Temp,
+    /// Failed to read the given hash file.
+    HashFileReadError{ path: PathBuf, err: std::io::Error },
+    /// Failed to parse the given hash file as a YAML file.
+    HashFileParseError{ path: PathBuf, err: serde_yaml::Error },
 }
 
 impl Display for AuthorizeError {
     fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
         use AuthorizeError::*;
         match self {
-            Temp => write!(f, "TEMP"),
+            HashFileReadError{ path, err }  => write!(f, "Failed to read hash file '{}': {}", path.display(), err),
+            HashFileParseError{ path, err } => write!(f, "Failed to parse hash file '{}' as YAML: {}", path.display(), err),
         }
     }
 }
