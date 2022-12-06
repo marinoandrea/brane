@@ -32,6 +32,7 @@ services:
     volumes:
     - ${NODE_CONFIG_PATH}:/node.yml
     - ${CREDS}:${CREDS}
+    - ${POLICIES}:${POLICIES}
     - ${CERTS}:${CERTS}
     - ${DATA}:${DATA}
     - ${RESULTS}:${RESULTS}
@@ -46,6 +47,7 @@ services:
     volumes:
     - ${NODE_CONFIG_PATH}:/node.yml
     - ${CREDS}:${CREDS}
+    - ${POLICIES}:${POLICIES}
     - ${CERTS}:${CERTS}
     - ${PACKAGES}:${PACKAGES}
     - ${DATA}:${DATA}

@@ -381,6 +381,7 @@ pub async fn push(packages: Vec<(String, Version)>) -> Result<(), RegistryError>
 
         // Upload file (with progress bar, of course)
         let url = get_packages_endpoint()?;
+        debug!("Pushing package '{}' to '{}'...", temp_path.display(), url);
         let request = Client::new().post(&url);
         let progress = ProgressBar::new(0);
         progress.set_style(ProgressStyle::default_bar().template("Uploading...   [{elapsed_precise}]"));

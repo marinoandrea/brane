@@ -4,7 +4,7 @@
 //  Created:
 //    15 Nov 2022, 09:18:40
 //  Last edited:
-//    28 Nov 2022, 10:33:11
+//    06 Dec 2022, 12:10:04
 //  Auto updated?
 //    Yes
 // 
@@ -21,8 +21,8 @@ use log::{error, LevelFilter};
 use brane_cfg::node::Address;
 use specifications::version::Version;
 
-use brane_ctl::spec::{DockerClientVersion, GenerateSubcommand, HostnamePair, StartSubcommand};
-use brane_ctl::{generate, lifetime};
+use brane_ctl::spec::{DockerClientVersion, GenerateNodeSubcommand, HostnamePair, StartSubcommand};
+use brane_ctl::{generate, lifetime, packages};
 
 
 /***** STATICS *****/
@@ -54,23 +54,8 @@ struct Arguments {
 /// Defines subcommands for the `branectl` tool.
 #[derive(Debug, Subcommand)]
 enum CtlSubcommand {
-    #[clap(name = "generate", about = "Generates a new 'node.yml' file at the location indicated by --node-config.")]
-    Generate {
-        /// Defines one or more additional hostnames to define in the nested Docker container.
-        #[clap(short = 'H', long, help = "One or more additional hostnames to set in the spawned Docker containers. Should be given as '<hostname>:<ip>' pairs.")]
-        hosts : Vec<HostnamePair>,
-        /// Defines any proxy node to proxy control messages through.
-        #[clap(long, help = "If given, reroutes all control network traffic for this node through the given proxy.")]
-        proxy : Option<Address>,
-
-        /// Custom config path.
-        #[clap(short='C', long, default_value = "./config", help = "A common ancestor for --infra-path, --secrets-path and --certs-path. See their descriptions for more info.")]
-        config_path : PathBuf,
-
-        /// Defines the possible nodes to generate a new node.yml file for.
-        #[clap(subcommand)]
-        kind : GenerateSubcommand,
-    },
+    #[clap(subcommand)]
+    Generate(GenerateSubcommand),
 
     #[clap(subcommand)]
     Certs(CertSubcommand),
@@ -124,6 +109,29 @@ enum CtlSubcommand {
     },
 }
 
+/// Defines generate-related subcommands for the `branectl` tool.
+#[derive(Debug, Subcommand)]
+#[clap(name = "generate", about = "Groups commands about (config) generation.")]
+enum GenerateSubcommand {
+    #[clap(name = "node", about = "Generates a new 'node.yml' file at the location indicated by --node-config.")]
+    Node {
+        /// Defines one or more additional hostnames to define in the nested Docker container.
+        #[clap(short = 'H', long, help = "One or more additional hostnames to set in the spawned Docker containers. Should be given as '<hostname>:<ip>' pairs.")]
+        hosts : Vec<HostnamePair>,
+        /// Defines any proxy node to proxy control messages through.
+        #[clap(long, help = "If given, reroutes all control network traffic for this node through the given proxy.")]
+        proxy : Option<Address>,
+
+        /// Custom config path.
+        #[clap(short='C', long, default_value = "./config", help = "A common ancestor for --infra-path, --secrets-path and --certs-path. See their descriptions for more info.")]
+        config_path : PathBuf,
+
+        /// Defines the possible nodes to generate a new node.yml file for.
+        #[clap(subcommand)]
+        kind : GenerateNodeSubcommand,
+    },
+}
+
 /// Defines certificate-related subcommands for the `branectl` tool.
 #[derive(Debug, Subcommand)]
 #[clap(name = "certs", about = "Groups commands about certificate management.")]
@@ -135,7 +143,13 @@ enum CertSubcommand {
 #[derive(Debug, Subcommand)]
 #[clap(name = "packages", about = "Groups commands about package management.")]
 enum PackageSubcommand {
-
+    /// Generates the hash for the given package container.
+    #[clap(name = "hash", about = "Hashes the given `image.tar` file for use in policies.")]
+    Hash {
+        /// The path to the image file.
+        #[clap(name = "IMAGE", help = "The image to compute the hash of. If it's a path that exists, will attempt to hash that file; otherwise, will hash based on an image in the local node's `packages` directory. You can use `name[:version]` syntax to specify the version.")]
+        image : String,
+    },
 }
 
 /// Defines data- and intermediate results-related subcommands for the `branectl` tool.
@@ -176,9 +190,11 @@ async fn main() {
 
     // Now match on the command
     match args.subcommand {
-        CtlSubcommand::Generate{ hosts, proxy, config_path, kind } => {
-            // Call the thing
-            if let Err(err) = generate::generate(args.node_config, hosts, proxy, config_path, kind) { error!("{}", err); std::process::exit(1); }
+        CtlSubcommand::Generate(subcommand) => match subcommand {
+            GenerateSubcommand::Node{ hosts, proxy, config_path, kind } => {
+                // Call the thing
+                if let Err(err) = generate::generate(args.node_config, hosts, proxy, config_path, kind) { error!("{}", err); std::process::exit(1); }
+            },
         },
 
         CtlSubcommand::Certs(subcommand) => match subcommand {
@@ -186,7 +202,10 @@ async fn main() {
         },
 
         CtlSubcommand::Packages(subcommand) => match subcommand {
-            
+            PackageSubcommand::Hash{ image } => {
+                // Call the thing
+                if let Err(err) = packages::hash(args.node_config, image).await { error!("{}", err); std::process::exit(1); }
+            }
         },
 
         CtlSubcommand::Data(subcommand) => match subcommand {

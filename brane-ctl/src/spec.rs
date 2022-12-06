@@ -4,7 +4,7 @@
 //  Created:
 //    21 Nov 2022, 17:27:52
 //  Last edited:
-//    30 Nov 2022, 17:57:51
+//    06 Dec 2022, 11:41:57
 //  Auto updated?
 //    Yes
 // 
@@ -113,7 +113,7 @@ impl From<&mut HostnamePair> for HostnamePair {
 /***** LIBRARY *****/
 /// A bit awkward here, but defines the generate subcommand, which basically defines the possible kinds of nodes to generate the node.yml config file for.
 #[derive(Debug, Subcommand)]
-pub enum GenerateSubcommand {
+pub enum GenerateNodeSubcommand {
     /// Starts a central node.
     #[clap(name = "central", about = "Generates a node.yml file for a central node with default values.")]
     Central {
@@ -172,8 +172,8 @@ pub enum GenerateSubcommand {
         #[clap(long, default_value = "$CONFIG/creds.yml", help = "The location of the `creds.yml` file. Use `$CONFIG` to reference the value given by --config-path. ")]
         creds        : PathBuf,
         /// Custom hash file path.
-        #[clap(long, default_value = "$CONFIG/hashes.yml", help = "The location of the `hashes.yml` file that determines which containers are allowed to be executed. Use `$CONFIG` to reference the value given by --config-path.")]
-        hashes       : PathBuf,
+        #[clap(long, default_value = "$CONFIG/policies.yml", help = "The location of the `policies.yml` file that determines which containers and users are allowed to be executed. Use `$CONFIG` to reference the value given by --config-path.")]
+        policies     : PathBuf,
         /// Custom certificates path.
         #[clap(short, long, default_value = "$CONFIG/certs", help = "The location of the certificate directory. Use '$CONFIG' to reference the value given by --config-path.")]
         certs        : PathBuf,

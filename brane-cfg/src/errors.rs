@@ -4,7 +4,7 @@
 //  Created:
 //    04 Oct 2022, 11:09:56
 //  Last edited:
-//    28 Nov 2022, 10:06:59
+//    06 Dec 2022, 11:00:58
 //  Auto updated?
 //    Yes
 // 
@@ -209,3 +209,26 @@ impl Display for NodeConfigError {
 }
 
 impl Error for NodeConfigError {}
+
+
+
+/// Errors that relate to the PolicyFile.
+#[derive(Debug)]
+pub enum PolicyFileError {
+    /// Failed to open & read the file
+    FileReadError{ path: PathBuf, err: std::io::Error },
+    /// Failed to parse the file as YAML of our specification.
+    FileParseError{ path: PathBuf, err: serde_yaml::Error },
+}
+
+impl Display for PolicyFileError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
+        use PolicyFileError::*;
+        match self {
+            FileReadError{ path, err }  => write!(f, "Failed to read file '{}': {}", path.display(), err),
+            FileParseError{ path, err } => write!(f, "Failed to parse file '{}' as YAML: {}", path.display(), err),
+        }
+    }
+}
+
+impl Error for PolicyFileError {}

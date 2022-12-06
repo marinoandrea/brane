@@ -4,7 +4,7 @@
 //  Created:
 //    24 Oct 2022, 15:27:26
 //  Last edited:
-//    30 Nov 2022, 18:05:29
+//    06 Dec 2022, 12:28:07
 //  Auto updated?
 //    Yes
 // 
@@ -328,15 +328,12 @@ pub enum ExecuteError {
     ImageCreateError{ path: PathBuf, err: std::io::Error },
     /// Failed to write to the file where we write the download stream.
     ImageWriteError{ path: PathBuf, err: std::io::Error },
+    /// Failed to hash the given container.
+    HashError{ err: DockerError },
     /// Failed to write to the file where we write the container hash.
     HashWriteError{ path: PathBuf, err: std::io::Error },
     /// Failed to read to the file where we cached the container hash.
     HashReadError{ path: PathBuf, err: std::io::Error },
-
-    /// Failed to open an image.tar file.
-    ImageOpenError{ path: PathBuf, err: std::io::Error },
-    /// Failed to read a( chunk of a)n image.tar file.
-    ImageReadError{ path: PathBuf, err: std::io::Error },
 
     /// The checker rejected the workflow.
     AuthorizationFailure{ checker: Address },
@@ -386,11 +383,9 @@ impl Display for ExecuteError {
             DownloadStreamError{ address, err }              => write!(f, "Failed to get next chunk in download stream from '{}': {}", address, err),
             ImageCreateError{ path, err }                    => write!(f, "Failed to create tarball file '{}': {}", path.display(), err),
             ImageWriteError{ path, err }                     => write!(f, "Failed to write to tarball file '{}': {}", path.display(), err),
+            HashError{ err }                                 => write!(f, "Failed to hash image: {}", err),
             HashWriteError{ path, err }                      => write!(f, "Failed to write image hash to file '{}': {}", path.display(), err),
             HashReadError{ path, err }                       => write!(f, "Failed to read image hash from file '{}': {}", path.display(), err),
-
-            ImageOpenError{ path, err } => write!(f, "Failed to open image file '{}': {}", path.display(), err),
-            ImageReadError{ path, err } => write!(f, "Failed to read image file '{}': {}", path.display(), err),
 
             AuthorizationFailure{ checker: _ }    => write!(f, "Checker rejected workflow"),
             AuthorizationError{ checker: _, err } => write!(f, "Checker failed to authorize workflow: {}", err),
@@ -407,18 +402,18 @@ impl Error for ExecuteError {}
 /// A special case of the execute error, this relates to authorization errors in the backend eFLINT reasoner (or other reasoners).
 #[derive(Debug)]
 pub enum AuthorizeError {
-    /// Failed to read the given hash file.
-    HashFileReadError{ path: PathBuf, err: std::io::Error },
-    /// Failed to parse the given hash file as a YAML file.
-    HashFileParseError{ path: PathBuf, err: serde_yaml::Error },
+    /// Failed to load the policy file.
+    PolicyFileError{ err: brane_cfg::policies::Error },
+    /// No policy rule defined for the given container.
+    NoContainerPolicy{ hash: String },
 }
 
 impl Display for AuthorizeError {
     fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
         use AuthorizeError::*;
         match self {
-            HashFileReadError{ path, err }  => write!(f, "Failed to read hash file '{}': {}", path.display(), err),
-            HashFileParseError{ path, err } => write!(f, "Failed to parse hash file '{}' as YAML: {}", path.display(), err),
+            PolicyFileError{ err }    => write!(f, "Failed to load policy file: {}", err),
+            NoContainerPolicy{ hash } => write!(f, "No policy found that applies to a container with hash '{}' (did you add a final AllowAll/DenyAll?)", hash),
         }
     }
 }
@@ -596,6 +591,8 @@ pub enum DockerError {
 
     /// Could not open the given image.tar.
     ImageTarOpenError{ path: PathBuf, err: std::io::Error },
+    /// Could not read from the given image.tar.
+    ImageTarReadError{ path: PathBuf, err: std::io::Error },
     /// Could not get the list of entries from the given image.tar.
     ImageTarEntriesError{ path: PathBuf, err: std::io::Error },
     /// COuld not read a single entry from the given image.tar.
@@ -644,6 +641,7 @@ impl Display for DockerError {
             ImageRemoveError{ image, id, err } => write!(f, "Failed to remove image '{}' (id: {}) from Docker engine: {}", image.name(), id, err),
 
             ImageTarOpenError{ path, err }                 => write!(f, "Could not open given Docker image file '{}': {}", path.display(), err),
+            ImageTarReadError{ path, err }                 => write!(f, "Could not read given Docker image file '{}': {}", path.display(), err),
             ImageTarEntriesError{ path, err }              => write!(f, "Could not get file entries in Docker image file '{}': {}", path.display(), err),
             ImageTarEntryError{ path, err }                => write!(f, "Could not get file entry from Docker image file '{}': {}", path.display(), err),
             ImageTarNoManifest{ path }                     => write!(f, "Could not find manifest.json in given Docker image file '{}'", path.display()),

@@ -4,7 +4,7 @@
 //  Created:
 //    19 Sep 2022, 14:57:17
 //  Last edited:
-//    25 Nov 2022, 11:08:50
+//    06 Dec 2022, 12:25:40
 //  Auto updated?
 //    Yes
 // 
@@ -17,6 +17,7 @@ use std::fmt::{Display, Formatter, Result as FResult};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
+use base64ct::{Base64, Encoding};
 use bollard::{API_DEFAULT_VERSION, ClientVersion, Docker};
 use bollard::container::{
     Config, CreateContainerOptions, LogOutput, LogsOptions, RemoveContainerOptions, StartContainerOptions,
@@ -31,6 +32,7 @@ use log::debug;
 use serde::{Deserialize, Serialize};
 use serde::de::{Deserializer, Visitor};
 use serde::ser::Serializer;
+use sha2::{Digest, Sha256};
 use tokio::fs::{self as tfs, File as TFile};
 use tokio::io::AsyncReadExt;
 use tokio_tar::Archive;
@@ -728,6 +730,48 @@ pub async fn get_digest(path: impl AsRef<Path>) -> Result<String, Error> {
 
     // No manifest found :(
     Err(Error::ImageTarNoManifest{ path: path.to_path_buf() })
+}
+
+/// Given an already downloaded container, computes the SHA-256 hash of it.
+/// 
+/// # Arguments
+/// - `container_path`: The path to the container image file to hash.
+/// 
+/// # Returns
+/// The hash, as a `sha2::Digest`.
+/// 
+/// # Errors
+/// This function may error if we failed to read the given file.
+pub async fn hash_container(container_path: impl AsRef<Path>) -> Result<String, Error> {
+    let container_path: &Path = container_path.as_ref();
+    debug!("Hashing image file '{}'...", container_path.display());
+
+    // Attempt to open the file
+    let mut handle: tfs::File = match tfs::File::open(container_path).await {
+        Ok(handle) => handle,
+        Err(err)   => { return Err(Error::ImageTarOpenError{ path: container_path.into(), err }); },
+    };
+
+    // Read through it in chunks
+    let mut hasher : Sha256 = Sha256::new();
+    let mut buf    : [u8; 1024 * 16] = [0; 1024 * 16];
+    loop {
+        // Read the next chunk
+        let n_bytes: usize = match handle.read(&mut buf).await {
+            Ok(n_bytes) => n_bytes,
+            Err(err)    => { return Err(Error::ImageTarReadError { path: container_path.into(), err }); },
+        };
+        // Stop if we read nothing
+        if n_bytes == 0 { break; }
+
+        // Hash that
+        hasher.update(&buf[..n_bytes]);
+    }
+    let result: String = Base64::encode_string(&hasher.finalize());
+    debug!("Image file '{}' hash: '{}'", container_path.display(), result);
+
+    // Done
+    Ok(result)
 }
 
 /// Tries to import/pull the given image if it does not exist in the local Docker instance.

@@ -4,7 +4,7 @@
 //  Created:
 //    17 Oct 2022, 15:18:32
 //  Last edited:
-//    24 Nov 2022, 15:50:39
+//    06 Dec 2022, 12:48:27
 //  Auto updated?
 //    Yes
 // 
@@ -71,7 +71,12 @@ macro_rules! fail {
     ($path:ident, $err:expr) => {
         {
             // In this overload, we attempt to clear the existing file first
-            if let Err(err) = tfs::remove_file(&$path).await { warn!("Failed to remove incomplete tar file '{}': {}", $path.display(), err); }
+            let path = &$path;
+            if path.is_file() {
+                if let Err(err) = tfs::remove_file(&path).await { warn!("Failed to remove temporary download result '{}': {}", path.display(), err); }
+            } else if path.is_dir() {
+                if let Err(err) = tfs::remove_dir_all(&path).await { warn!("Failed to remove temporary download results '{}': {}", path.display(), err); }
+            }
 
             // Move to the normal overload for the rest
             fail!($err)
@@ -502,10 +507,17 @@ where
         Err(err) => { fail!(Error::PackageInfoParseError{ path: info_path, err }); },
     };
 
-    // Call the insert function
+    // Copy the image tar to the proper location
+    let result_path: PathBuf = node_config.paths.packages.join(format!("{}-{}.tar", info.name, info.version));
+    debug!("Moving image '{}' to '{}'...", image_path.display(), result_path.display());
+    if let Err(err) = tfs::rename(&image_path, &result_path).await {
+        fail!(image_path, Error::FileMoveError{ from: image_path, to: result_path, err });
+    }
+
+    // Call the insert function to store the dataset in the registry
     debug!("Inserting package '{}' (version {}) into Scylla DB...", info.name, info.version);
-    if let Err(err) = insert_package_into_db(&context.scylla, &info, &image_path).await {
-        fail!(image_path, err);
+    if let Err(err) = insert_package_into_db(&context.scylla, &info, &result_path).await {
+        fail!(result_path, err);
     }
 
 
@@ -514,4 +526,6 @@ where
     // The package has now been added
     debug!("Upload of package '{}' (version {}) complete.", info.name, info.version);
     Ok(StatusCode::OK)
+
+    // Note that the temporary directory is automagically removed
 }

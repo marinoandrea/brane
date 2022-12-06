@@ -52,7 +52,7 @@ tempfile = "3.2"
 tokio = { version = "1", features = ["full"] }
 tokio-stream = "0.1"
 tokio-tar = "0.3.0"
-tokio-util = "0.6"
+tokio-util = { version = "0.7", features = ["codec"] }
 tonic = "0.8"
 url = "2.2"
 uuid = { version = "0.8", features = ["v4"] }

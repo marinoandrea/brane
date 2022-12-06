@@ -4,7 +4,7 @@
 //  Created:
 //    21 Nov 2022, 15:46:26
 //  Last edited:
-//    28 Nov 2022, 13:24:05
+//    06 Dec 2022, 12:24:54
 //  Auto updated?
 //    Yes
 // 
@@ -24,6 +24,7 @@ use brane_cfg::node::NodeKind;
 use brane_shr::debug::EnumDebug;
 use brane_tsk::docker::ImageSource;
 use specifications::container::Image;
+use specifications::version::Version;
 
 
 /***** LIBRARY *****/
@@ -106,6 +107,42 @@ impl Display for LifetimeError {
     }
 }
 impl Error for LifetimeError {}
+
+
+
+/// Errors that relate to package subcommands.
+#[derive(Debug)]
+pub enum PackagesError {
+    /// Failed to load the given node config file.
+    NodeConfigLoadError{ err: brane_cfg::node::Error },
+    /// The given file is not a file.
+    FileNotAFile{ path: PathBuf },
+    /// Failed to parse the given `NAME[:VERSION]` pair.
+    IllegalNameVersionPair{ raw: String, err: specifications::version::ParseError },
+    /// Failed to read the given directory
+    DirReadError{ what: &'static str, path: PathBuf, err: std::io::Error },
+    /// Failed to read an entry in the given directory
+    DirEntryReadError{ what: &'static str, entry: usize, path: PathBuf, err: std::io::Error },
+    /// The given `NAME[:VERSION]` pair did not have a candidate.
+    UnknownImage{ path: PathBuf, name: String, version: Version },
+    /// Failed to hash the found image file.
+    HashError{ err: brane_tsk::docker::Error },
+}
+impl Display for PackagesError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
+        use PackagesError::*;
+        match self {
+            NodeConfigLoadError{ err }                  => write!(f, "Failed to load node.yml file: {}", err),
+            FileNotAFile{ path }                        => write!(f, "Given image path '{}' exists but is not a file", path.display()),
+            IllegalNameVersionPair{ raw, err }          => write!(f, "Failed to parse given image name[:version] pair '{}': {}", raw, err),
+            DirReadError{ what, path, err }             => write!(f, "Failed to read {} directory '{}': {}", what, path.display(), err),
+            DirEntryReadError{ what, entry, path, err } => write!(f, "Failed to read entry {} in {} directory '{}': {}", entry, what, path.display(), err),
+            UnknownImage{ path, name, version }         => write!(f, "No image for package '{}', version {} found in '{}'", name, version, path.display()),
+            HashError{ err }                            => write!(f, "Failed to hash image: {}", err),
+        }
+    }
+}
+impl Error for PackagesError {}
 
 
 

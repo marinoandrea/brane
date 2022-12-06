@@ -4,7 +4,7 @@
 //  Created:
 //    04 Feb 2022, 10:35:12
 //  Last edited:
-//    28 Nov 2022, 17:28:30
+//    06 Dec 2022, 11:55:15
 //  Auto updated?
 //    Yes
 // 
@@ -195,6 +195,8 @@ pub enum PackageError {
     PackageInfoReadError{ path: PathBuf, err: std::io::Error },
     /// Failed to parse the extracted package info file.
     PackageInfoParseError{ path: PathBuf, err: serde_yaml::Error },
+    /// Failed to move the temporary image to its final destination.
+    FileMoveError{ from: PathBuf, to: PathBuf, err: std::io::Error },
 }
 
 impl Display for PackageError {
@@ -237,6 +239,7 @@ impl Display for PackageError {
             TarFileUnpackError{ file, tarball, target, err } => write!(f, "Failed to extract '{}' file from tar file '{}' to '{}': {}", file.display(), tarball.display(), target.display(), err),
             PackageInfoReadError{ path, err }                => write!(f, "Failed to read extracted package info file '{}': {}", path.display(), err),
             PackageInfoParseError{ path, err }               => write!(f, "Failed to parse extracted package info file '{}' as YAML: {}", path.display(), err),
+            FileMoveError{ from, to, err }                   => write!(f, "Failed to move '{}' to '{}': {}", from.display(), to.display(), err),
         }
     }
 }

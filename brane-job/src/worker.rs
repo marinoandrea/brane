@@ -4,7 +4,7 @@
 //  Created:
 //    31 Oct 2022, 11:21:14
 //  Last edited:
-//    30 Nov 2022, 18:06:38
+//    06 Dec 2022, 12:28:20
 //  Auto updated?
 //    Yes
 // 
@@ -19,16 +19,14 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
 
-use base64ct::{Base64, Encoding};
 use bollard::{API_DEFAULT_VERSION, ClientVersion};
 use chrono::Utc;
 use futures_util::StreamExt;
 use hyper::body::Bytes;
 use log::{debug, error, info, warn};
 use serde_json_any_key::json_to_map;
-use sha2::{Digest, Sha256};
 use tokio::fs as tfs;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncWriteExt;
 use tokio::sync::mpsc::{self, Sender};
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Response, Request, Status};
@@ -39,6 +37,7 @@ use brane_ast::ast::DataName;
 use brane_cfg::CredsFile;
 use brane_cfg::creds::Credentials;
 use brane_cfg::node::NodeConfig;
+use brane_cfg::policies::{ContainerPolicy, PolicyFile};
 use brane_exe::FullValue;
 use brane_prx::spec::NewPathRequestTlsOptions;
 use brane_prx::client::ProxyClient;
@@ -53,8 +52,6 @@ use specifications::container::{Image, VolumeBind};
 use specifications::data::{AccessKind, AssetInfo};
 use specifications::package::{PackageIndex, PackageInfo, PackageKind};
 use specifications::version::Version;
-
-use crate::spec::ContainerHashes;
 
 
 /***** CONSTANTS *****/
@@ -415,25 +412,42 @@ async fn assert_workflow_permission(node_config: &NodeConfig, _workflow: &Workfl
     // Due to time constraints, we have to use some hardcoded policies :(
     // (man would I have liked to integrate eFLINT into this)
 
-    // Load the list of hashes from the Hash File(c)
-    let hashes: String = match tfs::read_to_string(&node_config.node.worker().paths.hashes).await {
-        Ok(hashes) => hashes,
-        Err(err)   => { return Err(AuthorizeError::HashFileReadError{ path: node_config.node.worker().paths.hashes.clone(), err }); },
+    // Load the policies in their simplified form
+    let policies: PolicyFile = match PolicyFile::from_path_async(&node_config.node.worker().paths.policies).await {
+        Ok(policies) => policies,
+        Err(err)     => { return Err(AuthorizeError::PolicyFileError{ err }); },
     };
 
-    // Read it all to a ContainerHashes struct
-    let hashes: ContainerHashes = match serde_yaml::from_str(&hashes) {
-        Ok(hashes) => hashes,
-        Err(err)   => { return Err(AuthorizeError::HashFileParseError{ path: node_config.node.worker().paths.hashes.clone(), err }); },  
-    };
+    // Go by the container rules to find any rule stating what to do
+    for (i, rule) in policies.containers.into_iter().enumerate() {
+        // Match the rule
+        match rule {
+            ContainerPolicy::AllowAll => {
+                debug!("Allowing execution of container '{}' based on rule {} (AllowAll)", container_hash, i);
+                return Ok(true);
+            },
+            ContainerPolicy::DenyAll  => {
+                debug!("Denying execution of container '{}' based on rule {} (DenyAll)", container_hash, i);
+                return Ok(false);
+            },
 
-    // Allow it if it's in there
-    // let rosanne_hash: &str = "QS43h4ycr/PdYZTwUAKwOc68qKEZiz9oDWCo0kMdgGE=";
-    debug!("Asserting if container hash '{}' is in hash file '{}'...", container_hash, node_config.node.worker().paths.hashes.display());
-    if hashes.contains(&container_hash) { return Ok(true) }
+            ContainerPolicy::Allow{ name, hash } => {
+                if hash == container_hash {
+                    debug!("Allowing execution of container '{}' based on rule {} (Allow{})", container_hash, i, if let Some(name) = name { format!(" '{}'", name) } else { String::new() });
+                    return Ok(true);
+                }
+            },
+            ContainerPolicy::Deny{ name, hash } => {
+                if hash == container_hash {
+                    debug!("Denying execution of container '{}' based on rule {} (Deny{})", container_hash, i, if let Some(name) = name { format!(" '{}'", name) } else { String::new() });
+                    return Ok(false);
+                }
+            },
+        }
+    }
 
-    // Otherwise, not allowed
-    Ok(false)
+    // Otherwise, no matching rule found
+    Err(AuthorizeError::NoContainerPolicy{ hash: container_hash.into() })
 }
 
 
@@ -535,7 +549,10 @@ async fn download_container(node_config: &NodeConfig, proxy: Arc<ProxyClient>, e
     debug!("Hashing image (this might take a while)...");
     let hash: String = {
         // Get the image hash
-        let hash: String = hash_container(&image_path).await?;
+        let hash: String = match docker::hash_container(&image_path).await {
+            Ok(hash) => hash,
+            Err(err) => { return Err(ExecuteError::HashError{ err }); },
+        };
 
         // Write it
         if let Err(err) = tfs::write(&hash_path, hash.as_bytes()).await {
@@ -548,48 +565,6 @@ async fn download_container(node_config: &NodeConfig, proxy: Arc<ProxyClient>, e
 
     // That's OK - now return
     Ok((image_path, hash))
-}
-
-/// Given an already downloaded container, computes the SHA-256 hash of it.
-/// 
-/// # Arguments
-/// - `container_path`: The path to the container image file to hash.
-/// 
-/// # Returns
-/// The hash, as a `sha2::Digest`.
-/// 
-/// # Errors
-/// This function may error if we failed to read the given file.
-async fn hash_container(container_path: impl AsRef<Path>) -> Result<String, ExecuteError> {
-    let container_path: &Path = container_path.as_ref();
-    debug!("Hashing image file '{}'...", container_path.display());
-
-    // Attempt to open the file
-    let mut handle: tfs::File = match tfs::File::open(container_path).await {
-        Ok(handle) => handle,
-        Err(err)   => { return Err(ExecuteError::ImageOpenError{ path: container_path.into(), err }); },
-    };
-
-    // Read through it in chunks
-    let mut hasher : Sha256 = Sha256::new();
-    let mut buf    : [u8; 1024 * 16] = [0; 1024 * 16];
-    loop {
-        // Read the next chunk
-        let n_bytes: usize = match handle.read(&mut buf).await {
-            Ok(n_bytes) => n_bytes,
-            Err(err)    => { return Err(ExecuteError::ImageReadError { path: container_path.into(), err }); },
-        };
-        // Stop if we read nothing
-        if n_bytes == 0 { break; }
-
-        // Hash that
-        hasher.update(&buf[..n_bytes]);
-    }
-    let result: String = Base64::encode_string(&hasher.finalize());
-    debug!("Image file '{}' hash: '{}'", container_path.display(), result);
-
-    // Done
-    Ok(result)
 }
 
 

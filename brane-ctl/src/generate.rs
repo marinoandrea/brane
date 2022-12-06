@@ -4,7 +4,7 @@
 //  Created:
 //    21 Nov 2022, 15:40:47
 //  Last edited:
-//    30 Nov 2022, 17:56:56
+//    06 Dec 2022, 11:42:10
 //  Auto updated?
 //    Yes
 // 
@@ -24,7 +24,7 @@ use log::{debug, info, warn};
 use brane_cfg::node::{Address, CentralConfig, CentralKafkaTopics, CentralNames, CentralPaths, CentralPorts, CentralServices, CommonNames, CommonPaths, CommonPorts, CommonServices, NodeConfig, NodeKindConfig, WorkerConfig, WorkerNames, WorkerPaths, WorkerPorts, WorkerServices};
 
 pub use crate::errors::GenerateError as Error;
-use crate::spec::{GenerateSubcommand, HostnamePair};
+use crate::spec::{GenerateNodeSubcommand, HostnamePair};
 use crate::utils::resolve_config_path;
 
 
@@ -97,10 +97,10 @@ fn write_header(writer: &mut impl Write) -> Result<(), std::io::Error> {
 /// 
 /// # Errors
 /// This function may error if I/O errors occur while writing the file.
-pub fn generate(path: impl Into<PathBuf>, hosts: Vec<HostnamePair>, proxy: Option<Address>, config_path: impl Into<PathBuf>, command: GenerateSubcommand) -> Result<(), Error> {
+pub fn generate(path: impl Into<PathBuf>, hosts: Vec<HostnamePair>, proxy: Option<Address>, config_path: impl Into<PathBuf>, command: GenerateNodeSubcommand) -> Result<(), Error> {
     let path        : PathBuf = path.into();
     let config_path : PathBuf = config_path.into();
-    info!("Generating default node.yml for a {}...", match &command { GenerateSubcommand::Central { .. } => { "central node".into() }, GenerateSubcommand::Worker{ location_id, .. } => { format!("worker node with location ID '{}'", location_id) } });
+    info!("Generating default node.yml for a {}...", match &command { GenerateNodeSubcommand::Central { .. } => { "central node".into() }, GenerateNodeSubcommand::Worker{ location_id, .. } => { format!("worker node with location ID '{}'", location_id) } });
 
     // Generate the host -> IP map from the pairs.
     let hosts: HashMap<String, IpAddr> = {
@@ -118,7 +118,7 @@ pub fn generate(path: impl Into<PathBuf>, hosts: Vec<HostnamePair>, proxy: Optio
     debug!("Generating node config...");
     let node_config: NodeConfig = match command {
         // Generate the central node
-        GenerateSubcommand::Central { infra, secrets, certs, packages, prx_name, api_name, drv_name, plr_name, prx_port, api_port, drv_port, plr_cmd_topic, plr_res_topic } => {
+        GenerateNodeSubcommand::Central { infra, secrets, certs, packages, prx_name, api_name, drv_name, plr_name, prx_port, api_port, drv_port, plr_cmd_topic, plr_res_topic } => {
             NodeConfig {
                 hosts,
                 proxy,
@@ -142,7 +142,7 @@ pub fn generate(path: impl Into<PathBuf>, hosts: Vec<HostnamePair>, proxy: Optio
         },
 
         // Generate the worker node
-        GenerateSubcommand::Worker { location_id, creds, hashes, certs, packages, data, results, temp_data, temp_results, prx_name, reg_name, job_name, chk_name, prx_port, reg_port, job_port, chk_port } => {
+        GenerateNodeSubcommand::Worker { location_id, creds, policies, certs, packages, data, results, temp_data, temp_results, prx_name, reg_name, job_name, chk_name, prx_port, reg_port, job_port, chk_port } => {
             // Resolve the service names
             let prx_name: String = prx_name.replace("$LOCATION", &location_id);
             let reg_name: String = reg_name.replace("$LOCATION", &location_id);
@@ -164,7 +164,7 @@ pub fn generate(path: impl Into<PathBuf>, hosts: Vec<HostnamePair>, proxy: Optio
                     names : WorkerNames { reg: reg_name.clone(), job: job_name, chk: chk_name.clone() },
                     paths : WorkerPaths {
                         creds        : canonicalize(resolve_config_path(creds, &config_path))?,
-                        hashes       : canonicalize(resolve_config_path(hashes, &config_path))?,
+                        policies     : canonicalize(resolve_config_path(policies, &config_path))?,
                         data         : canonicalize(data)?,
                         results      : canonicalize(results)?,
                         temp_data    : canonicalize(temp_data)?,
