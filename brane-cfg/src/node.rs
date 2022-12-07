@@ -4,7 +4,7 @@
 //  Created:
 //    16 Nov 2022, 16:54:43
 //  Last edited:
-//    01 Dec 2022, 09:15:43
+//    07 Dec 2022, 11:28:06
 //  Auto updated?
 //    Yes
 // 
@@ -155,7 +155,7 @@ impl Address {
 
     /// Returns a formatter that deterministically and parseably serializes the Address.
     #[inline]
-    pub fn serialize<'a>(&'a self) -> impl 'a + Display { self }
+    pub fn serialize(&self) -> impl '_ + Display { self }
 }
 
 impl EnumDebug for Address {

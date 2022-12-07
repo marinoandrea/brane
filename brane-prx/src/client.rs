@@ -4,7 +4,7 @@
 //  Created:
 //    25 Nov 2022, 15:09:17
 //  Last edited:
-//    29 Nov 2022, 13:56:49
+//    07 Dec 2022, 11:29:30
 //  Auto updated?
 //    Yes
 // 
@@ -198,10 +198,10 @@ impl ProxyClient {
         let url: Url = url.clone();
         if url.scheme() == "https" {
             // Replace with http, since the proxy will take care of TLS
-            if let Err(_) = request.url_mut().set_scheme("http") { return Err(Error::UrlSchemeUpdateError{ url: request.url().clone(), scheme: "http".into() }); }
+            if request.url_mut().set_scheme("http").is_err() { return Err(Error::UrlSchemeUpdateError{ url: request.url().clone(), scheme: "http".into() }); }
         }
         if let Err(err) = request.url_mut().set_host(Some(self.endpoint.domain().unwrap())) { return Err(Error::UrlHostUpdateError{ url: request.url().clone(), host: self.endpoint.domain().unwrap().into(), err }); }
-        if let Err(_)   = request.url_mut().set_port(Some(port)) { return Err(Error::UrlPortUpdateError{ url: request.url().clone(), port }); }
+        if request.url_mut().set_port(Some(port)).is_err() { return Err(Error::UrlPortUpdateError{ url: request.url().clone(), port }); }
 
         // We can now perform the request
         debug!("Performing request to '{}' (secretly '{}')...", url, request.url());
@@ -266,7 +266,7 @@ impl ProxyClient {
         // Inject the new target in the URL
         let original: Url = address.clone();
         if let Err(err) = address.set_host(Some(self.endpoint.domain().unwrap())) { return Err(Error::UrlHostUpdateError{ url: address, host: self.endpoint.domain().unwrap().into(), err }); }
-        if let Err(_)   = address.set_port(Some(port)) { return Err(Error::UrlPortUpdateError{ url: address, port }); }
+        if address.set_port(Some(port)).is_err() { return Err(Error::UrlPortUpdateError{ url: address, port }); }
 
         // Run the normal function
         debug!("Performing request to '{}' (secretly '{}')...", original, address);
@@ -333,7 +333,7 @@ impl ProxyClient {
         // Inject the new target in the URL
         let original: Url = address.clone();
         if let Err(err) = address.set_host(Some(self.endpoint.domain().unwrap())) { return Err(Error::UrlHostUpdateError{ url: address, host: self.endpoint.domain().unwrap().into(), err }); }
-        if let Err(_)   = address.set_port(Some(port)) { return Err(Error::UrlPortUpdateError{ url: address, port }); }
+        if address.set_port(Some(port)).is_err() { return Err(Error::UrlPortUpdateError{ url: address, port }); }
 
         // We can now perform the request
         debug!("Connecting to '{}' (secretly '{}')...", original, address);

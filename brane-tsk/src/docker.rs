@@ -4,7 +4,7 @@
 //  Created:
 //    19 Sep 2022, 14:57:17
 //  Last edited:
-//    06 Dec 2022, 12:25:40
+//    07 Dec 2022, 11:28:35
 //  Auto updated?
 //    Yes
 // 
@@ -587,7 +587,7 @@ async fn pull_image(docker: &Docker, image: impl Into<Image>, source: impl Into<
 
     // Try to create it
     if let Err(err) = docker.create_image(options, None, None).try_collect::<Vec<_>>().await {
-        return Err(Error::ImagePullError{ source: source.into(), err });
+        return Err(Error::ImagePullError{ source, err });
     }
 
     // Tag it with the appropriate name & version

@@ -4,7 +4,7 @@
 //  Created:
 //    22 Nov 2022, 11:19:22
 //  Last edited:
-//    01 Dec 2022, 09:16:31
+//    07 Dec 2022, 11:29:58
 //  Auto updated?
 //    Yes
 // 
@@ -128,7 +128,7 @@ fn generate_hosts(kind: NodeKind, hosts: &HashMap<String, IpAddr>) -> Result<Opt
 
     // Generate the ComposeHostsFileService
     let svc: ComposeHostsFileService = ComposeHostsFileService {
-        extra_hosts : hosts.into_iter().map(|(hostname, ip)| format!("{}:{}", hostname, ip)).collect(),
+        extra_hosts : hosts.iter().map(|(hostname, ip)| format!("{}:{}", hostname, ip)).collect(),
     };
 
     // Generate the ComposeHostsFile

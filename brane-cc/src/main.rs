@@ -4,7 +4,7 @@
 //  Created:
 //    18 Nov 2022, 14:36:55
 //  Last edited:
-//    18 Nov 2022, 15:52:48
+//    07 Dec 2022, 11:32:04
 //  Auto updated?
 //    Yes
 // 
@@ -91,6 +91,7 @@ struct Arguments {
 /// 
 /// # Errors
 /// This function errors if the input is not valid BraneScript or an IO error occurred trying to read from / write to the input / output.
+#[allow(clippy::too_many_arguments)]
 pub async fn compile_iter(state: &mut CompileState, source: &mut String, lang: Language, iname: impl AsRef<str>, input: &mut impl Read, oname: impl AsRef<str>, output: &mut impl Write, compact: bool, packages_loc: &IndexLocation, data_loc: &IndexLocation) -> Result<(), CompileError> {
     let iname : &str = iname.as_ref();
     let oname : &str = oname.as_ref();
@@ -246,7 +247,7 @@ fn main() {
 
             // Attempt to open the file as a reader
             let (iname, mut ihandle): (Cow<str>, Box<dyn Read>) = if f != "-" {
-                match File::open(&f) {
+                match File::open(f) {
                     Ok(handle) => (f.into(), Box::new(handle)),
                     Err(err)   => { error!("Failed to open file '{}': {}", f, err); std::process::exit(1); },
                 }

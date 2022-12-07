@@ -4,7 +4,7 @@
 //  Created:
 //    17 Oct 2022, 15:18:32
 //  Last edited:
-//    06 Dec 2022, 12:48:27
+//    07 Dec 2022, 11:30:22
 //  Auto updated?
 //    Yes
 // 
@@ -297,7 +297,7 @@ pub async fn download(name: String, version: String, context: Context) -> Result
     debug!("Retrieving filename for package '{}'@{}", name, version);
     let file: PathBuf = match context.scylla.query("SELECT file FROM brane.packages WHERE name=? AND version=?", vec![ &name, &version.to_string() ]).await {
         Ok(file) => if let Some(rows) = file.rows {
-            if rows.len() == 0 {
+            if rows.is_empty() {
                 error!("{}", Error::UnknownPackage{ name, version });
                 return Err(warp::reject::not_found());
             }

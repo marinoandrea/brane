@@ -4,7 +4,7 @@
 //  Created:
 //    21 Feb 2022, 12:32:28
 //  Last edited:
-//    16 Nov 2022, 11:04:02
+//    07 Dec 2022, 11:31:03
 //  Auto updated?
 //    Yes
 // 
@@ -127,7 +127,7 @@ impl Drop for LockHandle {
         // Write we don't need it anymore
         if let Err(err) = self.lock.file.write_all(format!("Process {} no longer needs this lock\n", std::process::id()).as_bytes()) { warn!("Failed to log release of lockfile '{}': {}", self.path.display(), err); }
         // Drop the lock
-        if let Err(err) = self.lock.unlock() { warn!("Failed to unlock lockfile '{}': {}", self.path.display(), err); return; }
+        if let Err(err) = self.lock.unlock() { warn!("Failed to unlock lockfile '{}': {}", self.path.display(), err); }
     }
 }
 
