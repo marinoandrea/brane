@@ -54,6 +54,9 @@ jobs:
           override: true
           components: clippy, rustfmt
 
+      - name: Install `protoc` to compile protobuf files
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler && sudo rm -rf /var/lib/apt/lists/*
+
       - name: Run linter (clippy)
         uses: actions-rs/cargo@v1
         with:
