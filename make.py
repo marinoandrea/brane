@@ -5,7 +5,7 @@
 # Created:
 #   09 Jun 2022, 12:20:28
 # Last edited:
-#   28 Nov 2022, 14:44:30
+#   08 Dec 2022, 14:55:49
 # Auto updated?
 #   Yes
 #
@@ -18,16 +18,10 @@ from __future__ import annotations
 
 import abc
 import argparse
-from ast import arg
-from cmath import e
-from functools import cache
 import hashlib
 import http
 import json
-from multiprocessing.sharedctypes import Value
 import os
-from pydoc import resolve
-from sre_constants import SRE_FLAG_UNICODE
 import requests
 import subprocess
 import sys
@@ -3206,12 +3200,16 @@ targets = {
 
     "build-image" : ImageTarget("build-image",
         "./contrib/images/Dockerfile.build", "./target/debug/build.tar",
-        description="Builds the image in which some of the Brane components are build."
+        description="Builds the image that can be used to build Brane targets in-container.",
+    ),
+    "ssl-build-image" : ImageTarget("ssl-build-image",
+        "./contrib/images/Dockerfile.ssl", "./target/debug/ssl-build.tar",
+        description="Builds the image in which we can build OpenSSL."
     ),
     "openssl" : InContainerTarget("openssl",
-        "brane-build", volumes=[("$CWD", "/build")], command=["openssl", "--arch", "$ARCH"],
+        "brane-ssl-build", volumes=[("$CWD", "/build")], command=["--arch", "$ARCH"],
         dsts=OPENSSL_FILES,
-        deps=["install-build-image"],
+        deps=["install-ssl-build-image"],
         description="Builds OpenSSL in a container to compile against when building the instance in development mode."
     ),
 
@@ -3234,10 +3232,30 @@ targets = {
                 "./target/$RELEASE/brane", "https://github.com/epi-project/brane/releases/download/v$VERSION/branectl-$OS-$ARCH"
             ),
             False : CrateTarget("ctl-compiled",
-                "brane-ctl", target="$ARCH-unknown-linux-musl", give_target_on_unspecified=False
+                "brane-ctl", target="$ARCH-unknown-linux-musl", give_target_on_unspecified=False,
             )
         },
         description = "Builds the Brane Command-Line Interface (Brane CLI). You may use '--precompiled' to download it from the internet instead."
+    ),
+    "cc" : EitherTarget("cc",
+        "con", {
+            True  : InContainerTarget("cc-con",
+                "brane-build", volumes=[ ("$CWD", "/build") ], command=["brane-cc", "--arch", "$ARCH"],
+                dsts=["./target/containers/x86_64-unknown-linux-musl/release/branec"],
+                deps=["install-build-image"],
+            ),
+            False : EitherTarget("cc-not-con",
+                "down", {
+                    True  : DownloadTarget("cc-download",
+                        "./target/$RELEASE/branec", "https://github.com/epi-project/brane/releases/download/v$VERSION/branec-$OS-$ARCH",
+                    ),
+                    False : CrateTarget("cc-compiled",
+                        "brane-cc", target="$ARCH-unknown-linux-musl", give_target_on_unspecified=False,
+                    ),
+                },
+            ),
+        },
+        description = "Builds the Brane Command-Line Compiler (Brane CC). You may use '--precompiled' to download it from the internet instead, or '--containerized' to build it in a container."
     ),
     "branelet" : CrateTarget("branelet",
         "brane-let", target="$ARCH-unknown-linux-musl", give_target_on_unspecified=True,
@@ -3293,10 +3311,25 @@ targets = {
         dep="build-image",
         description="Installs the build image by loading it into the local Docker engine"
     ),
+    "install-ssl-build-image" : InstallImageTarget("install-ssl-build-image",
+        "./target/debug/ssl-build.tar", "brane-ssl-build",
+        dep="ssl-build-image",
+        description="Installs the OpenSSL build image by loading it into the local Docker engine"
+    ),
     "install-cli" : InstallTarget("install-cli",
         "./target/$RELEASE/brane", "/usr/local/bin/brane", need_sudo=True,
         dep="cli",
         description="Installs the CLI executable to the '/usr/local/bin' directory."
+    ),
+    "install-ctl" : InstallTarget("install-ctl",
+        "./target/$RELEASE/branectl", "/usr/local/bin/branectl", need_sudo=True,
+        dep="ctl",
+        description="Installs the CTL executable to the '/usr/local/bin' directory."
+    ),
+    "install-cc" : InstallTarget("install-cc",
+        "./target/$RELEASE/branec", "/usr/local/bin/branec", need_sudo=True,
+        dep="cc",
+        description="Installs the compiler executable to the '/usr/local/bin' directory."
     ),
     "install-instance" : EitherTarget("install-instance",
         "down", {
@@ -3735,6 +3768,7 @@ if __name__ == "__main__":
     parser.add_argument("target", nargs="*", help="The target to build. Use '--targets' to see a complete list.")
     parser.add_argument("--dev", "--development", action="store_true", help="If given, builds the binaries and images in development mode. This adds debug symbols to binaries, enables extra debug prints and (in the case of the instance) enables an optimized, out-of-image building procedure. Will result in _much_ larger images.")
     parser.add_argument("--down", "--download", action="store_true", help="If given, will download (some of) the binaries instead of compiling them. Specifically, downloads a CLI binary and relevant instance images. Ignored for other targets/binaries.")
+    parser.add_argument("--con", "--containerized", action="store_true", help=f"If given, will compile (some of) the binaries in a container instead of cross-compiling them.")
     parser.add_argument("-f", "--force", action="store_true", help=f"If given, forces recompilation of all assets (regardless of whether they have been build before or not). Note that this does not clear any Cargo or Docker cache, so they might still consider your source to be cached (run `{sys.argv[0] if len(sys.argv) >= 1 else 'make.py'} clean` to clear those caches).")
     parser.add_argument("-d", "--dry-run", action="store_true", help=f"If given, skips the effects of compiling the assets, only simulating what would be done (implies '--debug').")
 

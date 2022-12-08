@@ -4,7 +4,7 @@
 //  Created:
 //    18 Nov 2022, 14:36:55
 //  Last edited:
-//    07 Dec 2022, 11:32:04
+//    08 Dec 2022, 13:46:16
 //  Auto updated?
 //    Yes
 // 
@@ -166,15 +166,24 @@ pub async fn compile_iter(state: &mut CompileState, source: &mut String, lang: L
         CompileResult::Program(_, _)    => unreachable!(),
         CompileResult::Eof(err) => {
             err.prettyprint(iname, source);
-            return Err(CompileError::CompileError{ errs: vec![ err ] });
+            if let Err(err) = writeln!(output, "---ERROR---") {
+                return Err(CompileError::OutputWriteError { name: oname.into(), err });
+            }
+            state.offset += raw.chars().filter(|c| *c == '\n').count();
+            return Ok(());
         },
         CompileResult::Err(errs) => {
             for err in &errs {
                 err.prettyprint(iname, &mut *source);
             }
-            return Err(CompileError::CompileError{ errs });
+            if let Err(err) = writeln!(output, "---ERROR---") {
+                return Err(CompileError::OutputWriteError { name: oname.into(), err });
+            }
+            state.offset += raw.chars().filter(|c| *c == '\n').count();
+            return Ok(());
         },
     };
+    state.offset += raw.chars().filter(|c| *c == '\n').count();
 
     // Serialize the output
     let sworkflow: String = if !compact {
@@ -191,7 +200,10 @@ pub async fn compile_iter(state: &mut CompileState, source: &mut String, lang: L
 
     // Write it and update the source
     debug!("Writing to '{}'...", oname);
-    if let Err(err) = output.write_all(sworkflow.as_bytes()) {
+    if let Err(err) = writeln!(output, "{}", sworkflow) {
+        return Err(CompileError::OutputWriteError { name: oname.into(), err });
+    }
+    if let Err(err) = writeln!(output, "---END---") {
         return Err(CompileError::OutputWriteError { name: oname.into(), err });
     }
 
@@ -302,6 +314,10 @@ fn main() {
                 error!("{}", err);
                 std::process::exit(1);
             }
+
+            // Be sure stdout & stderr are flushed after each iter
+            if let Err(err) = std::io::stdout().flush() { error!("Failed to flush stdout: {}", err); }
+            if let Err(err) = std::io::stderr().flush() { error!("Failed to flush stderr: {}", err); }
         }
     }
 }

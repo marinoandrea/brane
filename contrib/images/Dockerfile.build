@@ -11,17 +11,13 @@ FROM rust:1
 
 # Install build dependencies (that are not in the rust image already)
 RUN apt-get update && apt-get install -y \
-    gcc g++ \
-    gcc-aarch64-linux-gnu \
     cmake \
     musl-tools \
+    build-essential \
  && rm -rf /var/lib/apt/lists/*
 
 # Make symlinks
-RUN ln -s /bin/gcc /usr/local/bin/musl-gcc \
- && ln -s /bin/g++ /usr/local/bin/musl-g++ \
- && ln -s /usr/bin/aarch64-linux-gnu-gcc /usr/local/bin/aarch64-linux-musl-gcc \
- && ln -s /usr/bin/aarch64-linux-gnu-g++ /usr/local/bin/aarch64-linux-musl-g++
+RUN ln -s /usr/bin/musl-gcc /usr/bin/musl-g++
 
 # Fetch the target(s)
 RUN rustup target add "x86_64-unknown-linux-musl"
