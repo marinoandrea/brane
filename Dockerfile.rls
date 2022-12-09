@@ -16,45 +16,26 @@ LABEL org.opencontainers.image.source https://github.com/epi-project/brane
 # Install build dependencies (that are not in the rust image already)
 RUN apt-get update && apt-get install -y \
     cmake \
+    curl \
  && rm -rf /var/lib/apt/lists/*
 
-# Copy over relevant crates
-RUN mkdir /build
-COPY ./brane-api /build/brane-api
-COPY ./brane-ast /build/brane-ast
-COPY ./brane-cfg /build/brane-cfg
-COPY ./brane-drv /build/brane-drv
-COPY ./brane-dsl /build/brane-dsl
-COPY ./brane-exe /build/brane-exe
-COPY ./brane-job /build/brane-job
-COPY ./brane-log /build/brane-log
-COPY ./brane-plr /build/brane-plr
-COPY ./brane-prx /build/brane-prx
-COPY ./brane-reg /build/brane-reg
-COPY ./brane-shr /build/brane-shr
-COPY ./specifications /build/specifications
+# Install the latest protobuf
+ARG PROTOBUF_VERSION=3.21.11
+RUN curl -L https://github.com/protocolbuffers/protobuf/archive/refs/tags/v${PROTOBUF_VERSION}.tar.gz | tar -xvz \
+ && cd /protobuf-${PROTOBUF_VERSION} \
+ && cmake -Dprotobuf_BUILD_TESTS=off . \
+ && cmake --build . -j $(nproc) \
+ && mv $(readlink protoc) /protoc \
+ && cd / \
+ && rm -r /protobuf-${PROTOBUF_VERSION}
 
-# Generate a workspace file
-RUN echo "[workspace]\n" \
-         "members = [\n" \
-         "    \"brane-api\",\n" \
-         "    \"brane-ast\",\n" \
-         "    \"brane-cfg\",\n" \
-         "    \"brane-drv\",\n" \
-         "    \"brane-dsl\",\n" \
-         "    \"brane-exe\",\n" \
-         "    \"brane-job\",\n" \
-         "    \"brane-log\",\n" \
-         "    \"brane-plr\",\n" \
-         "    \"brane-prx\",\n" \
-         "    \"brane-reg\",\n" \
-         "    \"brane-shr\",\n" \
-         "    \"specifications\",\n" \
-         "]\n" > /build/Cargo.toml
+# Copy over relevant crates & other files
+RUN mkdir /build
+COPY . /build
 
 # Build optimized binaries
 WORKDIR /build
-RUN cargo build \
+RUN PROTOC="/protoc" cargo build \
         --release \
         --package brane-api \
         --package brane-drv \
@@ -67,7 +48,7 @@ RUN cargo build \
     && mv ./target/release/brane-drv /brane-drv \
     && mv ./target/release/brane-job /brane-job \
     && mv ./target/release/brane-log /brane-log \
-    && mv ./target/release/brane-plr /brane-prx \
+    && mv ./target/release/brane-prx /brane-prx \
     && mv ./target/release/brane-plr /brane-plr \
     && mv ./target/release/brane-reg /brane-reg \
     && rm -rf /usr/local/cargo/registry \
@@ -83,12 +64,11 @@ ENTRYPOINT [ "/bin/bash" ]
 
 ##### BASE IMAGE #####
 # This image defines the base image for all Brane service images.
-# Note: we don't do 20.04 because the skopeo alternative link has died
-# Note: we'd like to go to 22.04, but for now this is in conflict with OpenSSL
 FROM ubuntu:22.04 AS brane-base
 LABEL org.opencontainers.image.source https://github.com/epi-project/brane
 
 # Add an ubuntu 21.10 source for libssl1.1 (insecure, but it's the dev image anyway)
+# Can't get around that, even in release, since libssl1.1 is only available in old repos
 RUN echo "deb http://old-releases.ubuntu.com/ubuntu impish-security main" >> /etc/apt/sources.list
 
 # Install libssl (the Rust crate depends on it)
