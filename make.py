@@ -5,7 +5,7 @@
 # Created:
 #   09 Jun 2022, 12:20:28
 # Last edited:
-#   08 Dec 2022, 14:55:49
+#   09 Dec 2022, 12:37:43
 # Auto updated?
 #   Yes
 #
@@ -22,12 +22,13 @@ import hashlib
 import http
 import json
 import os
-import requests
+# import requests
 import subprocess
 import sys
 import tarfile
 import time
 import typing
+import urllib.request
 
 
 ##### CONSTANTS #####
@@ -2794,34 +2795,37 @@ class DownloadTarget(Target):
         addr    = resolve_args(self._addr, args)
         outfile = resolve_args(self._dsts[0], args)
         def get_file() -> int:
-            s = requests.Session()
+            res = urllib.request.urlopen(addr)
 
             # Run the request
             try:
                 with open(outfile, "wb") as f:
-                    with s.get(addr, allow_redirects=True, stream=True) as r:
-                        # Make sure it succeeded
-                        if r.status_code != 200:
-                            cancel(f"Failed to download file: server returned exit code {r.status_code} ({http.client.responses[r.status_code]})")
+                    # Make sure it succeeded
+                    if res.status != 200:
+                        cancel(f"Failed to download file: server returned exit code {res.status} ({http.client.responses[res.status]}): {res.reason}")
 
-                        # Iterate over the result
-                        print(f"   (File size: {to_bytes(int(r.headers['Content-length']))})")
-                        prgs = ProgressBar(stop=int(r.headers['Content-length']), prefix=" " * 13)
+                    # Iterate over the result
+                    print(f"   (File size: {to_bytes(int(res.headers['Content-length']))})")
+                    prgs = ProgressBar(stop=int(res.headers['Content-length']), prefix=" " * 13)
+                    chunk_start = time.time()
+                    chunk = res.read(65535)
+                    while(len(chunk) > 0):
+                        # Write the chunk (timed)
+                        chunk_time = time.time() - chunk_start
+                        f.write(chunk)
                         chunk_start = time.time()
-                        for chunk in r.iter_content(chunk_size=65535):
-                            # Write the chunk (timed)
-                            chunk_time = time.time() - chunk_start
-                            f.write(chunk)
-                            chunk_start = time.time()
 
-                            # Update the progressbar
-                            prgs.update_prefix(f"   {to_bytes(int(len(chunk) * (1 / chunk_time))).rjust(10)}/s ")
-                            prgs.update(len(chunk))
-                        prgs.stop()
+                        # Update the progressbar
+                        prgs.update_prefix(f"   {to_bytes(int(len(chunk) * (1 / chunk_time))).rjust(10)}/s ")
+                        prgs.update(len(chunk))
 
-            # Catch request Errors
-            except requests.exceptions.RequestException as e:
-                cancel(f"Failed to download file: {e}", code=e.errno)
+                        # Fetch the next chunk
+                        chunk = res.read(65535)
+                    prgs.stop()
+
+            # # Catch request Errors
+            # except urllib.request.exceptions.RequestException as e:
+            #     cancel(f"Failed to download file: {e}", code=e.errno)
 
             # Catch IO Errors
             except IOError as e:
