@@ -4,7 +4,7 @@
 //  Created:
 //    21 Nov 2022, 15:40:47
 //  Last edited:
-//    12 Dec 2022, 14:03:28
+//    12 Dec 2022, 14:41:52
 //  Auto updated?
 //    Yes
 // 
@@ -316,7 +316,7 @@ pub fn node(path: impl Into<PathBuf>, hosts: Vec<HostnamePair>, proxy: Option<Ad
                 names    : CommonNames{ prx : prx_name.clone() },
                 paths    : CommonPaths{ certs: canonicalize(certs)?, packages: canonicalize(packages)? },
                 ports    : CommonPorts{ prx : SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), prx_port).into() },
-                services : CommonServices{ prx : Address::Hostname(prx_name, prx_port) },
+                services : CommonServices{ prx : Address::Hostname(format!("http://{}", prx_name), prx_port) },
 
                 node : NodeKindConfig::Central(CentralConfig {
                     names : CentralNames{ api: api_name.clone(), drv: drv_name, plr: plr_name },

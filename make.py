@@ -5,7 +5,7 @@
 # Created:
 #   09 Jun 2022, 12:20:28
 # Last edited:
-#   09 Dec 2022, 12:37:43
+#   12 Dec 2022, 15:53:49
 # Auto updated?
 #   Yes
 #
@@ -295,7 +295,7 @@ def cache_outdated(args: argparse.Namespace, file: str, is_src: bool) -> bool:
         # Compute the hash of the file
         try:
             with open(file, "rb") as h:
-                src_hash = hashlib.sha256()
+                src_hash = hashlib.md5()
                 while True:
                     data = h.read(65536)
                     if not data: break
@@ -346,7 +346,7 @@ def update_cache(args: argparse.Namespace, file: str, is_src: bool):
         # Attempt to compute the hash
         try:
             with open(file, "rb") as h:
-                src_hash = hashlib.sha256()
+                src_hash = hashlib.md5()
                 while True:
                     data = h.read(65536)
                     if not data: break
@@ -2781,6 +2781,7 @@ class DownloadTarget(Target):
             We will probably do something more clever in the future, though.
         """
 
+        pdebug(f"Target '{self.name}' is marked as outdated because it relies on a to-be-downloaded asset")
         return True
 
     def _cmds(self, args: argparse.Namespace) -> list[Command]:
@@ -2969,12 +2970,13 @@ class InContainerTarget(Target):
     _attach_stdin  : bool
     _attach_stdout : bool
     _attach_stderr : bool
+    _keep_alive    : bool
     _volumes       : list[tuple[str, str]]
     _context       : str
     _command       : list[str]
 
 
-    def __init__(self, name: str, image: str, attach_stdin: bool = True, attach_stdout: bool = True, attach_stderr: bool = True, volumes: list[tuple[str, str]] = [], context: str = ".", command: list[str] = [], srcs: list[str] = [], srcs_deps: dict[str, list[str] | None] = {}, dsts: list[str] = [], deps: list[str] = [], description: str = "") -> None:
+    def __init__(self, name: str, image: str, attach_stdin: bool = True, attach_stdout: bool = True, attach_stderr: bool = True, keep_alive: bool = False, volumes: list[tuple[str, str]] = [], context: str = ".", command: list[str] = [], srcs: list[str] = [], srcs_deps: dict[str, list[str] | None] = {}, dsts: list[str] = [], deps: list[str] = [], description: str = "") -> None:
         """
             Constructor for the ImageTarget.
 
@@ -2984,6 +2986,7 @@ class InContainerTarget(Target):
             - `attach_stdin`: Whether or not to attach stdin to the container's stdin.
             - `attach_stdout`: Whether or not to attach stdout to the container's stdout.
             - `attach_stderr`: Whether or not to attach stderr to the container's stderr.
+            - `keep_alive`: If given, attempts to use the container as a running server instead (favouring repeated builds).
             - `volumes`: A list of volumes to attach to the container (using '-v', so note that the source path (the first argument) must be absolute. To help, you may use '$CWD'.).
             - `context`: The build context for the docker command.
             - `command`: A command to execute in the container (i.e., what will be put after its ENTRYPOINT if relevant).
@@ -3002,6 +3005,7 @@ class InContainerTarget(Target):
         self._attach_stdin  = attach_stdin
         self._attach_stdout = attach_stdout
         self._attach_stderr = attach_stderr
+        self._keep_alive    = keep_alive
         self._volumes       = volumes
         self._context       = context
         self._command       = command
@@ -3031,34 +3035,68 @@ class InContainerTarget(Target):
 
 
         # Prepare the command
-        cmd = ShellCommand("docker", "run")
-        if self._attach_stdin: cmd.add("--attach", "STDIN")
-        if self._attach_stdout: cmd.add("--attach", "STDOUT")
-        if self._attach_stderr: cmd.add("--attach", "STDERR")
-        for (src, dst) in self._volumes:
-            # Resolve the src and dst
-            src = resolve_args(src, args)
-            dst = resolve_args(dst, args)
-            # Add
-            cmd.add("-v", f"{src}:{dst}")
-        # Add the image
-        cmd.add(self._image)
-        # Add any commands
-        for c in self._command:
-            # Do standard replacements in the command
-            c = resolve_args(c, args)
-            cmd.add(c)
-        cmds = [ cmd ]
+        if self._keep_alive:
+            # Build the start command
+            c = f"[[ $(docker ps -f \"name={self._image}\" --format '{{{{.Names}}}}') == {self._image} ]] || docker run --name {self._image} -d --rm --entrypoint sleep"
+            for (src, dst) in self._volumes:
+                # Resolve the src and dst
+                src = resolve_args(src, args)
+                dst = resolve_args(dst, args)
+                # Add
+                c += f" -v {src}:{dst}"
+            c += f" {self._image} infinity"
 
-        # If any volumes, add the command that will restore the permissions
-        for (src, _) in self._volumes:
-            # Possibly replace the src
-            src = resolve_args(src, args)
-            # Add the command
-            cmds.append(ShellCommand("sudo", "chown", "-R", f"{uid}:{gid}", src, description=f"Restoring user permissions to '{src}' ($CMD)..."))
+            # Start the container in the background if it didn't already
+            start = ShellCommand("bash", "-c", c)
 
-        # Done, return it
-        return typing.cast(list[Command], cmds)
+            # Now run the actual command within the container
+            run = ShellCommand("docker", "exec", "-it", self._image, "/build.sh")
+            for c in self._command:
+                # Do standard replacements in the command
+                c = resolve_args(c, args)
+                run.add(c)
+            cmds = [ start, run ]
+
+            # If any volumes, add the command that will restore the permissions
+            for (src, _) in self._volumes:
+                # Possibly replace the src
+                src = resolve_args(src, args)
+                # Add the command
+                cmds.append(ShellCommand("sudo", "chown", "-R", f"{uid}:{gid}", src, description=f"Restoring user permissions to '{src}' ($CMD)..."))
+
+            # Return the commands
+            return typing.cast(list[Command], cmds)
+
+        else:
+            # Do a fire-and-then-remove run of the container
+            cmd = ShellCommand("docker", "run", "--name", self._image)
+            if self._attach_stdin: cmd.add("--attach", "STDIN")
+            if self._attach_stdout: cmd.add("--attach", "STDOUT")
+            if self._attach_stderr: cmd.add("--attach", "STDERR")
+            for (src, dst) in self._volumes:
+                # Resolve the src and dst
+                src = resolve_args(src, args)
+                dst = resolve_args(dst, args)
+                # Add
+                cmd.add("-v", f"{src}:{dst}")
+            # Add the image
+            cmd.add(self._image)
+            # Add any commands
+            for c in self._command:
+                # Do standard replacements in the command
+                c = resolve_args(c, args)
+                cmd.add(c)
+            cmds = [ cmd ]
+
+            # If any volumes, add the command that will restore the permissions
+            for (src, _) in self._volumes:
+                # Possibly replace the src
+                src = resolve_args(src, args)
+                # Add the command
+                cmds.append(ShellCommand("sudo", "chown", "-R", f"{uid}:{gid}", src, description=f"Restoring user permissions to '{src}' ($CMD)..."))
+
+            # Done, return it
+            return typing.cast(list[Command], cmds)
 
 
 
@@ -3245,6 +3283,7 @@ targets = {
         "con", {
             True  : InContainerTarget("cc-con",
                 "brane-build", volumes=[ ("$CWD", "/build") ], command=["brane-cc", "--arch", "$ARCH"],
+                keep_alive=True,
                 dsts=["./target/containers/x86_64-unknown-linux-musl/release/branec"],
                 deps=["install-build-image"],
             ),

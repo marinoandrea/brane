@@ -5,7 +5,7 @@
 # Created:
 #   18 May 2022, 11:20:02
 # Last edited:
-#   08 Dec 2022, 14:30:31
+#   12 Dec 2022, 16:28:14
 # Auto updated?
 #   Yes
 #
@@ -178,15 +178,13 @@ fi
 
 # Compile with cargo, setting the appropriate workspace folder
 echo " > cargo build \\"
-echo "       --target \"$arch-unknown-linux-musl\""
 echo "       $rls_flag \\"
 echo "       --target-dir ./target/containers \\"
 echo "       --package $target"
 cargo build \
-    --target "$arch-unknown-linux-musl" \
     $rls_flag \
     --target-dir ./target/containers \
-    --package brane-let \
+    --package "$target" \
     || exit $?
 
 # Done
