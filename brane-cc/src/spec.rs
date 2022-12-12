@@ -4,7 +4,7 @@
 //  Created:
 //    18 Nov 2022, 15:03:19
 //  Last edited:
-//    12 Dec 2022, 13:21:19
+//    12 Dec 2022, 17:02:27
 //  Auto updated?
 //    Yes
 // 
@@ -147,13 +147,13 @@ impl FromStr for IndexLocation {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         // First, attempt to find the "unambigious patterns"
-        if s.len() > LOCAL_PREFIX.len() && &s[..LOCAL_PREFIX.len()] == LOCAL_PREFIX && s.len() > LOCAL_POSTFIX.len() && &s[s.len() - 1 - LOCAL_POSTFIX.len()..] == LOCAL_POSTFIX {
+        if s.len() > LOCAL_PREFIX.len() && &s[..LOCAL_PREFIX.len()] == LOCAL_PREFIX && s.len() > LOCAL_POSTFIX.len() && &s[s.len() - LOCAL_POSTFIX.len()..] == LOCAL_POSTFIX {
             // The bit in between is the local path
-            return Ok(Self::Local(PathBuf::from(&s[LOCAL_PREFIX.len() + 1..s.len() - LOCAL_POSTFIX.len()])));
+            return Ok(Self::Local(PathBuf::from(&s[LOCAL_PREFIX.len()..s.len() - LOCAL_POSTFIX.len()])));
         }
-        if s.len() > REMOTE_PREFIX.len() && &s[..REMOTE_PREFIX.len()] == REMOTE_PREFIX && s.len() > REMOTE_POSTFIX.len() && &s[s.len() - 1 - REMOTE_POSTFIX.len()..] == REMOTE_POSTFIX {
+        if s.len() > REMOTE_PREFIX.len() && &s[..REMOTE_PREFIX.len()] == REMOTE_PREFIX && s.len() > REMOTE_POSTFIX.len() && &s[s.len() - REMOTE_POSTFIX.len()..] == REMOTE_POSTFIX {
             // The bit in between is the remote address
-            return Ok(Self::Remote(s[REMOTE_PREFIX.len() + 1..s.len() - REMOTE_POSTFIX.len()].into()));
+            return Ok(Self::Remote(s[REMOTE_PREFIX.len()..s.len() - REMOTE_POSTFIX.len()].into()));
         }
 
         // Next, if we can parse it as an address, use remote

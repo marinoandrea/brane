@@ -4,7 +4,7 @@
 //  Created:
 //    18 Nov 2022, 14:36:55
 //  Last edited:
-//    08 Dec 2022, 13:46:16
+//    12 Dec 2022, 17:01:37
 //  Auto updated?
 //    Yes
 // 
@@ -14,7 +14,7 @@
 
 use std::borrow::Cow;
 use std::fs::File;
-use std::io::{Cursor, Read, Stdin, Write};
+use std::io::{BufRead, BufReader, Cursor, Stdin, Write};
 use std::path::PathBuf;
 
 use clap::Parser;
@@ -72,6 +72,45 @@ struct Arguments {
 
 
 /***** HELPER FUNCTIONS *****/
+/// Reads a "file" from the input.
+/// 
+/// This is either an entire file, or everything up to a '<-- FILE -->` line.
+/// 
+/// # Arguments
+/// - `name`: The name of the gived reader. Used for debugging only.
+/// - `handle`: The handle to read.
+/// 
+/// # Returns
+/// The string that we've read.
+/// 
+/// # Errors
+/// This function errors if we failed to read the given input.
+fn read_input(name: impl Into<String>, input: &mut impl BufRead) -> Result<String, CompileError> {
+    // Read line-by-line
+    let mut raw: String = String::new();
+    for line in input.lines() {
+        // Unwrap the line
+        let line: String = match line {
+            Ok(raw)  => raw,
+            Err(err) => { return Err(CompileError::InputReadError{ name: name.into(), err }); },
+        };
+
+        // Check if the line is our defined separator
+        if line == "<-- FILE -->" {
+            return Ok(raw);
+        }
+
+        // Otherwise, append
+        if !line.is_empty() { raw.push('\n'); }
+        raw.push_str(&line);
+    }
+
+    // Done
+    Ok(raw)
+}
+
+
+
 /// Compiles a snippet of BraneScript statefully.
 /// 
 /// # Arguments
@@ -92,16 +131,13 @@ struct Arguments {
 /// # Errors
 /// This function errors if the input is not valid BraneScript or an IO error occurred trying to read from / write to the input / output.
 #[allow(clippy::too_many_arguments)]
-pub async fn compile_iter(state: &mut CompileState, source: &mut String, lang: Language, iname: impl AsRef<str>, input: &mut impl Read, oname: impl AsRef<str>, output: &mut impl Write, compact: bool, packages_loc: &IndexLocation, data_loc: &IndexLocation) -> Result<(), CompileError> {
+pub async fn compile_iter(state: &mut CompileState, source: &mut String, lang: Language, iname: impl AsRef<str>, input: &mut impl BufRead, oname: impl AsRef<str>, output: &mut impl Write, compact: bool, packages_loc: &IndexLocation, data_loc: &IndexLocation) -> Result<(), CompileError> {
     let iname : &str = iname.as_ref();
     let oname : &str = oname.as_ref();
 
     // Read it
     debug!("Reading from '{}'...", iname);
-    let mut raw: String = String::new();
-    if let Err(err) = input.read_to_string(&mut raw) {
-        return Err(CompileError::InputReadError{ name: iname.to_string(), err });
-    }
+    let raw: String = read_input(iname, input)?;
 
     // Fetch the indices
     let pindex: PackageIndex = match packages_loc {
@@ -258,13 +294,13 @@ fn main() {
             debug!("Reading from '{}'...", f);
 
             // Attempt to open the file as a reader
-            let (iname, mut ihandle): (Cow<str>, Box<dyn Read>) = if f != "-" {
+            let (iname, mut ihandle): (Cow<str>, Box<dyn BufRead>) = if f != "-" {
                 match File::open(f) {
-                    Ok(handle) => (f.into(), Box::new(handle)),
+                    Ok(handle) => (f.into(), Box::new(BufReader::new(handle))),
                     Err(err)   => { error!("Failed to open file '{}': {}", f, err); std::process::exit(1); },
                 }
             } else {
-                ("<stdin>".into(), Box::new(std::io::stdin()))
+                ("<stdin>".into(), Box::new(BufReader::new(std::io::stdin())))
             };
 
             // Simply append the contents to the source file
@@ -292,7 +328,7 @@ fn main() {
 
     } else {
         // Open the input
-        let mut ihandle: Stdin = std::io::stdin();
+        let mut ihandle: BufReader<Stdin> = BufReader::new(std::io::stdin());
 
         // Open the output
         debug!("Opening output file '{}'...", args.output);
