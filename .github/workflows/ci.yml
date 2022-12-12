@@ -24,12 +24,12 @@ jobs:
           && cd ./protobuf-3.21.11 \
           && cmake -Dprotobuf_BUILD_TESTS=off . \
           && cmake --build . -j $(nproc) \
-          && mv $(readlink protoc) /usr/bin/protoc \
+          && sudo mv $(readlink protoc) /usr/bin/protoc \
           && cd ../ \
           && rm -r ./protobuf-3.21.11
 
       - name: Build project
-        run: cargo build -v
+        run: PROTOC="./protoc" cargo build -v
       
       - name: Run unit tests
         run: cargo test -v --lib
