@@ -26,7 +26,7 @@ jobs:
           && cmake --build . -j $(nproc) \
           && mv $(readlink protoc) /usr/bin/protoc \
           && cd / \
-          && rm -r /protobuf-${PROTOBUF_VERSION}
+          && rm -r /protobuf-3.21.11
 
       - name: Build project
         run: cargo build -v
