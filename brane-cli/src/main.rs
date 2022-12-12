@@ -4,7 +4,7 @@
 //  Created:
 //    21 Sep 2022, 14:34:28
 //  Last edited:
-//    18 Nov 2022, 15:53:46
+//    12 Dec 2022, 13:24:27
 //  Auto updated?
 //    Yes
 // 
@@ -284,12 +284,10 @@ enum DataSubcommand {
 /// Defines the subcommands for the verify subcommand.
 #[derive(Parser)]
 enum VerifySubcommand {
-    #[clap(name = "config", about = "Verifies the configuration, i.e., the `infra.yml` and `secrets.yml` files")]
+    #[clap(name = "config", about = "Verifies the configuration, e.g., an `infra.yml` files")]
     Config {
         #[clap(short, long, default_value = "./config/infra.yml", help = "The location of the infra.yml file to validate")]
-        infra   : PathBuf,
-        #[clap(short, long, default_value = "./config/secrets.yml", help = "The location of the secrets.yml file to validate")]
-        secrets : PathBuf,        
+        infra   : PathBuf,      
     },
 }
 
@@ -563,9 +561,9 @@ async fn run(options: Cli) -> Result<(), CliError> {
             // Match the subcommand in question
             use VerifySubcommand::*;
             match subcommand {
-                Config { infra, secrets } => {
+                Config { infra } => {
                     // Verify the configuration
-                    if let Err(err) = verify::config(infra, secrets) { return Err(CliError::VerifyError{ err }); }
+                    if let Err(err) = verify::config(infra) { return Err(CliError::VerifyError{ err }); }
                     println!("OK");
                 },
             }

@@ -11,6 +11,7 @@ base64 = "0.13"
 base64ct = { version = "1.5.3", features = ["alloc"] }
 bollard = "0.13"
 chrono = "0.4"
+enum-debug = { git = "https://github.com/Lut99/enum-debug", features = ["derive"] }
 futures-util = "0.3"
 graphql_client = "0.10"
 hyper = "0.14"

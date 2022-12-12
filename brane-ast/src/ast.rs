@@ -4,7 +4,7 @@
 //  Created:
 //    30 Aug 2022, 11:55:49
 //  Last edited:
-//    14 Nov 2022, 11:42:49
+//    12 Dec 2022, 12:53:04
 //  Auto updated?
 //    Yes
 // 
@@ -21,11 +21,11 @@ use std::collections::HashMap;
 use std::fmt::{Display, Formatter, Result as FResult};
 use std::sync::Arc;
 
+use enum_debug::EnumDebug;
 use serde::{Deserialize, Serialize};
 use serde_json_any_key::any_key_map;
 
 use brane_dsl::spec::MergeStrategy;
-use brane_shr::debug::EnumDebug;
 use specifications::data::AvailabilityKind;
 use specifications::version::Version;
 
@@ -276,7 +276,7 @@ pub struct VarDef {
 /// The edges can be thought of as a linked list of statements. However, each statement may secretly group multiple statements (instrucitons) to make reasoning about the graph easier.
 /// 
 /// Finally, the developers would like to formally apologize for completely butchering the term 'Edge'.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, EnumDebug, Serialize)]
 #[serde(tag = "kind")]
 pub enum Edge {
     // Linear edges
@@ -394,30 +394,10 @@ pub enum Edge {
     Return {},
 }
 
-impl EnumDebug for Edge {
-    fn fmt_name(&self, f: &mut Formatter<'_>) -> FResult {
-        use Edge::*;
-        match self {
-            Node{ .. }   => write!(f, "Node"),
-            Linear{ .. } => write!(f, "Linear"),
-            Stop{ .. }   => write!(f, "Stop"),
-
-            Branch{ .. }   => write!(f, "Branch"),
-            Parallel{ .. } => write!(f, "Parallel"),
-            Join{ .. }     => write!(f, "Join"),
-
-            Loop{ .. } => write!(f, "Loop"),
-
-            Call{ .. }    => write!(f, "Call"),
-            Return { .. } => write!(f, "Return"),
-        }
-    }
-}
-
 
 
 /// Defines an enum that represents either a Data or an IntermediateResult.
-#[derive(Clone, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, EnumDebug, Eq, Hash, PartialEq, Serialize)]
 pub enum DataName {
     /// It's referring a dataset
     Data(String),
@@ -466,15 +446,6 @@ impl Display for DataName {
         }
     }
 }
-impl EnumDebug for DataName {
-    fn fmt_name(&self, f: &mut Formatter<'_>) -> FResult {
-        use DataName::*;
-        match self {
-            Data(_)               => write!(f, "Data"),
-            IntermediateResult(_) => write!(f, "IntermediateResult"),
-        }
-    }
-}
 
 impl From<&brane_dsl::ast::Data> for DataName {
     fn from(value: &brane_dsl::ast::Data) -> Self {
@@ -498,7 +469,8 @@ impl From<brane_dsl::ast::Data> for DataName {
 
 
 /// Defines an instruction for use within edges, which performs some computation in BraneScriptland (i.e., the edges).
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, EnumDebug, Serialize)]
+#[enum_debug(name)]
 #[serde(tag = "kind")]
 pub enum EdgeInstr {
     // Stack operations
@@ -799,54 +771,6 @@ impl Display for EdgeInstr {
             Real{ .. }     => write!(f, ".real"),
             String{ .. }   => write!(f, ".str"),
             Function{ .. } => write!(f, ".func"),
-        }
-    }
-}
-
-impl EnumDebug for EdgeInstr {
-    fn fmt_name(&self, f: &mut Formatter<'_>) -> FResult {
-        use EdgeInstr::*;
-        match self {
-            Cast{ .. }       => write!(f, "Cast"),
-            Pop{ .. }        => write!(f, "Pop"),
-            PopMarker{ .. }  => write!(f, "PopMarker"),
-            DynamicPop{ .. } => write!(f, "DynamicPop"),
-
-            Branch{ .. }    => write!(f, "Branch"),
-            BranchNot{ .. } => write!(f, "BranchNot"),
-
-            Not{ .. } => write!(f, "Not"),
-            Neg{ .. } => write!(f, "Neg"),
-
-            And{ .. } => write!(f, "And"),
-            Or{ .. }  => write!(f, "Or"),
-
-            Add{ .. } => write!(f, "Add"),
-            Sub{ .. } => write!(f, "Sub"),
-            Mul{ .. } => write!(f, "Mul"),
-            Div{ .. } => write!(f, "Div"),
-            Mod{ .. } => write!(f, "Mod"),
-
-            Eq{ .. } => write!(f, "Eq"),
-            Ne{ .. } => write!(f, "Ne"),
-            Lt{ .. } => write!(f, "Lt"),
-            Le{ .. } => write!(f, "Le"),
-            Gt{ .. } => write!(f, "Gt"),
-            Ge{ .. } => write!(f, "Ge"),
-
-            Array{ .. }      => write!(f, "Array"),
-            ArrayIndex{ .. } => write!(f, "ArrayIndex"),
-            Instance{ .. }   => write!(f, "Instance"),
-            Proj{ .. }       => write!(f, "Proj"),
-
-            VarGet { .. } => write!(f, "VarGet"),
-            VarSet { .. } => write!(f, "VarSet"),
-
-            Boolean{ .. }  => write!(f, "Boolean"),
-            Integer{ .. }  => write!(f, "Integer"),
-            Real{ .. }     => write!(f, "Real"),
-            String{ .. }   => write!(f, "String"),
-            Function{ .. } => write!(f, "Function"),
         }
     }
 }

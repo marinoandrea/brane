@@ -4,7 +4,7 @@
 //  Created:
 //    04 Oct 2022, 11:04:33
 //  Last edited:
-//    16 Nov 2022, 09:44:58
+//    12 Dec 2022, 13:08:49
 //  Auto updated?
 //    Yes
 // 
@@ -14,65 +14,109 @@
 
 use std::collections::HashMap;
 use std::fs::File;
+use std::io::Write;
+use std::path::Path;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 pub use crate::errors::InfraFileError as Error;
-use crate::spec::{InfraLocation, InfraPath};
-use crate::secrets::resolve_secrets;
+use crate::spec::Address;
+
+
+/***** AUXILLARY *****/
+/// Defines a single Location in the InfraFile.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct InfraLocation {
+    /// Defines a more human-readable name for the location.
+    pub name     : String,
+    /// The address of the delegate to connect to.
+    pub delegate : Address,
+    /// The address of the local registry to query for locally available packages, datasets and more.
+    pub registry : Address,
+}
+
+
+
 
 
 /***** LIBRARY *****/
 /// Defines a "handle" to the document that contains the Brane instance layout.
 /// 
 /// It is recommended to only load when used, to allow system admins to update the file during runtime.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct InfraFile {
-    /// The address of the API endpoint.
-    registry : String,
-
     /// The map of locations (mapped by ID).
     locations : HashMap<String, InfraLocation>,
 }
 
 impl InfraFile {
+    /// Constructor for the InfraFile.
+    /// 
+    /// # Arguments
+    /// - `locations`: The map of location IDs to InfraLocations around which to initialize this InfraFile.
+    /// 
+    /// # Returns
+    /// A new InfraFile instance.
+    #[inline]
+    pub fn new(locations: HashMap<String, InfraLocation>) -> Self {
+        Self {
+            locations,
+        }
+    }
+
     /// Reads the `infra.yml` file at the given path to an InfraFile.
     /// 
     /// # Arguments
-    /// - `infra_path`: The InfraPath file that contains the paths we need.
+    /// - `path`: The path from which to load this file.
     /// 
     /// # Returns
     /// A new InfraFile instance.
     /// 
     /// # Errors
     /// This function fails if we could either not read the file or the file was not valid YAML.
-    pub fn from_path(infra_path: impl AsRef<InfraPath>) -> Result<Self, Error> {
-        let infra_path : &InfraPath = infra_path.as_ref();
+    pub fn from_path(path: impl AsRef<Path>) -> Result<Self, Error> {
+        let path: &Path = path.as_ref();
 
         // Open the file
-        let handle: File = match File::open(&infra_path.infra) {
+        let handle: File = match File::open(path) {
             Ok(handle) => handle,
-            Err(err)   => { return Err(Error::FileOpenError { path: infra_path.infra.clone(), err }); },  
+            Err(err)   => { return Err(Error::FileOpenError { path: path.into(), err }); },  
         };
 
         // Run it through serde, done
-        let mut result: Self = match serde_yaml::from_reader(handle) {
-            Ok(locs) => locs,
-            Err(err) => { return Err(Error::FileParseError { path: infra_path.infra.clone(), err }); },
-        };
-
-        // Resolve the secrets
-        match resolve_secrets(&mut result.locations, &infra_path.secrets) {
-            Ok(_)    => Ok(result),
-            Err(err) => Err(Error::SecretsResolveError{ path: infra_path.infra.clone(), err }),
+        match serde_yaml::from_reader(handle) {
+            Ok(locs) => Ok(locs),
+            Err(err) => Err(Error::FileParseError { path: path.into(), err }),
         }
     }
 
+    /// Writes the InfraFile to the given writer.
+    /// 
+    /// # Arguments
+    /// - `writer`: The writer to write the InfraFile to.
+    /// 
+    /// # Returns
+    /// Nothing, but does obviously populate the given writer with its own serialized contents.
+    /// 
+    /// # Errors
+    /// This function errors if we failed to write or failed to serialize ourselves.
+    pub fn to_writer(&self, writer: impl Write) -> Result<(), Error> {
+        let mut writer = writer;
+
+        // Serialize the config
+        let config: String = match serde_yaml::to_string(self) {
+            Ok(config) => config,
+            Err(err)   => { return Err(Error::ConfigSerializeError{ err }); },
+        };
+
+        // Write it
+        if let Err(err) = writer.write_all(config.as_bytes()) { return Err(Error::WriterWriteError{ err }); }
+
+        // Done
+        Ok(())
+    }
 
 
-    /// Returns the address of the main central node registry.
-    #[inline]
-    pub fn registry(&self) -> &str { &self.registry }
 
     /// Returns the metadata for the location with the given name.
     /// 

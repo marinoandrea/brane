@@ -4,7 +4,7 @@
 //  Created:
 //    19 Sep 2022, 14:57:17
 //  Last edited:
-//    07 Dec 2022, 11:28:35
+//    12 Dec 2022, 14:09:41
 //  Auto updated?
 //    Yes
 // 
@@ -25,6 +25,7 @@ use bollard::container::{
 };
 use bollard::image::{CreateImageOptions, ImportImageOptions, RemoveImageOptions, TagImageOptions};
 use bollard::models::{DeviceRequest, EndpointSettings, HostConfig};
+use enum_debug::EnumDebug as _;
 use futures_util::stream::TryStreamExt;
 use futures_util::StreamExt;
 use hyper::Body;
@@ -40,7 +41,6 @@ use tokio_util::codec::{BytesCodec, FramedRead};
 
 use brane_ast::ast::DataName;
 use brane_exe::FullValue;
-use brane_shr::debug::EnumDebug;
 use specifications::container::{Image, VolumeBind};
 use specifications::data::AccessKind;
 
@@ -115,10 +115,10 @@ impl<S: AsRef<str>> From<S> for ImageSource {
         let value: &str = value.as_ref();
 
         // Attempt to parse it using the wrappers first
-        if value.len() > 1 && &value[..5] == "Path<" && &value[value.len() - 1..] == ">" {
+        if value.len() > 5 && &value[..5] == "Path<" && &value[value.len() - 1..] == ">" {
             return Self::Path(value[5..value.len() - 1].into());
         }
-        if value.len() > 1 && &value[..9] == "Registry<" && &value[value.len() - 1..] == ">" {
+        if value.len() > 9 && &value[..9] == "Registry<" && &value[value.len() - 1..] == ">" {
             return Self::Registry(value[9..value.len() - 1].into());
         }
 

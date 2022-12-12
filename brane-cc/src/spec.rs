@@ -4,7 +4,7 @@
 //  Created:
 //    18 Nov 2022, 15:03:19
 //  Last edited:
-//    18 Nov 2022, 15:23:55
+//    12 Dec 2022, 13:21:19
 //  Auto updated?
 //    Yes
 // 
@@ -16,9 +16,8 @@ use std::fmt::{Display, Formatter, Result as FResult};
 use std::path::PathBuf;
 use std::str::FromStr;
 
+use enum_debug::EnumDebug;
 use url::Url;
-
-use brane_shr::debug::EnumDebug;
 
 use crate::errors::IndexLocationParseError;
 
@@ -58,7 +57,7 @@ impl<'a> Display for IndexLocationSerializer<'a> {
 
 
 /// Defines an enum that either defines a local path to fetch packages / datasets from, or a remote location to fetch packages / datasets from.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, EnumDebug, Eq, Hash, PartialEq)]
 pub enum IndexLocation {
     /// It's a local location
     Local(PathBuf),
@@ -120,15 +119,6 @@ impl IndexLocation {
     pub fn into_remote(self) -> String { if let Self::Remote(addr) = self { addr } else { panic!("Cannot unwrap {:?} as an IndexLocation::Remote", self.variant()); } }
 }
 
-impl EnumDebug for IndexLocation {
-    fn fmt_name(&self, f: &mut Formatter<'_>) -> FResult {
-        use IndexLocation::*;
-        match self {
-            Local(_)  => write!(f, "Local"),
-            Remote(_) => write!(f, "Remote"),
-        }
-    }
-}
 impl Display for IndexLocation {
     fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
         use IndexLocation::*;

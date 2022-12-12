@@ -4,7 +4,7 @@
 //  Created:
 //    15 Nov 2022, 09:18:40
 //  Last edited:
-//    06 Dec 2022, 12:10:04
+//    12 Dec 2022, 13:59:46
 //  Auto updated?
 //    Yes
 // 
@@ -18,10 +18,10 @@ use clap::{Parser, Subcommand};
 use dotenvy::dotenv;
 use log::{error, LevelFilter};
 
-use brane_cfg::node::Address;
+use brane_cfg::spec::Address;
 use specifications::version::Version;
 
-use brane_ctl::spec::{DockerClientVersion, GenerateNodeSubcommand, HostnamePair, StartSubcommand};
+use brane_ctl::spec::{DockerClientVersion, GenerateCredsSubcommand, GenerateNodeSubcommand, HostnamePair, LocationPair, StartSubcommand};
 use brane_ctl::{generate, lifetime, packages};
 
 
@@ -122,6 +122,9 @@ enum GenerateSubcommand {
         #[clap(long, help = "If given, reroutes all control network traffic for this node through the given proxy.")]
         proxy : Option<Address>,
 
+        /// If given, will generate missing directories instead of throwing errors.
+        #[clap(short='f', long, help = " If given, will generate any missing directories.")]
+        fix_dirs    : bool,
         /// Custom config path.
         #[clap(short='C', long, default_value = "./config", help = "A common ancestor for --infra-path, --secrets-path and --certs-path. See their descriptions for more info.")]
         config_path : PathBuf,
@@ -129,6 +132,58 @@ enum GenerateSubcommand {
         /// Defines the possible nodes to generate a new node.yml file for.
         #[clap(subcommand)]
         kind : GenerateNodeSubcommand,
+    },
+
+    #[clap(name = "infra", about = "Generates a new 'infra.yml' file.")]
+    Infra {
+        /// Defines the list of domains
+        #[clap(name = "LOCATIONS", help = "The list of locations (i.e., worker nodes) connected to this instance. The list is given as a list of '<ID>:<ADDR>' pairs.")]
+        locations : Vec<LocationPair<':', String>>,
+
+        /// If given, will generate missing directories instead of throwing errors.
+        #[clap(short='f', long, help = "If given, will generate any missing directories.")]
+        fix_dirs : bool,
+        /// The path to write to.
+        #[clap(short, long, default_value = "./infra.yml", help = "The path to write the infrastructure file to.")]
+        path     : PathBuf,
+
+        /// Determines the name of the given domain.
+        #[clap(short='N', long="name", help = "Sets the name (i.e., human-friendly name, not the identifier) of the given location. Should be given as a '<LOCATION>=<NAME>` pair. If omitted, will default to the domain's identifier with some preprocessing to make it look nicer.")]
+        names     : Vec<LocationPair<'=', String>>,
+        /// Determines the port of the registry node on the given domain.
+        #[clap(short, long="reg-port", help = "Determines the port of the delegate service on the given location. Should be given as a '<LOCATION>=<PORT>' pair. If omitted, will default to '50051' for each location.")]
+        reg_ports : Vec<LocationPair<'=', u16>>,
+        /// Determines the port of the delegate node on the given domain.
+        #[clap(short, long="job-port", help = "Determines the port of the delegate service on the given location. Should be given as a '<LOCATION>=<PORT>' pair. If omitted, will default to '50052' for each location.")]
+        job_ports : Vec<LocationPair<'=', u16>>,
+    },
+
+    #[clap(name = "creds", about = "Generates a new `creds.yml` file.")]
+    Creds {
+        /// If given, will generate missing directories instead of throwing errors.
+        #[clap(short='f', long, help = "If given, will generate any missing directories.")]
+        fix_dirs : bool,
+        /// The path to write to.
+        #[clap(short, long, default_value = "./creds.yml", help = "The path to write the credentials file to.")]
+        path     : PathBuf,
+
+        /// Defines the possible backends to generate a new creds.yml file for.
+        #[clap(subcommand)]
+        kind : GenerateCredsSubcommand,
+    },
+
+    #[clap(name = "policy", about = "Generates a new `policies.yml` file.")]
+    Policy {
+        /// If given, will generate missing directories instead of throwing errors.
+        #[clap(short='f', long, help = "If given, will generate any missing directories.")]
+        fix_dirs : bool,
+        /// The path to write to.
+        #[clap(short, long, default_value = "./policies.yml", help = "The path to write the policy file to.")]
+        path     : PathBuf,
+
+        /// Sets the default file to allow everything instead of nothing.
+        #[clap(short, long, help = "Generates the file with AllowAll-rules instead of DenyAll-rules. Don't forget to edit the file if you do!")]
+        allow_all : bool,
     },
 }
 
@@ -191,9 +246,23 @@ async fn main() {
     // Now match on the command
     match args.subcommand {
         CtlSubcommand::Generate(subcommand) => match subcommand {
-            GenerateSubcommand::Node{ hosts, proxy, config_path, kind } => {
+            GenerateSubcommand::Node{ hosts, proxy, fix_dirs, config_path, kind } => {
                 // Call the thing
-                if let Err(err) = generate::generate(args.node_config, hosts, proxy, config_path, kind) { error!("{}", err); std::process::exit(1); }
+                if let Err(err) = generate::node(args.node_config, hosts, proxy, fix_dirs, config_path, kind) { error!("{}", err); std::process::exit(1); }
+            },
+
+            GenerateSubcommand::Infra{ locations, fix_dirs, path, names, reg_ports, job_ports } => {
+                // Call the thing
+                if let Err(err) = generate::infra(locations, fix_dirs, path, names, reg_ports, job_ports) { error!("{}", err); std::process::exit(1); }
+            },
+
+            GenerateSubcommand::Creds{ fix_dirs, path, kind } => {
+                // Call the thing
+                if let Err(err) = generate::creds(fix_dirs, path, kind) { error!("{}", err); std::process::exit(1); }
+            },
+            GenerateSubcommand::Policy{ fix_dirs, path, allow_all } => {
+                // Call the thing
+                if let Err(err) = generate::policy(fix_dirs, path, allow_all) { error!("{}", err); std::process::exit(1); }
             },
         },
 

@@ -70,7 +70,6 @@ services:
     volumes:
     - ${NODE_CONFIG_PATH}:/node.yml
     - ${INFRA}:${INFRA}
-    - ${SECRETS}:${SECRETS}
     - ${CERTS}:${CERTS}
     - ${PACKAGES}:${PACKAGES}
     depends_on:
@@ -91,7 +90,6 @@ services:
     volumes:
     - ${NODE_CONFIG_PATH}:/node.yml
     - ${INFRA}:${INFRA}
-    - ${SECRETS}:${SECRETS}
     depends_on:
     - aux-kafka
     - brane-prx
@@ -125,7 +123,6 @@ services:
     volumes:
     - ${NODE_CONFIG_PATH}:/node.yml
     - ${INFRA}:${INFRA}
-    - ${SECRETS}:${SECRETS}
     depends_on:
     - aux-kafka
 

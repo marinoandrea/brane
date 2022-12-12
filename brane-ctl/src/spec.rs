@@ -4,7 +4,7 @@
 //  Created:
 //    21 Nov 2022, 17:27:52
 //  Last edited:
-//    06 Dec 2022, 11:41:57
+//    12 Dec 2022, 13:46:33
 //  Auto updated?
 //    Yes
 // 
@@ -19,10 +19,11 @@ use std::str::FromStr;
 
 use bollard::ClientVersion;
 use clap::Subcommand;
+use enum_debug::EnumDebug;
 
 use brane_tsk::docker::ImageSource;
 
-use crate::errors::{DockerClientVersionParseError, HostnamePairParseError};
+use crate::errors::{DockerClientVersionParseError, HostnamePairParseError, LocationPairParseError};
 
 
 /***** AUXILLARY *****/
@@ -105,6 +106,37 @@ impl From<&mut HostnamePair> for HostnamePair {
     fn from(value: &mut HostnamePair) -> Self { value.clone() }
 }
 
+/// Defines a `<location>=<something>` pair that is conveniently parseable.
+#[derive(Clone, Debug)]
+pub struct LocationPair<const C: char, T>(pub String, pub T);
+
+impl<const C: char, T: Display> Display for LocationPair<C, T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
+        write!(f, "{}: {}", self.0, self.1)
+    }
+}
+
+impl<const C: char, T: FromStr> FromStr for LocationPair<C, T> {
+    type Err = LocationPairParseError<T::Err>;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        // Find the separator to split on
+        let sep_pos: usize = match s.find(C) {
+            Some(pos) => pos,
+            None      => { return Err(LocationPairParseError::<T::Err>::MissingSeparator{ separator: C, raw: s.into() }); },
+        };
+
+        // Split it
+        let location  : &str = &s[..sep_pos];
+        let something : &str = &s[sep_pos + 1..];
+
+        // Attempt to parse the something as the thing
+        match T::from_str(something) {
+            Ok(something) => Ok(Self(location.into(), something)),
+            Err(err)      => Err(LocationPairParseError::<T::Err>::IllegalSomething{ what: std::any::type_name::<T>(), raw: something.into(), err }),
+        }
+    }
+}
 
 
 
@@ -120,9 +152,6 @@ pub enum GenerateNodeSubcommand {
         /// Custom `infra.yml` path.
         #[clap(short, long, default_value = "$CONFIG/infra.yml", help = "The location of the 'infra.yml' file. Use '$CONFIG' to reference the value given by --config-path.")]
         infra    : PathBuf,
-        /// Custom `secrets.yml` path.
-        #[clap(short, long, default_value = "$CONFIG/secrets.yml", help = "The location of the 'secrets.yml' file. Use '$CONFIG' to reference the value given by --config-path.")]
-        secrets  : PathBuf,
         /// Custom certificates path.
         #[clap(short, long, default_value = "$CONFIG/certs", help = "The location of the certificate directory. Use '$CONFIG' to reference the value given by --config-path.")]
         certs    : PathBuf,
@@ -218,6 +247,21 @@ pub enum GenerateNodeSubcommand {
         /// The address on which to launch the checker service.
         #[clap(long, default_value = "50053", help = "The port on which the local checker service is available.")]
         chk_port : u16,
+    },
+}
+
+/// A bit awkward here, but defines the generate subcommand, which basically defines the possible kinds of nodes to generate the node.yml config file for.
+#[derive(Debug, EnumDebug, Subcommand)]
+pub enum GenerateCredsSubcommand {
+    /// A backend on the local Docker engine.
+    #[clap(name = "local", about = "Generate a creds.yml for a local backend.")]
+    Local {
+        /// The location of the Docker socket to connect to.
+        #[clap(short, long, default_value = "/var/run/docker.sock", help = "The location of the Docker socket that the delegate service should connect to.")]
+        socket         : PathBuf,
+        /// The client version to connect to the local Docker daemon with.
+        #[clap(short, long, help = "If given, fixes the Docker client version to the given one.")]
+        client_version : Option<DockerClientVersion>,
     },
 }
 

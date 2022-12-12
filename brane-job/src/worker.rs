@@ -4,7 +4,7 @@
 //  Created:
 //    31 Oct 2022, 11:21:14
 //  Last edited:
-//    06 Dec 2022, 12:28:20
+//    12 Dec 2022, 13:23:17
 //  Auto updated?
 //    Yes
 // 
@@ -34,8 +34,7 @@ use tonic::{Response, Request, Status};
 use brane_ast::Workflow;
 use brane_ast::locations::Location;
 use brane_ast::ast::DataName;
-use brane_cfg::CredsFile;
-use brane_cfg::creds::Credentials;
+use brane_cfg::creds::{CredsFile, Credentials};
 use brane_cfg::node::NodeConfig;
 use brane_cfg::policies::{ContainerPolicy, PolicyFile};
 use brane_exe::FullValue;

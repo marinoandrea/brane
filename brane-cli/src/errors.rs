@@ -4,7 +4,7 @@
 //  Created:
 //    17 Feb 2022, 10:27:28
 //  Last edited:
-//    28 Nov 2022, 16:05:11
+//    12 Dec 2022, 13:24:00
 //  Auto updated?
 //    Yes
 // 
@@ -850,7 +850,7 @@ impl Error for TestError {}
 #[derive(Debug)]
 pub enum VerifyError {
     /// Failed to verify the config
-    ConfigFailed{ err: brane_cfg::Error },
+    ConfigFailed{ err: brane_cfg::infra::Error },
 }
 
 impl Display for VerifyError {

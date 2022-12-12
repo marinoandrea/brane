@@ -4,7 +4,7 @@
 //  Created:
 //    23 Nov 2022, 11:02:54
 //  Last edited:
-//    28 Nov 2022, 14:14:03
+//    12 Dec 2022, 13:15:11
 //  Auto updated?
 //    Yes
 // 
@@ -19,7 +19,7 @@ use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 
-use brane_cfg::node::Address;
+use brane_cfg::spec::Address;
 
 use crate::ports::PortAllocator;
 

@@ -4,7 +4,7 @@
 //  Created:
 //    01 Dec 2022, 09:20:32
 //  Last edited:
-//    06 Dec 2022, 11:32:16
+//    12 Dec 2022, 13:56:08
 //  Auto updated?
 //    Yes
 // 
@@ -14,12 +14,12 @@
 // 
 
 use std::fs;
+use std::io::Write;
 use std::path::Path;
 
+use enum_debug::EnumDebug;
 use serde::{Deserialize, Serialize};
 use tokio::fs as tfs;
-
-use brane_shr::debug::EnumDebug;
 
 pub use crate::errors::PolicyFileError as Error;
 
@@ -86,12 +86,38 @@ impl PolicyFile {
             Err(err) => Err(Error::FileParseError { path: path.into(), err }),
         }
     }
+
+    /// Writes the PolicyFile to the given writer.
+    /// 
+    /// # Arguments
+    /// - `writer`: The writer to write the PolicyFile to.
+    /// 
+    /// # Returns
+    /// Nothing, but does obviously populate the given writer with its own serialized contents.
+    /// 
+    /// # Errors
+    /// This function errors if we failed to write or failed to serialize ourselves.
+    pub fn to_writer(&self, writer: impl Write) -> Result<(), Error> {
+        let mut writer = writer;
+
+        // Serialize the config
+        let config: String = match serde_yaml::to_string(self) {
+            Ok(config) => config,
+            Err(err)   => { return Err(Error::ConfigSerializeError{ err }); },
+        };
+
+        // Write it
+        if let Err(err) = writer.write_all(config.as_bytes()) { return Err(Error::WriterWriteError{ err }); }
+
+        // Done
+        Ok(())
+    }
 }
 
 
 
 /// Defines the possible policies for users.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, EnumDebug, Serialize)]
 #[serde(rename_all = "snake_case", tag = "policy")]
 pub enum UserPolicy {
     /// Allows everyone to do anything.
@@ -126,26 +152,10 @@ pub enum UserPolicy {
     },
 }
 
-impl EnumDebug for UserPolicy {
-    fn fmt_name(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        use UserPolicy::*;
-        match self {
-            AllowAll => write!(f, "AllowAll"),
-            DenyAll  => write!(f, "DenyAll"),
-
-            AllowUserAll{ .. } => write!(f, "AllowUserAll"),
-            DenyUserAll{ .. }  => write!(f, "DenyUserAll"),
-
-            Allow{ .. } => write!(f, "Allow"),
-            Deny{ .. }  => write!(f, "Deny"),
-        }
-    }
-}
-
 
 
 /// Defines the possible policies for containers.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, EnumDebug, Serialize)]
 #[serde(rename_all = "snake_case", tag = "policy")]
 pub enum ContainerPolicy {
     /// Allow all containers.
@@ -167,17 +177,4 @@ pub enum ContainerPolicy {
         /// The hash of the container to allow.
         hash : String,
     },
-}
-
-impl EnumDebug for ContainerPolicy {
-    fn fmt_name(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        use ContainerPolicy::*;
-        match self {
-            AllowAll => write!(f, "AllowAll"),
-            DenyAll  => write!(f, "DenyAll"),
-
-            Allow{ .. } => write!(f, "Allow"),
-            Deny{ .. }  => write!(f, "Deny"),
-        }
-    }
 }

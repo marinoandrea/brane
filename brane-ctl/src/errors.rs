@@ -4,7 +4,7 @@
 //  Created:
 //    21 Nov 2022, 15:46:26
 //  Last edited:
-//    06 Dec 2022, 12:24:54
+//    12 Dec 2022, 14:04:03
 //  Auto updated?
 //    Yes
 // 
@@ -13,15 +13,15 @@
 // 
 
 use std::error::Error;
-use std::fmt::{Display, Formatter, Result as FResult};
+use std::fmt::{Debug, Display, Formatter, Result as FResult};
 use std::path::PathBuf;
 use std::process::{Command, ExitStatus};
 
 use bollard::ClientVersion;
 use console::style;
+use enum_debug::EnumDebug as _;
 
 use brane_cfg::node::NodeKind;
-use brane_shr::debug::EnumDebug;
 use brane_tsk::docker::ImageSource;
 use specifications::container::Image;
 use specifications::version::Version;
@@ -31,6 +31,13 @@ use specifications::version::Version;
 /// Errors that relate to generating files.
 #[derive(Debug)]
 pub enum GenerateError {
+    /// Directory not found.
+    DirNotFound{ path: PathBuf },
+    /// Directory found but not as a directory
+    DirNotADir{ path: PathBuf },
+    /// Failed to create a directory.
+    DirCreateError{ path: PathBuf, err: std::io::Error },
+
     /// Failed to canonicalize the given path.
     CanonicalizeError{ path: PathBuf, err: std::io::Error },
 
@@ -39,17 +46,39 @@ pub enum GenerateError {
     /// Failed to write the header to the new file.
     FileHeaderWriteError{ path: PathBuf, err: std::io::Error },
     /// Failed to write the main body to the new file.
-    FileBodyWriteError{ path: PathBuf, err: brane_cfg::node::Error },
+    NodeWriteError{ path: PathBuf, err: brane_cfg::node::Error },
+
+    /// The given location is unknown.
+    UnknownLocation{ loc: String },
+    /// Failed to write the main body to the new file.
+    InfraWriteError{ path: PathBuf, err: brane_cfg::infra::Error },
+
+    /// Failed to write the main body to the new file.
+    CredsWriteError{ path: PathBuf, err: brane_cfg::creds::Error },
+
+    /// Failed to write the main body to the new file.
+    PolicyWriteError{ path: PathBuf, err: brane_cfg::policies::Error },
 }
 impl Display for GenerateError {
     fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
         use GenerateError::*;
         match self {
+            DirNotFound{ path }         => write!(f, "Directory '{}' not found", path.display()),
+            DirNotADir{ path }          => write!(f, "Directory '{}' exists but not as a directory", path.display()),
+            DirCreateError{ path, err } => write!(f, "Failed to create directory '{}': {}", path.display(), err),
+
             CanonicalizeError{ path, err } => write!(f, "Failed to canonicalize path '{}': {}", path.display(), err),
 
             FileCreateError{ path, err }      => write!(f, "Failed to create new node.yml file '{}': {}", path.display(), err),
             FileHeaderWriteError{ path, err } => write!(f, "Failed to write header to node.yml file '{}': {}", path.display(), err),
-            FileBodyWriteError{ err, .. }     => write!(f, "Failed to write body to node.yml file: {}", err),
+            NodeWriteError{ err, .. }         => write!(f, "Failed to write body to node.yml file: {}", err),
+
+            UnknownLocation{ loc }     => write!(f, "Unknown location '{}' (did you forget to specify it in the LOCATIONS argument?)", loc),
+            InfraWriteError{ err, .. } => write!(f, "Failed to write body to infra.yml file: {}", err),
+
+            CredsWriteError{ err, .. } => write!(f, "Failed to write body to creds.yml file: {}", err),
+
+            PolicyWriteError{ err, .. } => write!(f, "Failed to write body to policies.yml file: {}", err),
         }
     }
 }
@@ -188,3 +217,24 @@ impl Display for HostnamePairParseError {
     }
 }
 impl Error for HostnamePairParseError {}
+
+
+
+/// Errors that relate to parsing LocationPairs.
+#[derive(Debug)]
+pub enum LocationPairParseError<E> {
+    /// Missing an equals in the pair.
+    MissingSeparator{ separator: char, raw: String },
+    /// Failed to parse the given something as a certain other thing
+    IllegalSomething{ what: &'static str, raw: String, err: E },
+}
+impl<E: Display> Display for LocationPairParseError<E> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
+        use LocationPairParseError::*;
+        match self {
+            MissingSeparator{ separator, raw } => write!(f, "Missing '{}' in location pair '{}'", separator, raw),
+            IllegalSomething{ what, raw, err } => write!(f, "Failed to parse '{}' as a {}: {}", raw, what, err),
+        }
+    }
+}
+impl<E: Debug + Display> Error for LocationPairParseError<E> {}

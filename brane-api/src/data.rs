@@ -4,7 +4,7 @@
 //  Created:
 //    26 Sep 2022, 17:20:55
 //  Last edited:
-//    28 Nov 2022, 17:29:11
+//    12 Dec 2022, 13:17:34
 //  Auto updated?
 //    Yes
 // 
@@ -21,7 +21,7 @@ use warp::{Rejection, Reply};
 use warp::http::{HeaderValue, Response};
 use warp::hyper::Body;
 
-use brane_cfg::{InfraFile, InfraPath};
+use brane_cfg::infra::InfraFile;
 use brane_cfg::node::NodeConfig;
 use brane_prx::spec::NewPathRequestTlsOptions;
 use specifications::data::{AssetInfo, DataInfo};
@@ -70,7 +70,7 @@ pub async fn list(context: Context) -> Result<impl Reply, Rejection> {
     }
 
     // Load the infrastructure file
-    let infra: InfraFile = match InfraFile::from_path(InfraPath::new(&node_config.node.central().paths.infra, &node_config.node.central().paths.secrets)) {
+    let infra: InfraFile = match InfraFile::from_path(&node_config.node.central().paths.infra) {
         Ok(infra) => infra,
         Err(err)  => {
             error!("{}", Error::InfrastructureOpenError{ path: node_config.node.central().paths.infra.clone(), err });
@@ -180,7 +180,7 @@ pub async fn get(name: String, context: Context) -> Result<impl Reply, Rejection
     }
 
     // Load the infrastructure file
-    let infra: InfraFile = match InfraFile::from_path(InfraPath::new(&node_config.node.central().paths.infra, &node_config.node.central().paths.secrets)) {
+    let infra: InfraFile = match InfraFile::from_path(&node_config.node.central().paths.infra) {
         Ok(infra) => infra,
         Err(err)  => {
             error!("{}", Error::InfrastructureOpenError{ path: node_config.node.central().paths.infra.clone(), err });

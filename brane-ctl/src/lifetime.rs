@@ -4,7 +4,7 @@
 //  Created:
 //    22 Nov 2022, 11:19:22
 //  Last edited:
-//    07 Dec 2022, 11:29:58
+//    12 Dec 2022, 13:33:31
 //  Auto updated?
 //    Yes
 // 
@@ -238,7 +238,7 @@ fn construct_envs(version: &Version, node_config_path: &Path, node_config: &Node
         NodeKindConfig::Central(central) => {
             // Now we do a little ugly something, but we unpack the paths and ports here so that we get compile errors if we add more later on
             let CommonPaths{ certs, packages } = &node_config.paths;
-            let CentralPaths{ infra, secrets } = &central.paths;
+            let CentralPaths{ infra } = &central.paths;
             let CentralPorts{ api, drv }       = &central.ports;
 
             // Add the environment variables, which are basically just central-specific paths and ports to mount in the compose file
@@ -251,7 +251,6 @@ fn construct_envs(version: &Version, node_config_path: &Path, node_config: &Node
 
                 // Paths
                 ("INFRA", canonicalize(node_config_dir.join(infra))?.as_os_str().into()),
-                ("SECRETS", canonicalize(node_config_dir.join(secrets))?.as_os_str().into()),
                 ("CERTS", canonicalize(node_config_dir.join(certs))?.as_os_str().into()),
                 ("PACKAGES", canonicalize(node_config_dir.join(packages))?.as_os_str().into()),
     

@@ -4,7 +4,7 @@
 //  Created:
 //    02 Nov 2022, 16:21:33
 //  Last edited:
-//    22 Nov 2022, 15:00:20
+//    12 Dec 2022, 13:17:02
 //  Auto updated?
 //    Yes
 // 
@@ -19,7 +19,8 @@ use warp::{Reply, Rejection};
 use warp::hyper::{Body, Response};
 use warp::hyper::header::HeaderValue;
 
-use brane_cfg::{InfraFile, InfraLocation, InfraPath};
+use brane_cfg::spec::Address;
+use brane_cfg::infra::{InfraFile, InfraLocation};
 use brane_cfg::node::NodeConfig;
 
 pub use crate::errors::InfraError as Error;
@@ -54,7 +55,7 @@ pub async fn registries(context: Context) -> Result<impl Reply, Rejection> {
     }
 
     // Load the infrastructure file
-    let infra: InfraFile = match InfraFile::from_path(InfraPath::new(&node_config.node.central().paths.infra, &node_config.node.central().paths.secrets)) {
+    let infra: InfraFile = match InfraFile::from_path(&node_config.node.central().paths.infra) {
         Ok(infra) => infra,
         Err(err)  => {
             error!("{}", Error::InfrastructureOpenError{ path: node_config.node.central().paths.infra.clone(), err });
@@ -63,7 +64,7 @@ pub async fn registries(context: Context) -> Result<impl Reply, Rejection> {
     };
 
     // Iterate through all of the regitries
-    let mut locations: HashMap<String, String> = HashMap::new();
+    let mut locations: HashMap<String, Address> = HashMap::new();
     for (name, loc) in infra.into_iter() {
         locations.insert(name, loc.registry);
     }
@@ -119,7 +120,7 @@ pub async fn get_registry(loc: String, context: Context) -> Result<impl Reply, R
     }
 
     // Load the infrastructure file
-    let infra: InfraFile = match InfraFile::from_path(InfraPath::new(&node_config.node.central().paths.infra, &node_config.node.central().paths.secrets)) {
+    let infra: InfraFile = match InfraFile::from_path(&node_config.node.central().paths.infra) {
         Ok(infra) => infra,
         Err(err)  => {
             error!("{}", Error::InfrastructureOpenError{ path: node_config.node.central().paths.infra.clone(), err });
@@ -134,7 +135,7 @@ pub async fn get_registry(loc: String, context: Context) -> Result<impl Reply, R
     };
 
     // Create a body with the registry
-    let body     : String = info.registry.clone();
+    let body     : String = info.registry.serialize().to_string();
     let body_len : usize  = body.len();
 
     // Create the respones around it

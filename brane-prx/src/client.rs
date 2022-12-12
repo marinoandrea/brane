@@ -4,7 +4,7 @@
 //  Created:
 //    25 Nov 2022, 15:09:17
 //  Last edited:
-//    07 Dec 2022, 11:29:30
+//    12 Dec 2022, 13:14:50
 //  Auto updated?
 //    Yes
 // 
@@ -22,7 +22,7 @@ use reqwest::{Client, Response, Request};
 use tonic::transport::Channel;
 use url::Url;
 
-use brane_cfg::node::Address;
+use brane_cfg::spec::Address;
 use brane_tsk::grpc::JobServiceClient;
 use specifications::package::PackageIndex;
 

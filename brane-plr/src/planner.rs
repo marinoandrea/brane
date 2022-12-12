@@ -4,7 +4,7 @@
 //  Created:
 //    25 Oct 2022, 11:35:00
 //  Last edited:
-//    28 Nov 2022, 16:26:35
+//    12 Dec 2022, 13:14:35
 //  Auto updated?
 //    Yes
 // 
@@ -34,7 +34,8 @@ use rdkafka::util::Timeout;
 use brane_ast::Workflow;
 use brane_ast::locations::Locations;
 use brane_ast::ast::{DataName, Edge, SymTable};
-use brane_cfg::{InfraFile, InfraPath};
+use brane_cfg::spec::Address;
+use brane_cfg::infra::InfraFile;
 use brane_cfg::node::NodeConfig;
 use brane_shr::kafka::{ensure_topics, restore_committed_offsets};
 use brane_tsk::errors::PlanError;
@@ -165,7 +166,7 @@ fn plan_edges(table: &mut SymTable, edges: &mut [Edge], dindex: &DataIndex, infr
                                 let location: &str = info.access.keys().choose(&mut rng).unwrap();
 
                                 // Get the registry of that location
-                                let registry : &String = &infra.get(location).unwrap_or_else(|| panic!("DataIndex advertises location '{}', but that location is unknown", location)).registry;
+                                let registry : &Address = &infra.get(location).unwrap_or_else(|| panic!("DataIndex advertises location '{}', but that location is unknown", location)).registry;
                                 let address  : String  = format!("{}/data/download/{}", registry, name);
                                 debug!("Input dataset '{}' will be transferred in from '{}'", name, address);
 
@@ -186,7 +187,7 @@ fn plan_edges(table: &mut SymTable, edges: &mut [Edge], dindex: &DataIndex, infr
                                 *avail = Some(AvailabilityKind::Available { how: AccessKind::File{ path: PathBuf::from(name) } });
                             } else {
                                 // Find the remote location in the infra file
-                                let registry: &String = &infra.get(loc).unwrap_or_else(|| panic!("IntermediateResult advertises location '{}', but that location is unknown", loc)).registry;
+                                let registry: &Address = &infra.get(loc).unwrap_or_else(|| panic!("IntermediateResult advertises location '{}', but that location is unknown", loc)).registry;
 
                                 // Compute the registry access method
                                 let address: String = format!("{}/results/download/{}", registry, name);
@@ -326,7 +327,7 @@ pub async fn planner_server(node_config_path: impl Into<PathBuf>, node_config: N
                 // Now we do the planning
                 {
                     // Load the infrastructure file
-                    let infra: InfraFile = match InfraFile::from_path(InfraPath::new(&node_config.node.central().paths.infra, &node_config.node.central().paths.secrets)) {
+                    let infra: InfraFile = match InfraFile::from_path(&node_config.node.central().paths.infra) {
                         Ok(infra) => infra,
                         Err(err)  => {
                             error!("Failed to load infrastructure file '{}': {}", node_config.node.central().paths.infra.display(), err);

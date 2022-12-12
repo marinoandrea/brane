@@ -4,7 +4,7 @@
 //  Created:
 //    26 Oct 2022, 14:47:11
 //  Last edited:
-//    14 Nov 2022, 09:48:34
+//    12 Dec 2022, 13:13:23
 //  Auto updated?
 //    Yes
 // 
@@ -13,7 +13,7 @@
 // 
 
 use std::cell::{RefCell, RefMut};
-use std::fmt::{Debug, Display, Formatter, Result as FResult};
+use std::fmt::{Display, Formatter, Result as FResult};
 
 
 /***** LIBRARY *****/
@@ -194,58 +194,5 @@ where
 
         // Done
         Ok(())
-    }
-}
-
-
-
-/// Defines a struct that implements a special type of Debug for the given EnumDebug-type.
-pub struct EnumDebugFormatter<'a, T: ?Sized> {
-    reference : &'a T,
-}
-impl<'a, T> Debug for EnumDebugFormatter<'a, T>
-where
-    T: EnumDebug,
-{
-    #[inline]
-    fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
-        write!(f, "{}::", std::any::type_name::<T>())?;
-        self.reference.fmt_name(f)
-    }
-}
-impl<'a, T> Display for EnumDebugFormatter<'a, T>
-where
-    T: EnumDebug,
-{
-    #[inline]
-    fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
-        self.reference.fmt_name(f)
-    }
-}
-
-
-
-/// Defines a really quick trait that allows the printing of node names only.
-pub trait EnumDebug {
-    /// Writes the name of this node to the given formatter.
-    /// 
-    /// # Arguments
-    /// - `f`: The Formatter to write to.
-    /// 
-    /// # Errors
-    /// This function errors if it failed to write to the given formatter.
-    fn fmt_name(&self, f: &mut Formatter<'_>) -> FResult;
-
-
-
-    /// Function that returns a EnumDebugFormatter for the type implementing this.
-    /// 
-    /// # Returns
-    /// A new EnumDebugFormatter that implements Debug and can thus write to stdout.
-    #[inline]
-    fn variant(&self) -> EnumDebugFormatter<'_, Self> {
-        EnumDebugFormatter {
-            reference : self,
-        }
     }
 }

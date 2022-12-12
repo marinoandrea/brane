@@ -4,7 +4,7 @@
 //  Created:
 //    23 Nov 2022, 11:43:56
 //  Last edited:
-//    29 Nov 2022, 13:05:10
+//    12 Dec 2022, 13:15:17
 //  Auto updated?
 //    Yes
 // 
@@ -19,7 +19,7 @@ use std::net::SocketAddr;
 use reqwest::StatusCode;
 use url::Url;
 
-use brane_cfg::node::Address;
+use brane_cfg::spec::Address;
 
 
 /***** LIBRARY *****/

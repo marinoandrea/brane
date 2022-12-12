@@ -4,7 +4,7 @@
 //  Created:
 //    09 Sep 2022, 13:23:41
 //  Last edited:
-//    14 Nov 2022, 10:49:24
+//    12 Dec 2022, 12:54:12
 //  Auto updated?
 //    Yes
 // 
@@ -17,6 +17,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
+use enum_debug::EnumDebug as _;
 use futures::future::{BoxFuture, FutureExt};
 use log::debug;
 use tokio::spawn;
@@ -26,7 +27,6 @@ use brane_ast::{DataType, MergeStrategy, Workflow};
 use brane_ast::spec::{BuiltinClasses, BuiltinFunctions};
 use brane_ast::locations::Location;
 use brane_ast::ast::{ClassDef, DataName, Edge, EdgeInstr, FunctionDef, TaskDef};
-use brane_shr::debug::EnumDebug;
 use specifications::data::{AccessKind, AvailabilityKind};
 
 use crate::dbg_node;

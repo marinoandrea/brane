@@ -10,6 +10,7 @@ bytes = "1"
 chrono = "0.4"
 clap = { version = "4.0.24", features = ["derive","env"] }
 dotenvy = "0.15"
+enum-debug = { git = "https://github.com/Lut99/enum-debug", features = ["derive"] }
 env_logger = "0.10"
 futures = "0.3"
 juniper = "0.15"

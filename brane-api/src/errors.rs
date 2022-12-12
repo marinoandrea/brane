@@ -4,7 +4,7 @@
 //  Created:
 //    04 Feb 2022, 10:35:12
 //  Last edited:
-//    06 Dec 2022, 11:55:15
+//    12 Dec 2022, 13:19:09
 //  Auto updated?
 //    Yes
 // 
@@ -16,10 +16,12 @@ use std::error::Error;
 use std::fmt::{Display, Formatter, Result as FResult};
 use std::path::PathBuf;
 
+use enum_debug::EnumDebug as _;
 use scylla::transport::errors::NewSessionError;
 
-use brane_cfg::node::{Address, NodeKind};
-use brane_shr::debug::{EnumDebug, PrettyListFormatter};
+use brane_cfg::spec::Address;
+use brane_cfg::node::NodeKind;
+use brane_shr::debug::PrettyListFormatter;
 use specifications::version::Version;
 
 
@@ -47,7 +49,7 @@ impl Error for ApiError {}
 #[derive(Debug)]
 pub enum InfraError {
     /// Failed to open/load the infrastructure file.
-    InfrastructureOpenError{ path: PathBuf, err: brane_cfg::Error },
+    InfrastructureOpenError{ path: PathBuf, err: brane_cfg::infra::Error },
     /// Failed to serialize the response body.
     SerializeError{ what: &'static str, err: serde_json::Error },
 
@@ -77,11 +79,11 @@ impl warp::reject::Reject for InfraError {}
 #[derive(Debug)]
 pub enum DataError {
     /// Failed to open/load the infrastructure file.
-    InfrastructureOpenError{ path: PathBuf, err: brane_cfg::Error },
+    InfrastructureOpenError{ path: PathBuf, err: brane_cfg::infra::Error },
     /// Failed to get the list of all locations.
-    InfrastructureLocationsError{ path: PathBuf, err: brane_cfg::Error },
+    InfrastructureLocationsError{ path: PathBuf, err: brane_cfg::infra::Error },
     /// Failed to get the metadata of a location.
-    InfrastructureMetadataError{ path: PathBuf, name: String, err: brane_cfg::Error },
+    InfrastructureMetadataError{ path: PathBuf, name: String, err: brane_cfg::infra::Error },
 
     /// Failed to create a new port on the proxy.
     ProxyError{ err: brane_prx::client::Error },

@@ -4,7 +4,7 @@
 //  Created:
 //    04 Oct 2022, 11:09:56
 //  Last edited:
-//    06 Dec 2022, 11:00:58
+//    12 Dec 2022, 13:56:25
 //  Auto updated?
 //    Yes
 // 
@@ -60,38 +60,7 @@ impl Error for CertsError {}
 
 
 
-/// Errors that relate to resolving secrets.
-#[derive(Debug)]
-pub enum SecretsError {
-    /// Failed to open the given file.
-    FileOpenError{ path: PathBuf, err: std::io::Error },
-    /// Failed to read/parse the given file as YAML.
-    FileParseError{ path: PathBuf, err: serde_yaml::Error },
-
-    /// The given location had no secrets defined in the secrets file.
-    MissingSecret{ path: PathBuf, loc: String, what: &'static str },
-    /// The given location had a secret specified that we cannot use.
-    IncompatibleSecret{ path: PathBuf, loc: String, expected: &'static str, got: &'static str },
-}
-
-impl Display for SecretsError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
-        use SecretsError::*;
-        match self {
-            FileOpenError{ path, err }       => write!(f, "Failed to open secrets file '{}': {}", path.display(), err),
-            FileParseError{ path, err }      => write!(f, "Failed to parse secrets file '{}' as YAML: {}", path.display(), err),
-
-            MissingSecret{ path, loc, what }               => write!(f, "Secrets file '{}' has no {} entry for location '{}'", path.display(), what, loc),
-            IncompatibleSecret{ path, loc, expected, got } => write!(f, "Secrets file '{}' has an incompatible entry for location '{}': Expected {}, got {}", path.display(), loc, expected, got),
-        }
-    }
-}
-
-impl Error for SecretsError {}
-
-
-
-/// Errors that relate to the InfraFile struct.
+// Errors that relate to the InfraFile struct.
 #[derive(Debug)]
 pub enum InfraFileError {
     /// Failed to open the given file.
@@ -99,8 +68,10 @@ pub enum InfraFileError {
     /// Failed to read/parse the given file as YAML.
     FileParseError{ path: PathBuf, err: serde_yaml::Error },
 
-    /// Failed to resolve the secrets.
-    SecretsResolveError{ path: PathBuf, err: SecretsError },
+    /// Failed to write to the given writer.
+    WriterWriteError{ err: std::io::Error },
+    /// Failed to serialze the NodeConfig.
+    ConfigSerializeError{ err: serde_yaml::Error },
 }
 
 impl Display for InfraFileError {
@@ -110,7 +81,8 @@ impl Display for InfraFileError {
             FileOpenError{ path, err }  => write!(f, "Failed to open infrastructure file '{}': {}", path.display(), err),
             FileParseError{ path, err } => write!(f, "Failed to parse infrastructure file '{}' as YAML: {}", path.display(), err),
 
-            SecretsResolveError{ path, err } => write!(f, "Failed to resolve secrets for infrastructure file '{}': {}", path.display(), err),
+            WriterWriteError{ err }     => write!(f, "Failed to write to given writer: {}", err),
+            ConfigSerializeError{ err } => write!(f, "Failed to serialize infrastructure file to YAML: {}", err),
         }
     }
 }
@@ -126,6 +98,11 @@ pub enum CredsFileError {
     FileOpenError{ path: PathBuf, err: std::io::Error },
     /// Failed to read/parse the given file as YAML.
     FileParseError{ path: PathBuf, err: serde_yaml::Error },
+
+    /// Failed to write to the given writer.
+    WriterWriteError{ err: std::io::Error },
+    /// Failed to serialze the NodeConfig.
+    ConfigSerializeError{ err: serde_yaml::Error },
 }
 
 impl Display for CredsFileError {
@@ -134,6 +111,9 @@ impl Display for CredsFileError {
         match self {
             FileOpenError{ path, err }  => write!(f, "Failed to open credentials file '{}': {}", path.display(), err),
             FileParseError{ path, err } => write!(f, "Failed to parse credentials file '{}' as YAML: {}", path.display(), err),
+
+            WriterWriteError{ err }     => write!(f, "Failed to write to given writer: {}", err),
+            ConfigSerializeError{ err } => write!(f, "Failed to serialize credentials file to YAML: {}", err),
         }
     }
 }
@@ -219,6 +199,11 @@ pub enum PolicyFileError {
     FileReadError{ path: PathBuf, err: std::io::Error },
     /// Failed to parse the file as YAML of our specification.
     FileParseError{ path: PathBuf, err: serde_yaml::Error },
+
+    /// Failed to write to the given writer.
+    WriterWriteError{ err: std::io::Error },
+    /// Failed to serialze the NodeConfig.
+    ConfigSerializeError{ err: serde_yaml::Error },
 }
 
 impl Display for PolicyFileError {
@@ -227,6 +212,9 @@ impl Display for PolicyFileError {
         match self {
             FileReadError{ path, err }  => write!(f, "Failed to read file '{}': {}", path.display(), err),
             FileParseError{ path, err } => write!(f, "Failed to parse file '{}' as YAML: {}", path.display(), err),
+
+            WriterWriteError{ err }     => write!(f, "Failed to write to given writer: {}", err),
+            ConfigSerializeError{ err } => write!(f, "Failed to serialize infrastructure file to YAML: {}", err),
         }
     }
 }

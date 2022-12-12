@@ -4,7 +4,7 @@
 //  Created:
 //    27 Oct 2022, 10:14:26
 //  Last edited:
-//    29 Nov 2022, 13:25:18
+//    12 Dec 2022, 13:22:38
 //  Auto updated?
 //    Yes
 // 
@@ -18,6 +18,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
+use enum_debug::EnumDebug as _;
 use log::{debug, info, warn};
 use tokio::sync::mpsc::Sender;
 use serde_json_any_key::MapIterToJson;
@@ -27,12 +28,12 @@ use tonic::transport::Channel;
 use brane_ast::Workflow;
 use brane_ast::locations::Location;
 use brane_ast::ast::DataName;
-use brane_cfg::{InfraFile, InfraPath};
+use brane_cfg::spec::Address;
+use brane_cfg::infra::InfraFile;
 use brane_cfg::node::NodeConfig;
 use brane_exe::{Error as VmError, FullValue, RunState, Vm};
 use brane_exe::spec::{TaskInfo, VmPlugin};
 use brane_prx::client::ProxyClient;
-use brane_shr::debug::EnumDebug;
 use brane_tsk::errors::{CommitError, ExecuteError, PreprocessError, StdoutError};
 use brane_tsk::spec::{AppId, JobStatus, Planner};
 use brane_tsk::grpc::{self, CommitReply, CommitRequest, DataKind, ExecuteReply, PreprocessKind as RawPreprocessKind, PreprocessReply, PreprocessRequest, TaskReply, TaskRequest, TaskStatus};
@@ -75,7 +76,7 @@ impl VmPlugin for InstancePlugin {
         debug!("Preprocessing to be done: {:?}", preprocess);
 
         // Resolve the location to an address (and get the proxy while we have a lock anyway)
-        let (proxy, delegate_address): (Arc<ProxyClient>, String) = {
+        let (proxy, delegate_address): (Arc<ProxyClient>, Address) = {
             // Load the node config file to get the path to...
             let state : RwLockReadGuard<GlobalState> = global.read().unwrap();
             let node_config: NodeConfig = match NodeConfig::from_path(&state.node_config_path) {
@@ -84,7 +85,7 @@ impl VmPlugin for InstancePlugin {
             };
 
             // ...the infrastructure file
-            let infra : InfraFile = match InfraFile::from_path(InfraPath::new(&node_config.node.central().paths.infra, &node_config.node.central().paths.secrets)) {
+            let infra : InfraFile = match InfraFile::from_path(&node_config.node.central().paths.infra) {
                 Ok(infra) => infra,
                 Err(err)  => { return Err(PreprocessError::InfraReadError{ path: node_config.node.central().paths.infra.clone(), err }); },  
             };
@@ -112,7 +113,7 @@ impl VmPlugin for InstancePlugin {
         };
 
         // Create the client
-        let mut client: grpc::JobServiceClient<Channel> = match proxy.connect_to_job(&delegate_address).await {
+        let mut client: grpc::JobServiceClient<Channel> = match proxy.connect_to_job(delegate_address.to_string()).await {
             Ok(result) => match result {
                 Ok(client) => client,
                 Err(err)   => { return Err(PreprocessError::GrpcConnectError{ endpoint: delegate_address, err }); },
@@ -152,7 +153,7 @@ impl VmPlugin for InstancePlugin {
         debug!("Input arguments: {:#?}", info.args);
 
         // Resolve the location to an address (and get the proxy and the workflow while we have a lock anyway)
-        let (proxy, api_address, delegate_address, workflow): (Arc<ProxyClient>, String, String, String) = {
+        let (proxy, api_address, delegate_address, workflow): (Arc<ProxyClient>, Address, Address, String) = {
             let state : RwLockReadGuard<GlobalState> = global.read().unwrap();
             let node_config: NodeConfig = match NodeConfig::from_path(&state.node_config_path) {
                 Ok(config) => config,
@@ -160,7 +161,7 @@ impl VmPlugin for InstancePlugin {
             };
 
             // ...the infrastructure file
-            let infra : InfraFile = match InfraFile::from_path(InfraPath::new(&node_config.node.central().paths.infra, &node_config.node.central().paths.secrets)) {
+            let infra : InfraFile = match InfraFile::from_path(&node_config.node.central().paths.infra) {
                 Ok(infra) => infra,
                 Err(err)  => { return Err(ExecuteError::InfraReadError{ path: node_config.node.central().paths.infra.clone(), err }); },  
             };
@@ -168,7 +169,7 @@ impl VmPlugin for InstancePlugin {
             // Resolve to an address and return that with the other addresses
             ( 
                 state.proxy.clone(),
-                infra.registry().into(),
+                node_config.node.central().services.api.clone(),
                 match infra.get(info.location) {
                     Some(info) => info.delegate.clone(),
                     None       => { return Err(ExecuteError::UnknownLocationError{ loc: info.location.clone() }); },
@@ -180,7 +181,7 @@ impl VmPlugin for InstancePlugin {
         // Prepare the request to send to the delegate node
         debug!("Sending execute request to job node '{}'...", delegate_address);
         let message: TaskRequest = TaskRequest {
-            api : api_address,
+            api : api_address.serialize().to_string(),
             workflow,
 
             name            : info.name.into(),
@@ -193,7 +194,7 @@ impl VmPlugin for InstancePlugin {
         };
 
         // Create the client
-        let mut client: grpc::JobServiceClient<Channel> = match proxy.connect_to_job(delegate_address.clone()).await {
+        let mut client: grpc::JobServiceClient<Channel> = match proxy.connect_to_job(delegate_address.to_string()).await {
             Ok(result) => match result {
                 Ok(client) => client,
                 Err(err)   => { return Err(ExecuteError::GrpcConnectError{ endpoint: delegate_address, err }); },
@@ -329,7 +330,7 @@ impl VmPlugin for InstancePlugin {
         // We submit a commit request to the job node
 
         // Resolve the location to an address (and get the proxy client while at it)
-        let (proxy, delegate_address): (Arc<ProxyClient>, String) = {
+        let (proxy, delegate_address): (Arc<ProxyClient>, Address) = {
             let state : RwLockReadGuard<GlobalState> = global.read().unwrap();
             let node_config: NodeConfig = match NodeConfig::from_path(&state.node_config_path) {
                 Ok(config) => config,
@@ -337,7 +338,7 @@ impl VmPlugin for InstancePlugin {
             };
 
             // ...the infrastructure file
-            let infra : InfraFile = match InfraFile::from_path(InfraPath::new(&node_config.node.central().paths.infra, &node_config.node.central().paths.secrets)) {
+            let infra : InfraFile = match InfraFile::from_path(&node_config.node.central().paths.infra) {
                 Ok(infra) => infra,
                 Err(err)  => { return Err(CommitError::InfraReadError{ path: node_config.node.central().paths.infra.clone(), err }); },  
             };
@@ -357,7 +358,7 @@ impl VmPlugin for InstancePlugin {
         };
 
         // Create the client
-        let mut client: grpc::JobServiceClient<Channel> = match proxy.connect_to_job(delegate_address.clone()).await {
+        let mut client: grpc::JobServiceClient<Channel> = match proxy.connect_to_job(delegate_address.to_string()).await {
             Ok(result) => match result {
                 Ok(client) => client,
                 Err(err)   => { return Err(CommitError::GrpcConnectError{ endpoint: delegate_address, err }); },

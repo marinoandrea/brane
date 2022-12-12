@@ -4,7 +4,7 @@
 //  Created:
 //    24 Oct 2022, 15:27:26
 //  Last edited:
-//    06 Dec 2022, 12:28:07
+//    12 Dec 2022, 13:22:45
 //  Auto updated?
 //    Yes
 // 
@@ -17,13 +17,14 @@ use std::fmt::{Display, Formatter, Result as FResult};
 use std::path::PathBuf;
 
 use bollard::ClientVersion;
+use enum_debug::EnumDebug as _;
 use reqwest::StatusCode;
 use tonic::Status;
 
 use brane_ast::locations::{Location, Locations};
 use brane_ast::ast::DataName;
-use brane_cfg::node::Address;
-use brane_shr::debug::{BlockFormatter, Capitalizeable, EnumDebug};
+use brane_cfg::spec::Address;
+use brane_shr::debug::{BlockFormatter, Capitalizeable};
 use specifications::container::Image;
 use specifications::planning::PlanningStatusKind;
 use specifications::version::Version;
@@ -61,7 +62,7 @@ impl Error for TaskError {}
 #[derive(Debug)]
 pub enum PlanError {
     /// Failed to load the infrastructure file.
-    InfraFileLoadError{ err: brane_cfg::Error },
+    InfraFileLoadError{ err: brane_cfg::infra::Error },
 
     /// The user didn't specify the location (specifically enough).
     AmbigiousLocationError{ name: String, locs: Locations },
@@ -150,19 +151,19 @@ pub enum PreprocessError {
     /// Failed to load the node config file.
     NodeConfigReadError{ path: PathBuf, err: brane_cfg::node::Error },
     /// Failed to load the infra file.
-    InfraReadError{ path: PathBuf, err: brane_cfg::Error },
+    InfraReadError{ path: PathBuf, err: brane_cfg::infra::Error },
     /// The given location was unknown.
     UnknownLocationError{ loc: Location },
     /// Failed to connect to a proxy.
     ProxyError{ err: String },
     /// Failed to connect to a delegate node with gRPC
-    GrpcConnectError{ endpoint: String, err: tonic::transport::Error },
+    GrpcConnectError{ endpoint: Address, err: tonic::transport::Error },
     /// Failed to send a preprocess request to a delegate node with gRPC
-    GrpcRequestError{ what: &'static str, endpoint: String, err: tonic::Status },
+    GrpcRequestError{ what: &'static str, endpoint: Address, err: tonic::Status },
     /// Preprocessing failed with the following error.
-    PreprocessError{ endpoint: String, kind: String, name: String, err: String },
+    PreprocessError{ endpoint: Address, kind: String, name: String, err: String },
     /// Failed to re-serialize the access kind.
-    AccessKindParseError{ endpoint: String, raw: String, err: serde_json::Error },
+    AccessKindParseError{ endpoint: Address, raw: String, err: serde_json::Error },
 
     // Instance only (worker-side)
     // /// Failed to load the keypair.
@@ -299,17 +300,17 @@ pub enum ExecuteError {
     /// Failed to load the node config file.
     NodeConfigReadError{ path: PathBuf, err: brane_cfg::node::Error },
     /// Failed to load the infra file.
-    InfraReadError{ path: PathBuf, err: brane_cfg::Error },
+    InfraReadError{ path: PathBuf, err: brane_cfg::infra::Error },
     /// The given location was unknown.
     UnknownLocationError{ loc: Location },
     /// Failed to prepare the proxy service.
     ProxyError{ err: String },
     /// Failed to connect to a delegate node with gRPC
-    GrpcConnectError{ endpoint: String, err: tonic::transport::Error },
+    GrpcConnectError{ endpoint: Address, err: tonic::transport::Error },
     /// Failed to send a preprocess request to a delegate node with gRPC
-    GrpcRequestError{ what: &'static str, endpoint: String, err: tonic::Status },
+    GrpcRequestError{ what: &'static str, endpoint: Address, err: tonic::Status },
     /// Preprocessing failed with the following error.
-    ExecuteError{ endpoint: String, name: String, status: TaskStatus, err: String },
+    ExecuteError{ endpoint: Address, name: String, status: TaskStatus, err: String },
 
     // Instance-only (worker side)
     /// Failed to fetch the digest of an already existing image.
@@ -469,17 +470,17 @@ pub enum CommitError {
     /// Failed to load the node config file.
     NodeConfigReadError{ path: PathBuf, err: brane_cfg::node::Error },
     /// Failed to load the infra file.
-    InfraReadError{ path: PathBuf, err: brane_cfg::Error },
+    InfraReadError{ path: PathBuf, err: brane_cfg::infra::Error },
     /// The given location was unknown.
     UnknownLocationError{ loc: Location },
     /// Failed to prepare the proxy service.
     ProxyError{ err: String },
     /// Failed to connect to a delegate node with gRPC
-    GrpcConnectError{ endpoint: String, err: tonic::transport::Error },
+    GrpcConnectError{ endpoint: Address, err: tonic::transport::Error },
     /// Failed to send a preprocess request to a delegate node with gRPC
-    GrpcRequestError{ what: &'static str, endpoint: String, err: tonic::Status },
+    GrpcRequestError{ what: &'static str, endpoint: Address, err: tonic::Status },
     /// Preprocessing failed with the following error.
-    CommitError{ endpoint: String, name: String, err: Option<String> },
+    CommitError{ endpoint: Address, name: String, err: Option<String> },
 
     // Instance-only (worker side)
     /// Failed to read the AssetInfo file.

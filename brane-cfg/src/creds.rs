@@ -4,7 +4,7 @@
 //  Created:
 //    18 Oct 2022, 13:50:11
 //  Last edited:
-//    18 Oct 2022, 14:11:35
+//    12 Dec 2022, 13:53:09
 //  Auto updated?
 //    Yes
 // 
@@ -14,16 +14,17 @@
 // 
 
 use std::fs::File;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 pub use crate::errors::CredsFileError as Error;
 
 
 /***** AUXILLARY *****/
 /// Defines the possible credentials we may encounter.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case", tag = "kind")]
 pub enum Credentials {
     // Job node acting as a node
@@ -66,7 +67,7 @@ pub enum Credentials {
 /// Defines a file that describes how a job service may connect to its backend.
 /// 
 /// Note that this struct is designed to act as a "handle"; i.e., keep it only around when using it but otherwise refer to it only by path.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct CredsFile {
     /// The method of connecting
     pub method : Credentials,
@@ -97,5 +98,31 @@ impl CredsFile {
             Ok(result) => Ok(result),
             Err(err)   => Err(Error::FileParseError { path: path.into(), err }),
         }
+    }
+
+    /// Writes the CredsFile to the given writer.
+    /// 
+    /// # Arguments
+    /// - `writer`: The writer to write the CredsFile to.
+    /// 
+    /// # Returns
+    /// Nothing, but does obviously populate the given writer with its own serialized contents.
+    /// 
+    /// # Errors
+    /// This function errors if we failed to write or failed to serialize ourselves.
+    pub fn to_writer(&self, writer: impl Write) -> Result<(), Error> {
+        let mut writer = writer;
+
+        // Serialize the config
+        let config: String = match serde_yaml::to_string(self) {
+            Ok(config) => config,
+            Err(err)   => { return Err(Error::ConfigSerializeError{ err }); },
+        };
+
+        // Write it
+        if let Err(err) = writer.write_all(config.as_bytes()) { return Err(Error::WriterWriteError{ err }); }
+
+        // Done
+        Ok(())
     }
 }
