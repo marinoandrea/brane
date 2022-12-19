@@ -4,7 +4,7 @@
 //  Created:
 //    31 Oct 2022, 11:21:14
 //  Last edited:
-//    12 Dec 2022, 13:23:17
+//    19 Dec 2022, 12:05:45
 //  Auto updated?
 //    Yes
 // 
@@ -488,10 +488,28 @@ async fn download_container(node_config: &NodeConfig, proxy: Arc<ProxyClient>, e
                 if digest == &image_digest {
                     debug!("Local image is up-to-date");
 
-                    debug!("Loading hash...");
-                    let hash: String = match tfs::read_to_string(&hash_path).await {
-                        Ok(hash) => hash,
-                        Err(err) => { return Err(ExecuteError::HashReadError{ path: hash_path, err }); },
+                    debug!("Seeing if hash has already been computed...");
+                    let hash: String = if hash_path.exists() {
+                        debug!("Loading hash...");
+                        match tfs::read_to_string(&hash_path).await {
+                            Ok(hash) => hash,
+                            Err(err) => { return Err(ExecuteError::HashReadError{ path: hash_path, err }); },
+                        }
+                    } else {
+                        debug!("Hashing image (this might take a while)...");
+                        // Get the image hash
+                        let hash: String = match docker::hash_container(&image_path).await {
+                            Ok(hash) => hash,
+                            Err(err) => { return Err(ExecuteError::HashError{ err }); },
+                        };
+
+                        // Write it
+                        if let Err(err) = tfs::write(&hash_path, hash.as_bytes()).await {
+                            return Err(ExecuteError::HashWriteError{ path: hash_path, err });
+                        }
+
+                        // Done, return the hash
+                        hash
                     };
 
                     // Return both of them

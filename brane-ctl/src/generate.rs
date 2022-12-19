@@ -4,7 +4,7 @@
 //  Created:
 //    21 Nov 2022, 15:40:47
 //  Last edited:
-//    12 Dec 2022, 14:41:52
+//    19 Dec 2022, 11:56:57
 //  Auto updated?
 //    Yes
 // 
@@ -425,8 +425,8 @@ pub fn infra(locations: Vec<LocationPair<':', String>>, fix_dirs: bool, path: im
     for loc in locations {
         locs.insert(loc.0.clone(), InfraLocation {
             name     : beautify_id(loc.0),
-            registry : Address::hostname(&loc.1, 50051),
-            delegate : Address::hostname(loc.1, 50052),
+            registry : Address::hostname(format!("http://{}", loc.1), 50051),
+            delegate : Address::hostname(format!("grpc://{}", loc.1), 50052),
         });
     }
 

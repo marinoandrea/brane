@@ -4,7 +4,7 @@
 //  Created:
 //    30 Aug 2022, 12:02:57
 //  Last edited:
-//    19 Dec 2022, 11:02:45
+//    19 Dec 2022, 14:29:13
 //  Auto updated?
 //    Yes
 // 
@@ -151,7 +151,8 @@ impl DataType {
             (Void, NonVoid) => false,
             (_, NonVoid)    => true,
 
-            (_, Null) => true,
+            (Null, _) => true,
+            (Any, _)  => true,
             (_, Any)  => true,
 
             // Recursive cases

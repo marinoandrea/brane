@@ -4,7 +4,7 @@
 //  Created:
 //    19 Sep 2022, 14:57:17
 //  Last edited:
-//    12 Dec 2022, 14:09:41
+//    19 Dec 2022, 14:43:51
 //  Auto updated?
 //    Yes
 // 
@@ -834,7 +834,7 @@ pub async fn launch(exec: ExecuteInfo, path: impl AsRef<Path>, version: ClientVe
     let path: &Path = path.as_ref();
 
     // Connect to docker
-    let docker = match Docker::connect_with_unix(&path.to_string_lossy(), 120, &version) {
+    let docker = match Docker::connect_with_unix(&path.to_string_lossy(), 600, &version) {
         Ok(res)     => res,
         Err(reason) => { return Err(Error::ConnectionError{ path: path.into(), version, err: reason }); }
     };
@@ -864,7 +864,7 @@ pub async fn join(name: impl AsRef<str>, path: impl AsRef<Path>, version: Client
     let path : &Path = path.as_ref();
 
     // Connect to docker
-    let docker = match Docker::connect_with_unix(&path.to_string_lossy(), 120, &version) {
+    let docker = match Docker::connect_with_unix(&path.to_string_lossy(), 600, &version) {
         Ok(res)     => res,
         Err(reason) => { return Err(Error::ConnectionError{ path: path.into(), version, err: reason }); }
     };

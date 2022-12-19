@@ -4,7 +4,7 @@
 //  Created:
 //    20 Sep 2022, 13:44:07
 //  Last edited:
-//    19 Dec 2022, 11:05:22
+//    19 Dec 2022, 14:22:16
 //  Auto updated?
 //    Yes
 // 
@@ -642,8 +642,8 @@ impl Value {
             (IntermediateResult{ name }, DataType::IntermediateResult) => Ok(Self::IntermediateResult{ name }),
             (IntermediateResult{ name }, DataType::String)             => Ok(Self::String{ value: format!("{}", Self::IntermediateResult{ name }.display(table)) }),
 
-            (Null, DataType::Any)    => Ok(Self::Null),
-            (Null, DataType::String) => Ok(Self::String{ value: "null".into() }),
+            // (Null, DataType::String) => Ok(Self::String{ value: "null".into() }),
+            (Null, _) => Ok(Self::Null),
 
             // Otherwise, uncastable
             (got, target) => Err(Error::CastError { got: got.data_type(table), target: target.clone() }),
@@ -667,7 +667,7 @@ impl Value {
             Real { .. }    => DataType::Real,
             String { .. }  => DataType::String,
 
-            Array { values }         => DataType::Array{ elem_type: Box::new(values.iter().next().map(|v| v.data_type(table)).unwrap_or(DataType::Void)) },
+            Array { values }         => DataType::Array{ elem_type: Box::new(values.iter().next().map(|v| v.data_type(table)).unwrap_or(DataType::Any)) },
             Function { def }         => DataType::Function { args: table.func(*def).args.clone(), ret: Box::new(table.func(*def).ret.clone()) },
             Instance{ def, .. }      => if table.class(*def).name == BuiltinClasses::Data.name() { DataType::Data } else { DataType::Class{ name: table.class(*def).name.clone() } },
             Method{ fdef, .. }       => DataType::Function{ args: table.func(*fdef).args.clone(), ret: Box::new(table.func(*fdef).ret.clone()) },
