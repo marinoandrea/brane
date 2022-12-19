@@ -4,7 +4,7 @@
 //  Created:
 //    30 Aug 2022, 11:55:49
 //  Last edited:
-//    12 Dec 2022, 12:53:04
+//    19 Dec 2022, 10:56:17
 //  Auto updated?
 //    Yes
 // 
@@ -689,6 +689,9 @@ pub enum EdgeInstr {
     },
 
     // Literals
+    /// Pushes an "uninitialized value" onto the stack.
+    #[serde(rename = "nul")]
+    Null {},
     /// Pushes a boolean value onto the stack.
     #[serde(rename = "bol")]
     Boolean {
@@ -766,6 +769,7 @@ impl Display for EdgeInstr {
             VarGet { .. } => write!(f, ".get"),
             VarSet { .. } => write!(f, ".set"),
 
+            Null{ .. }     => write!(f, ".null"),
             Boolean{ .. }  => write!(f, ".bool"),
             Integer{ .. }  => write!(f, ".int"),
             Real{ .. }     => write!(f, ".real"),

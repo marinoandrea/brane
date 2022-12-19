@@ -4,7 +4,7 @@
 //  Created:
 //    30 Aug 2022, 12:02:57
 //  Last edited:
-//    14 Nov 2022, 10:03:38
+//    19 Dec 2022, 11:02:45
 //  Auto updated?
 //    Yes
 // 
@@ -54,6 +54,9 @@ pub enum DataType {
     /// Any type is accepted.
     #[serde(rename = "any")]
     Any,
+    /// Not yet initialized.
+    #[serde(rename = "null")]
+    Null,
     /// No type is accepted.
     #[serde(rename = "void")]
     Void,
@@ -148,7 +151,8 @@ impl DataType {
             (Void, NonVoid) => false,
             (_, NonVoid)    => true,
 
-            (_, Any) => true,
+            (_, Null) => true,
+            (_, Any)  => true,
 
             // Recursive cases
             (Array{ elem_type: lhs }, Array{ elem_type: rhs }) => lhs.allowed_by(rhs),
@@ -171,6 +175,7 @@ impl Display for DataType {
         use DataType::*;
         match self {
             Any  => write!(f, "Any"),
+            Null => write!(f, "Null"),
             Void => write!(f, "Void"),
 
             Numeric  => write!(f, "Numeric"),
@@ -200,6 +205,7 @@ impl From<brane_dsl::DataType> for DataType {
         match value {
             Any  => Self::Any,
             Void => Self::Void,
+            Null => Self::Null,
 
             Boolean => Self::Boolean,
             Integer => Self::Integer,
@@ -230,6 +236,7 @@ impl From<&brane_dsl::DataType> for DataType {
         match value {
             Any  => Self::Any,
             Void => Self::Void,
+            Null => Self::Null,
 
             Boolean => Self::Boolean,
             Integer => Self::Integer,

@@ -4,7 +4,7 @@
 //  Created:
 //    26 Aug 2022, 18:01:09
 //  Last edited:
-//    23 Nov 2022, 16:39:59
+//    19 Dec 2022, 10:48:01
 //  Auto updated?
 //    Yes
 // 
@@ -200,6 +200,8 @@ pub enum VarRegError {
     DuplicateDeclaration{ id: usize, old_name: String, old_type: DataType, new_name: String, new_type: DataType },
     /// The given variable was not declared.
     UndeclaredVariable{ id: usize },
+    /// The given variable was declared but never initialized.
+    UninitializedVariable{ id: usize },
 }
 
 impl Display for VarRegError {
@@ -209,6 +211,7 @@ impl Display for VarRegError {
         match self {
             DuplicateDeclaration{ id, old_name, old_type, new_name, new_type } => write!(f, "Variable {} was already declared before (old '{}: {}', new '{}: {}')", id, old_name, old_type, new_name, new_type),
             UndeclaredVariable{ id }                                           => write!(f, "Variable {} was not declared", id),
+            UninitializedVariable{ id }                                        => write!(f, "Variable {} was not initialized", id),
         }
     }
 }

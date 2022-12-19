@@ -4,7 +4,7 @@
 //  Created:
 //    18 Aug 2022, 13:46:22
 //  Last edited:
-//    14 Nov 2022, 11:47:36
+//    19 Dec 2022, 09:49:22
 //  Auto updated?
 //    Yes
 // 
@@ -614,6 +614,9 @@ pub fn pass_literal(literal: &Literal) {
     // Match on the exact literal kind
     use Literal::*;
     match literal {
+        Null{ .. } => {
+            print!("null");
+        },
         Boolean{ value, .. } => {
             print!("{}", if *value { "true" } else { "false" });
         },

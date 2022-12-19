@@ -4,7 +4,7 @@
 //  Created:
 //    10 Aug 2022, 14:00:59
 //  Last edited:
-//    12 Dec 2022, 12:51:17
+//    19 Dec 2022, 10:02:11
 //  Auto updated?
 //    Yes
 // 
@@ -1359,6 +1359,12 @@ impl Node for Identifier {
 /// Defines a literal constant.
 #[derive(Clone, Debug, EnumDebug)]
 pub enum Literal {
+    /// Defines the null literal.
+    Null{
+        /// The range of the boolean in the source text.
+        range : TextRange,
+    },
+
     /// Defines a boolean literal.
     Boolean{
         /// The value of the Boolean.
@@ -1633,6 +1639,7 @@ impl Literal {
     pub fn data_type(&self) -> DataType {
         use Literal::*;
         match self {
+            Null{ .. }    => DataType::Null,
             Boolean{ .. } => DataType::Boolean,
             Integer{ .. } => DataType::Integer,
             Real{ .. }    => DataType::Real,
@@ -1649,6 +1656,7 @@ impl Node for Literal {
     fn range(&self) -> &TextRange {
         use Literal::*;
         match self {
+            Null{ range, .. }    => range,
             Boolean{ range, .. } => range,
             Integer{ range, .. } => range,
             Real{ range, .. }    => range,

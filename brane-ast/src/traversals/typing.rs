@@ -4,7 +4,7 @@
 //  Created:
 //    19 Aug 2022, 16:34:16
 //  Last edited:
-//    14 Nov 2022, 11:48:44
+//    19 Dec 2022, 10:00:55
 //  Auto updated?
 //    Yes
 // 
@@ -867,7 +867,7 @@ pub fn do_traversal(root: Program, warnings: &mut Vec<AstWarning>) -> Result<Pro
     let mut root = root;
     let mut warns: Vec<Warning> = vec![];
 
-    // Iterate over all statements to build their symbol tables (if relevant)
+    // Iterate over all statements to deduce type information (if relevant)
     let mut errors: Vec<Error> = vec![];
     for s in root.block.stmts.iter_mut() {
         if let Some((ret_type, ret_range)) = pass_stmt(s, &root.block.table, &mut warns, &mut errors) {

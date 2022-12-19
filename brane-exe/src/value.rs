@@ -4,7 +4,7 @@
 //  Created:
 //    20 Sep 2022, 13:44:07
 //  Last edited:
-//    14 Nov 2022, 11:50:21
+//    19 Dec 2022, 11:05:22
 //  Auto updated?
 //    Yes
 // 
@@ -279,6 +279,7 @@ impl<'a, 'b> Display for ValueDisplay<'a, 'b> {
             Data{ name }               => write!(f, "Data<{}>", name),
             IntermediateResult{ name } => write!(f, "IntermediateResult<{}>", name),
 
+            Null => write!(f, "null"),
             Void => write!(f, "()"),
         }
     }
@@ -460,6 +461,8 @@ pub enum Value {
     /// It's an intermediate result object that contains the identifier of the dataset _or_ result referenced.
     IntermediateResult{ name: String },
 
+    /// It's a null value, i.e., uninitialized
+    Null,
     /// No value
     Void,
 }
@@ -639,6 +642,9 @@ impl Value {
             (IntermediateResult{ name }, DataType::IntermediateResult) => Ok(Self::IntermediateResult{ name }),
             (IntermediateResult{ name }, DataType::String)             => Ok(Self::String{ value: format!("{}", Self::IntermediateResult{ name }.display(table)) }),
 
+            (Null, DataType::Any)    => Ok(Self::Null),
+            (Null, DataType::String) => Ok(Self::String{ value: "null".into() }),
+
             // Otherwise, uncastable
             (got, target) => Err(Error::CastError { got: got.data_type(table), target: target.clone() }),
         }
@@ -668,6 +674,7 @@ impl Value {
             Data{ .. }               => DataType::Data,
             IntermediateResult{ .. } => DataType::IntermediateResult,
 
+            Null => DataType::Null,
             Void => DataType::Void,
         }
     }
@@ -700,6 +707,7 @@ impl Value {
     pub fn to_full(&self, table: &VirtualSymTable) -> FullValue {
         use Value::*;
         match self {
+            Null{}           => FullValue::Null,
             Boolean{ value } => FullValue::Boolean(*value),
             Integer{ value } => FullValue::Integer(*value),
             Real{ value }    => FullValue::Real(*value),
@@ -729,6 +737,7 @@ impl Value {
     pub fn into_full(self, table: &VirtualSymTable) -> FullValue {
         use Value::*;
         match self {
+            Null{}           => FullValue::Null,
             Boolean{ value } => FullValue::Boolean(value),
             Integer{ value } => FullValue::Integer(value),
             Real{ value }    => FullValue::Real(value),
@@ -772,6 +781,8 @@ pub enum FullValue {
     /// It's a string value (UTF-8 characters)
     String(String),    
 
+    /// Null value
+    Null,
     /// No value
     Void,
 }
@@ -856,6 +867,7 @@ impl FullValue {
             Data(_)               => DataType::Data,
             IntermediateResult(_) => DataType::IntermediateResult,
 
+            Null => DataType::Null,
             Void => DataType::Void,
         }
     }
@@ -883,6 +895,7 @@ impl FullValue {
             Data(name)               => Value::Data{ name: name.0.clone() },
             IntermediateResult(name) => Value::IntermediateResult{ name: name.0.clone() },
 
+            Null => Value::Null,
             Void => Value::Void,
         }
     }
@@ -910,6 +923,7 @@ impl FullValue {
             Data(name)               => Value::Data{ name: name.0 },
             IntermediateResult(name) => Value::IntermediateResult{ name: name.0 },
 
+            Null => Value::Null,
             Void => Value::Void,
         }
     }
@@ -937,6 +951,7 @@ impl Display for FullValue {
             Data(name)               => write!(f, "{}", name),
             IntermediateResult(name) => write!(f, "{}", name),
 
+            Null => write!(f, "null"),
             Void => write!(f, "()"),
         }
     }

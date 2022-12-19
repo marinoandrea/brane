@@ -4,7 +4,7 @@
 //  Created:
 //    09 Sep 2022, 13:23:41
 //  Last edited:
-//    12 Dec 2022, 12:54:12
+//    19 Dec 2022, 10:59:22
 //  Auto updated?
 //    Yes
 // 
@@ -751,6 +751,11 @@ fn exec_instr(edge: usize, idx: usize, instr: &EdgeInstr, stack: &mut Stack, fst
             1
         },
 
+        Null{} => {
+            // Push a null
+            stack.push(Value::Null).to_instr(edge, idx)?;
+            1
+        },
         Boolean{ value } => {
             // Push a boolean with the given value
             stack.push(Value::Boolean { value: *value }).to_instr(edge, idx)?;
