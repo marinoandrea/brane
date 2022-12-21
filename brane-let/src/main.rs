@@ -4,7 +4,7 @@
 //  Created:
 //    20 Sep 2022, 13:53:43
 //  Last edited:
-//    18 Nov 2022, 15:53:46
+//    21 Dec 2022, 14:59:32
 //  Auto updated?
 //    Yes
 // 
@@ -258,6 +258,7 @@ where
     T: DeserializeOwned,
 {
     // Decode the Base64
+    println!("Received input: {}", input);
     let input = match base64::decode(input) {
         Ok(input) => input,
         Err(err)  => { return Err(LetError::ArgumentsBase64Error{ err }); }
