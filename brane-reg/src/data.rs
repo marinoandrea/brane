@@ -4,7 +4,7 @@
 //  Created:
 //    26 Sep 2022, 15:40:40
 //  Last edited:
-//    06 Dec 2022, 11:33:59
+//    22 Dec 2022, 15:37:37
 //  Auto updated?
 //    Yes
 // 
@@ -130,25 +130,15 @@ pub async fn assert_data_permission(node_config: &NodeConfig, identifier: impl A
             },
 
             UserPolicy::Allow{ name, data: allowed_data } => {
-                if name == identifier {
-                    // Search the allowed data
-                    for d in &allowed_data {
-                        if d == data {
-                            debug!("Allowed downloading of dataset '{}' to '{}' based on rule {} (Allow '{}' on {:?})", data, identifier, i, name, allowed_data);
-                            return Ok(true);
-                        }
-                    }
+                if name == identifier && data == allowed_data {
+                    debug!("Allowed downloading of dataset '{}' to '{}' based on rule {} (Allow '{}' on {:?})", data, identifier, i, name, allowed_data);
+                    return Ok(true);
                 }
             },
             UserPolicy::Deny{ name, data: denied_data } => {
-                if name == identifier {
-                    // Search the allowed data
-                    for d in &denied_data {
-                        if d == data {
-                            debug!("Denied downloading of dataset '{}' to '{}' based on rule {} (Deny '{}' on {:?})", data, identifier, i, name, denied_data);
-                            return Ok(false);
-                        }
-                    }
+                if name == identifier && data == denied_data {
+                    debug!("Denied downloading of dataset '{}' to '{}' based on rule {} (Deny '{}' on {:?})", data, identifier, i, name, denied_data);
+                    return Ok(false);
                 }
             },
         }
@@ -211,26 +201,16 @@ pub async fn assert_result_permission(node_config: &NodeConfig, identifier: impl
                 }
             },
 
-            UserPolicy::Allow{ name, data: allowed_data } => {
-                if name == identifier {
-                    // Search the allowed data
-                    for d in &allowed_data {
-                        if d == result {
-                            debug!("Allowed downloading of dataset '{}' to '{}' based on rule {} (Allow '{}' on {:?})", result, identifier, i, name, allowed_data);
-                            return Ok(true);
-                        }
-                    }
+            UserPolicy::Allow{ name, data: allowed_result } => {
+                if name == identifier && result == allowed_result {
+                    debug!("Allowed downloading of dataset '{}' to '{}' based on rule {} (Allow '{}' on {:?})", result, identifier, i, name, allowed_result);
+                    return Ok(true);
                 }
             },
-            UserPolicy::Deny{ name, data: denied_data } => {
-                if name == identifier {
-                    // Search the allowed data
-                    for d in &denied_data {
-                        if d == result {
-                            debug!("Denied downloading of dataset '{}' to '{}' based on rule {} (Deny '{}' on {:?})", result, identifier, i, name, denied_data);
-                            return Ok(false);
-                        }
-                    }
+            UserPolicy::Deny{ name, data: denied_result } => {
+                if name == identifier && result == denied_result {
+                    debug!("Denied downloading of dataset '{}' to '{}' based on rule {} (Deny '{}' on {:?})", result, identifier, i, name, denied_result);
+                    return Ok(false);
                 }
             },
         }

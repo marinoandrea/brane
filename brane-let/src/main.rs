@@ -4,7 +4,7 @@
 //  Created:
 //    20 Sep 2022, 13:53:43
 //  Last edited:
-//    21 Dec 2022, 14:59:32
+//    22 Dec 2022, 10:04:58
 //  Auto updated?
 //    Yes
 // 
@@ -258,7 +258,6 @@ where
     T: DeserializeOwned,
 {
     // Decode the Base64
-    println!("Received input: {}", input);
     let input = match base64::decode(input) {
         Ok(input) => input,
         Err(err)  => { return Err(LetError::ArgumentsBase64Error{ err }); }
@@ -271,6 +270,7 @@ where
     };
 
     // Decode the string to JSON
+    println!("Received input: {}", input);
     match serde_json::from_str(&input) {
         Ok(result) => Ok(result),
         Err(err)   => Err(LetError::ArgumentsJSONError{ err }),
