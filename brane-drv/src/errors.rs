@@ -4,7 +4,7 @@
 //  Created:
 //    01 Feb 2022, 16:13:53
 //  Last edited:
-//    28 Nov 2022, 16:11:05
+//    23 Dec 2022, 13:43:18
 //  Auto updated?
 //    Yes
 // 
@@ -31,7 +31,7 @@ impl Display for RemoteVmError {
         use RemoteVmError::*;
         match self {
             PlanError{ err } => write!(f, "Failed to plan workflow: {}", err),
-            ExecError{ err } => write!(f, "Faield to execute workflow: {}", err),
+            ExecError{ err } => write!(f, "Failed to execute workflow: {}", err),
         }
     }
 }

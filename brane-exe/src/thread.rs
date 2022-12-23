@@ -4,7 +4,7 @@
 //  Created:
 //    09 Sep 2022, 13:23:41
 //  Last edited:
-//    19 Dec 2022, 10:59:22
+//    23 Dec 2022, 13:43:51
 //  Auto updated?
 //    Yes
 // 
@@ -1025,7 +1025,7 @@ impl<G: CustomGlobalState, L: CustomLocalState> Thread<G, L> {
                         };
 
                         // If the function returns an intermediate result but returned nothing, that's fine; we inject the result here
-                        if function.ret == DataType::IntermediateResult && (res.is_none() || res.as_ref().unwrap() == &Value::Void) {
+                        if function.ret == DataType::IntermediateResult && (res.is_none() || res.as_ref().unwrap() == &Value::Null || res.as_ref().unwrap() == &Value::Void) {
                             // Make the intermediate result available for next steps by possible pushing it to the next registry
                             let name: &str = result.as_ref().unwrap();
                             if let Err(err) = P::publicize(&self.global, &self.local, at, name, &PathBuf::from(name)).await {

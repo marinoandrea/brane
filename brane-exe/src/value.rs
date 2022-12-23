@@ -4,7 +4,7 @@
 //  Created:
 //    20 Sep 2022, 13:44:07
 //  Last edited:
-//    19 Dec 2022, 14:22:16
+//    23 Dec 2022, 13:24:16
 //  Auto updated?
 //    Yes
 // 
@@ -862,7 +862,7 @@ impl FullValue {
             Real(_)    => DataType::Real,
             String(_)  => DataType::String,
 
-            Array(values)         => DataType::Array{ elem_type: Box::new(values.iter().next().map(|v| v.data_type()).unwrap_or(DataType::Void)) },
+            Array(values)         => DataType::Array{ elem_type: Box::new(values.iter().next().map(|v| v.data_type()).unwrap_or(DataType::Any)) },
             Instance(name, _)     => if name == BuiltinClasses::Data.name() { DataType::Data } else { DataType::Class{ name: name.clone() } },
             Data(_)               => DataType::Data,
             IntermediateResult(_) => DataType::IntermediateResult,

@@ -4,7 +4,7 @@
 //  Created:
 //    17 Feb 2022, 10:27:28
 //  Last edited:
-//    12 Dec 2022, 13:24:00
+//    23 Dec 2022, 13:43:15
 //  Auto updated?
 //    Yes
 // 
@@ -1066,7 +1066,7 @@ impl Display for OfflineVmError {
         use OfflineVmError::*;
         match self {
             PlanError{ err } => write!(f, "Failed to plan workflow: {}", err),
-            ExecError{ err } => write!(f, "Faield to execute workflow: {}", err),
+            ExecError{ err } => write!(f, "Failed to execute workflow: {}", err),
         }
     }
 }
