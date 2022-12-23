@@ -4,7 +4,7 @@
 //  Created:
 //    01 Dec 2022, 09:20:32
 //  Last edited:
-//    12 Dec 2022, 13:56:08
+//    22 Dec 2022, 15:37:48
 //  Auto updated?
 //    Yes
 // 
@@ -140,15 +140,15 @@ pub enum UserPolicy {
     Allow {
         /// The name/ID of the user as found in their certificate.
         name : String,
-        /// The datasets to allow the operations for.
-        data : Vec<String>,
+        /// The dataset to allow the operations for.
+        data : String,
     },
     /// Deny this user to do thing on a limited set of datasets.
     Deny {
         /// The name/ID of the user as found on their certificate.
         name : String,
-        /// The datasets for which to deny them.
-        data : Vec<String>,
+        /// The dataset for which to deny them.
+        data : String,
     },
 }
 

@@ -4,7 +4,7 @@
 //  Created:
 //    14 Feb 2022, 14:21:21
 //  Last edited:
-//    14 Nov 2022, 11:52:25
+//    23 Dec 2022, 13:24:39
 //  Auto updated?
 //    Yes
 // 
@@ -83,6 +83,7 @@ fn assert_type(got: &DataType, expected: &DataType) -> bool {
         (DataType::Array{ elem_type: got }, DataType::Array{ elem_type: expected }) => assert_type(got, expected),
 
         // General cases
+        (DataType::Any, _) => true,
         (_, DataType::Any) => true,
         (got, expected)    => got == expected,
     }

@@ -4,7 +4,7 @@
 //  Created:
 //    18 Aug 2022, 15:24:54
 //  Last edited:
-//    14 Nov 2022, 11:47:56
+//    19 Dec 2022, 09:49:33
 //  Auto updated?
 //    Yes
 // 
@@ -813,6 +813,9 @@ fn pass_expr(state: &CompileState, data_index: &DataIndex, expr: &mut Expr, symb
 fn pass_literal(state: &CompileState, literal: &mut Literal) {
     use Literal::*;
     match literal {
+        Null{ ref mut range, .. } => {
+            offset_range!(range, state.offset);
+        },
         Boolean{ ref mut range, .. } => {
             offset_range!(range, state.offset);
         },

@@ -4,7 +4,7 @@
 //  Created:
 //    25 Aug 2022, 11:12:17
 //  Last edited:
-//    14 Nov 2022, 09:52:02
+//    19 Dec 2022, 09:47:17
 //  Auto updated?
 //    Yes
 // 
@@ -21,6 +21,22 @@ use super::tokens::Token;
 
 
 /***** SCANNING FUNCTIONS *****/
+/// Parses a null-token off of the head of the given input.
+/// 
+/// # Arguments
+/// - `input`: The input text to scan.
+/// 
+/// # Returns
+/// The remaining tokens and the scanned token.
+/// 
+/// # Errors
+/// This function errors if we could not parse the literal token.
+fn null<'a, E: ParseError<Span<'a>> + ContextError<Span<'a>>>(input: Span<'a>) -> IResult<Span<'a>, Span<'a>, E> {
+    wrap_pp!(
+        bc::tag("null").parse(input),
+    "NULL")
+}
+
 /// Parses a boolean token off of the head of the given input.
 /// 
 /// # Arguments
@@ -153,6 +169,7 @@ fn real<'a, E: ParseError<Span<'a>> + ContextError<Span<'a>>>(input: Span<'a>) -
 pub fn parse<'a, E: ParseError<Span<'a>> + ContextError<Span<'a>>>(input: Span<'a>) -> IResult<Span<'a>, Token, E> {
     wrap_pp!(
         branch::alt((
+            comb::map(null, Token::Null),
             comb::map(semver, Token::SemVer),
             comb::map(real, Token::Real),
             comb::map(integer, Token::Integer),

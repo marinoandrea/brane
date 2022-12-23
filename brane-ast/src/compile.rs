@@ -4,7 +4,7 @@
 //  Created:
 //    12 Sep 2022, 18:12:44
 //  Last edited:
-//    14 Nov 2022, 10:34:40
+//    19 Dec 2022, 10:07:53
 //  Auto updated?
 //    Yes
 // 
@@ -35,29 +35,31 @@ pub enum CompileStage {
     /// References nb compile stage.
     None =  0,
     /// References the last compile stage, i.e., all stages.
-    All  = 11,
+    All  = 12,
 
     // Individual stages
     /// The initial stage where we resolve the symbol tables.
     Resolve              =  1,
     /// The second stage where we resolve types (as much as possible).
     Typing               =  2,
-    /// The third stage where we analyse data dependencies.
-    Data                 =  3,
-    /// The fourth stage where we resolve on-structs.
-    Location             =  4,
-    /// The fifth stage where we apply various optimizations, e.g., constant unfolding, constant casting, function inlining, etc.
-    Optimization         =  5,
-    /// The sixth stage where we prune the resulting tree to make compilation easier (without affecting functionality).
-    Prune                =  6,
-    /// The seventh stage is the really final pre-compile stage, where we already collect definitions into a flattened symbol table tree structure.
-    Flatten              =  7,
-    /// The eigth stage where we compile the Program to a Workflow.
-    Compile              =  8,
-    /// The ninth stage where we optimize the resulting workflow some more.
-    WorkflowOptimization =  9,
-    /// The tenth and final stage where we resolve the 'next' fields in the UnresolvedWorkflow so it becomes a Workflow.
-    WorkflowResolve      = 10,
+    /// The second stage where we null-types.
+    Null                 =  3,
+    /// The fourth stage where we analyse data dependencies.
+    Data                 =  4,
+    /// The fifth stage where we resolve on-structs.
+    Location             =  5,
+    /// The sixth stage where we apply various optimizations, e.g., constant unfolding, constant casting, function inlining, etc.
+    Optimization         =  6,
+    /// The seventh stage where we prune the resulting tree to make compilation easier (without affecting functionality).
+    Prune                =  7,
+    /// The eigth stage is the really final pre-compile stage, where we already collect definitions into a flattened symbol table tree structure.
+    Flatten              =  8,
+    /// The ninth stage where we compile the Program to a Workflow.
+    Compile              =  9,
+    /// The tenth stage where we optimize the resulting workflow some more.
+    WorkflowOptimization = 10,
+    /// The eleventh and final stage where we resolve the 'next' fields in the UnresolvedWorkflow so it becomes a Workflow.
+    WorkflowResolve      = 11,
 }
 
 
@@ -291,6 +293,12 @@ pub fn compile_snippet_to<R: std::io::Read>(state: &mut CompileState, reader: R,
     }
     if stage >= CompileStage::Typing {
         program = match traversals::typing::do_traversal(program, &mut warnings) {
+            Ok(program) => program,
+            Err(errs)   => { return CompileResult::Err(errs); },
+        };
+    }
+    if stage >= CompileStage::Null {
+        program = match traversals::null::do_traversal(program) {
             Ok(program) => program,
             Err(errs)   => { return CompileResult::Err(errs); },
         };
