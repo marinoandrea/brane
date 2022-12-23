@@ -4,7 +4,7 @@
 //  Created:
 //    09 Sep 2022, 13:23:41
 //  Last edited:
-//    23 Dec 2022, 13:43:51
+//    23 Dec 2022, 16:37:02
 //  Auto updated?
 //    Yes
 // 
@@ -100,7 +100,7 @@ mod tests {
                 let workflow: Workflow = DummyPlanner::plan(workflow);
 
                 // Now print the file for prettyness
-                let workflow: Workflow = ast::do_traversal(workflow).unwrap();
+                let workflow: Workflow = ast::do_traversal(workflow, std::io::stdout()).unwrap();
                 println!("{}", (0..40).map(|_| "- ").collect::<String>());
 
                 // Run the program

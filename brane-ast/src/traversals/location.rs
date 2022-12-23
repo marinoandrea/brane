@@ -4,7 +4,7 @@
 //  Created:
 //    05 Sep 2022, 16:27:08
 //  Last edited:
-//    14 Nov 2022, 11:07:37
+//    23 Dec 2022, 16:35:49
 //  Auto updated?
 //    Yes
 // 
@@ -74,7 +74,7 @@ mod tests {
             };
 
             // Now print the file for prettyness
-            dsl::do_traversal(program).unwrap();
+            dsl::do_traversal(program, std::io::stdout()).unwrap();
             println!("{}\n\n", (0..80).map(|_| '-').collect::<String>());
         });
     }

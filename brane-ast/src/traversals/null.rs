@@ -4,7 +4,7 @@
 //  Created:
 //    19 Dec 2022, 10:04:38
 //  Last edited:
-//    19 Dec 2022, 13:32:20
+//    23 Dec 2022, 16:36:05
 //  Auto updated?
 //    Yes
 // 
@@ -71,7 +71,7 @@ mod tests {
             };
 
             // Now print the symbol tables for prettyness
-            symbol_tables::do_traversal(program).unwrap();
+            symbol_tables::do_traversal(program, std::io::stdout()).unwrap();
             println!("{}\n\n", (0..80).map(|_| '-').collect::<String>());
         });
     }

@@ -4,7 +4,7 @@
 //  Created:
 //    31 Aug 2022, 11:32:04
 //  Last edited:
-//    19 Dec 2022, 10:56:07
+//    23 Dec 2022, 16:35:59
 //  Auto updated?
 //    Yes
 // 
@@ -84,7 +84,7 @@ mod tests {
             };
 
             // Now print the file for prettyness
-            ast_unresolved::do_traversal(&state, workflow).unwrap();
+            ast_unresolved::do_traversal(&state, workflow, std::io::stdout()).unwrap();
             println!("{}\n\n", (0..80).map(|_| '-').collect::<String>());
         });
     }

@@ -4,7 +4,7 @@
 //  Created:
 //    18 Nov 2022, 14:36:55
 //  Last edited:
-//    12 Dec 2022, 17:01:37
+//    23 Dec 2022, 16:39:32
 //  Auto updated?
 //    Yes
 // 
@@ -22,10 +22,10 @@ use dotenvy::dotenv;
 use expanduser::expanduser;
 use human_panic::setup_panic;
 use log::{debug, info, error, LevelFilter};
-use tokio::runtime::{Builder, Runtime};
 
 use brane_ast::{compile_snippet, CompileResult, ParserOptions, Workflow};
 use brane_ast::state::CompileState;
+use brane_ast::traversals::print::ast;
 use brane_dsl::Language;
 use specifications::data::DataIndex;
 use specifications::package::PackageIndex;
@@ -65,6 +65,9 @@ struct Arguments {
     /// If given, writes the output JSON to use as little whitespace as possible.
     #[clap(short, long, help="If given, writes the output JSON in minimized format (i.e., with as little whitespace as possible). Not really readable, but perfect for transmitting it to some other program.")]
     compact  : bool,
+    /// If given, does not output JSON but instead outputs an assembly-like variant of a workflow.
+    #[clap(short='P', long, help="If given, does not output JSON but instead outputs an assembly-like variant of a workflow. Not really readable by machines, but easier to understand by a human (giving this ignores --compact).")]
+    pretty   : bool,
 }
 
 
@@ -121,6 +124,7 @@ fn read_input(name: impl Into<String>, input: &mut impl BufRead) -> Result<Strin
 /// - `source`: The (automatically updated) total source, used for debugging.
 /// - `oname`: Some name useful for the user to identify where is being written to.
 /// - `output`: The Writer to write the output to.
+/// - `pretty`: If given, does not serialize to JSON but with `brane_ast::traversals::print::ast`.
 /// - `compact`: If given, serializes with as little whitespace as possible. Decreases the resulting size greatly, but also readability.
 /// - `packages_loc`: Where to get the package index from. Implemented as an IndexLocation so it may be both local or remote.
 /// - `data_loc`: Where to get the data index from. Implemented as an IndexLocation so it may be both local or remote.
@@ -131,7 +135,7 @@ fn read_input(name: impl Into<String>, input: &mut impl BufRead) -> Result<Strin
 /// # Errors
 /// This function errors if the input is not valid BraneScript or an IO error occurred trying to read from / write to the input / output.
 #[allow(clippy::too_many_arguments)]
-pub async fn compile_iter(state: &mut CompileState, source: &mut String, lang: Language, iname: impl AsRef<str>, input: &mut impl BufRead, oname: impl AsRef<str>, output: &mut impl Write, compact: bool, packages_loc: &IndexLocation, data_loc: &IndexLocation) -> Result<(), CompileError> {
+pub async fn compile_iter(state: &mut CompileState, source: &mut String, lang: Language, iname: impl AsRef<str>, input: &mut impl BufRead, oname: impl AsRef<str>, output: &mut impl Write, pretty: bool, compact: bool, packages_loc: &IndexLocation, data_loc: &IndexLocation) -> Result<(), CompileError> {
     let iname : &str = iname.as_ref();
     let oname : &str = oname.as_ref();
 
@@ -222,15 +226,21 @@ pub async fn compile_iter(state: &mut CompileState, source: &mut String, lang: L
     state.offset += raw.chars().filter(|c| *c == '\n').count();
 
     // Serialize the output
-    let sworkflow: String = if !compact {
-        match serde_json::to_string_pretty(&workflow) {
-            Ok(sworkflow) => sworkflow,
-            Err(err)      => { return Err(CompileError::WorkflowSerializeError{ err }); },
-        }
+    let sworkflow: String = if pretty {
+        let mut res: Vec<u8> = vec![];
+        ast::do_traversal(workflow, &mut res).unwrap();
+        String::from_utf8_lossy(&res).to_string()
     } else {
-        match serde_json::to_string(&workflow) {
-            Ok(sworkflow) => sworkflow,
-            Err(err)      => { return Err(CompileError::WorkflowSerializeError{ err }); },
+        if !compact {
+            match serde_json::to_string_pretty(&workflow) {
+                Ok(sworkflow) => sworkflow,
+                Err(err)      => { return Err(CompileError::WorkflowSerializeError{ err }); },
+            }
+        } else {
+            match serde_json::to_string(&workflow) {
+                Ok(sworkflow) => sworkflow,
+                Err(err)      => { return Err(CompileError::WorkflowSerializeError{ err }); },
+            }
         }
     };
 
@@ -252,7 +262,8 @@ pub async fn compile_iter(state: &mut CompileState, source: &mut String, lang: L
 
 
 /***** ENTRYPOINT *****/
-fn main() {
+#[tokio::main(flavor = "current_thread")]
+async fn main() {
     // Parse any environment file
     dotenv().ok();
 
@@ -277,12 +288,6 @@ fn main() {
     }
     info!("Initializing branec v{}", env!("CARGO_PKG_VERSION"));
     if args.files.is_empty() { args.files = vec![ "-".into() ]; }
-
-    // Prepare the tokio runtime
-    let rt: Runtime = match Builder::new_current_thread().build() {
-        Ok(rt)   => rt,
-        Err(err) => { error!("Failed to create tokio runtime: {}", err); std::process::exit(1); },
-    };
 
 
 
@@ -321,7 +326,7 @@ fn main() {
 
         // Compile the entire source now
         debug!("Compiling...");
-        if let Err(err) = rt.block_on(compile_iter(&mut CompileState::new(), &mut String::new(), args.language, if args.files.len() == 1 { &args.files[0] } else { "<sources>" }, &mut Cursor::new(source), &oname, &mut ohandle, args.compact, &args.packages, &args.data)) {
+        if let Err(err) = compile_iter(&mut CompileState::new(), &mut String::new(), args.language, if args.files.len() == 1 { &args.files[0] } else { "<sources>" }, &mut Cursor::new(source), &oname, &mut ohandle, args.pretty, args.compact, &args.packages, &args.data).await {
             error!("{}", err);
             std::process::exit(1);
         }
@@ -346,7 +351,7 @@ fn main() {
         let mut source : String       = String::new();
         loop {
             // Compile that immediately
-            if let Err(err) = rt.block_on(compile_iter(&mut state, &mut source, args.language, "<stdin>", &mut ihandle, &oname, &mut ohandle, args.compact, &args.packages, &args.data)) {
+            if let Err(err) = compile_iter(&mut state, &mut source, args.language, "<stdin>", &mut ihandle, &oname, &mut ohandle, args.pretty, args.compact, &args.packages, &args.data).await {
                 error!("{}", err);
                 std::process::exit(1);
             }

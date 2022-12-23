@@ -4,7 +4,7 @@
 //  Created:
 //    15 Sep 2022, 08:26:20
 //  Last edited:
-//    14 Nov 2022, 11:49:17
+//    23 Dec 2022, 16:35:53
 //  Auto updated?
 //    Yes
 // 
@@ -81,7 +81,7 @@ mod tests {
             };
 
             // Now print the file for prettyness
-            symbol_tables::do_traversal(program).unwrap();
+            symbol_tables::do_traversal(program, std::io::stdout()).unwrap();
             println!("{}\n", (0..40).map(|_| "- ").collect::<String>());
             print_state(&state.table, 0);
             println!("{}\n\n", (0..80).map(|_| '-').collect::<String>());

@@ -4,7 +4,7 @@
 //  Created:
 //    10 Aug 2022, 13:52:37
 //  Last edited:
-//    19 Dec 2022, 10:40:23
+//    23 Dec 2022, 16:08:21
 //  Auto updated?
 //    Yes
 // 
@@ -324,6 +324,8 @@ pub enum AstError {
     ReaderReadError{ err: std::io::Error },
     /// The parser failed.
     ParseError{ err: brane_dsl::Error },
+    /// Failed to write to the given writer.
+    WriteError{ err: std::io::Error },
 
     // Nested errors
     /// An error has occurred while resolving enum variants.
@@ -361,6 +363,7 @@ impl AstError {
         match self {
             ReaderReadError { .. } => { eprintln!("{}", self); },
             ParseError { .. }      => { eprintln!("{}", self); },
+            WriteError{ .. }       => { eprintln!("{}", self); },
 
             SanityError(err)   => err.prettyprint(file, source),
             ResolveError(err)  => err.prettyprint(file, source),
@@ -423,6 +426,7 @@ impl Display for AstError {
         match self {
             ReaderReadError { err } => write!(f, "Failed to read given reader: {}", err),
             ParseError{ err }       => write!(f, "{}", err),
+            WriteError{ err }       => write!(f, "Failed to write to given writer: {}", err),
 
             SanityError(err)   => write!(f, "{}", err),
             ResolveError(err)  => write!(f, "{}", err),

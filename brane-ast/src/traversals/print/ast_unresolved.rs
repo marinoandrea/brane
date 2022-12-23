@@ -4,7 +4,7 @@
 //  Created:
 //    05 Sep 2022, 11:08:57
 //  Last edited:
-//    14 Nov 2022, 10:13:04
+//    23 Dec 2022, 16:19:33
 //  Auto updated?
 //    Yes
 // 
@@ -15,6 +15,7 @@
 
 use std::cell::Ref;
 use std::collections::HashSet;
+use std::io::Write;
 
 use brane_dsl::DataType;
 
@@ -49,104 +50,111 @@ const INDENT_SIZE: usize = 4;
 /// Prints the global table of the Workflow.
 /// 
 /// # Arguments
+/// - `writer`: The `Write`r to write to.
 /// - `table`: The TableState that we print.
 /// - `indent`: The indent with which to print the table.
 /// 
 /// # Returns
 /// Nothing, but does print the table to stdout.
-pub fn pass_table(table: &TableState, indent: usize) {
+pub fn pass_table(writer: &mut impl Write, table: &TableState, indent: usize) -> std::io::Result<()> {
     // Simply print all fields in a less-cluttering-to-most-cluttering order
 
     // Variables first
     for v in &table.vars {
-        println!("{}Var {}: {};", indent!(indent), &v.name, v.data_type);
+        writeln!(writer, "{}Var {}: {};", indent!(indent), &v.name, v.data_type)?;
     }
-    if !table.vars.is_empty() { println!(); }
+    if !table.vars.is_empty() { writeln!(writer)?; }
 
     // Then, print all normal functions...
     for f in &table.funcs {
-        println!("{}Function {}({}){} [", indent!(indent),
+        writeln!(writer, "{}Function {}({}){} [", indent!(indent),
             &f.name,
             f.signature.args.iter().map(|a| format!("{}", a)).collect::<Vec<String>>().join(", "),
             if f.signature.ret != DataType::Void { format!(" -> {}", f.signature.ret) } else { String::new() },
-        );
+        )?;
 
         // Write the nested table
-        pass_table(&f.table, INDENT_SIZE + indent);
-        println!("{}]", indent!(indent));
+        pass_table(writer, &f.table, INDENT_SIZE + indent)?;
+        writeln!(writer, "{}]", indent!(indent))?;
     }
     // ...and all tasks
     for t in &table.tasks {
-        println!("{}Task<Compute> {}{}::{}({}){};", indent!(indent),
+        writeln!(writer, "{}Task<Compute> {}{}::{}({}){};", indent!(indent),
             t.package_name,
             if !t.package_version.is_latest() { format!("<{}>", t.package_version) } else { String::new() },
             &t.name,
             t.signature.args.iter().enumerate().map(|(i, a)| format!("{}: {}", t.arg_names[i], a)).collect::<Vec<String>>().join(", "),
             if t.signature.ret != DataType::Void { format!(" -> {}", t.signature.ret) } else { String::new() },
-        );
+        )?;
     }
-    if !table.vars.is_empty()|| !table.funcs.is_empty() || !table.tasks.is_empty() { println!(); }
+    if !table.vars.is_empty()|| !table.funcs.is_empty() || !table.tasks.is_empty() { writeln!(writer)?; }
 
     // Finally print the class definitions
     for c in &table.classes {
-        println!("{}Class {}{} {{", indent!(indent), if let Some(package) = &c.package_name { format!("{}{}::", package, if !c.package_version.as_ref().unwrap().is_latest() { format!("<{}>", c.package_version.as_ref().unwrap()) } else { String::new() }) } else { String::new() }, &c.name);
+        writeln!(writer, "{}Class {}{} {{", indent!(indent), if let Some(package) = &c.package_name { format!("{}{}::", package, if !c.package_version.as_ref().unwrap().is_latest() { format!("<{}>", c.package_version.as_ref().unwrap()) } else { String::new() }) } else { String::new() }, &c.name)?;
         // Print all properties
         for p in &c.props {
-            println!("{}property {}: {};", indent!(INDENT_SIZE + indent), &p.name, p.data_type);
+            writeln!(writer, "{}property {}: {};", indent!(INDENT_SIZE + indent), &p.name, p.data_type)?;
         }
         // Print all functions
         for m in &c.methods {
             let f: &FunctionState = &table.funcs[*m];
-            println!("{}method {}({}){};", indent!(INDENT_SIZE + indent),
+            writeln!(writer, "{}method {}({}){};", indent!(INDENT_SIZE + indent),
                 &f.name,
                 f.signature.args.iter().map(|a| format!("{}", a)).collect::<Vec<String>>().join(", "),
                 if f.signature.ret != DataType::Void { format!(" -> {}", f.signature.ret) } else { String::new() },
-            );
+            )?;
         }
-        println!("{}}};", indent!(indent));
+        writeln!(writer, "{}}};", indent!(indent))?;
     }
-    if !table.vars.is_empty()|| !table.funcs.is_empty() || !table.tasks.is_empty() || !table.classes.is_empty() { println!(); }
+    if !table.vars.is_empty()|| !table.funcs.is_empty() || !table.tasks.is_empty() || !table.classes.is_empty() { writeln!(writer)?; }
 
     // _Finally_ finally, print the intermediate results
     for (name, avail) in &table.results {
-        println!("{}IntermediateResult '{}' -> '{:?}'", indent!(INDENT_SIZE), name, avail);
+        writeln!(writer, "{}IntermediateResult '{}' -> '{:?}'", indent!(INDENT_SIZE), name, avail)?;
     }
 
     // Done
+    Ok(())
 }
 
 /// Prints the extra function bodies of the Workflow.
 /// 
 /// # Arguments
+/// - `writer`: The `Write`r to write to.
 /// - `workflow`: The UnresolvedWorkflow who's function buffers we print.
 /// - `table`: The VirtualTableState that we use to resolve definitions.
 /// - `indent`: The indent with which to print the function buffers.
 /// 
 /// # Returns
 /// Nothing, but does print the function buffers to stdout.
-pub fn pass_f_edges(workflow: &UnresolvedWorkflow, table: &mut VirtualTableState, indent: usize) {
+pub fn pass_f_edges(writer: &mut impl Write, workflow: &UnresolvedWorkflow, table: &mut VirtualTableState, indent: usize) -> std::io::Result<()> {
     for (i, edges) in &workflow.f_edges {
         // Print the header, resolving it
         let f: &FunctionState = table.func(*i);
-        println!("{}Function {}({}){} {{", indent!(indent),
+        writeln!(writer, "{}Function {}({}){} {{", indent!(indent),
             &f.name,
             f.signature.args.iter().map(|a| format!("{}", a)).collect::<Vec<String>>().join(", "),
             if f.signature.ret != DataType::Void { format!(" -> {}", f.signature.ret) } else { String::new() },
-        );
+        )?;
 
         // Print the edge body (use the correct table!)
         table.push(&table.func(*i).table);
-        pass_edges(edges, table, INDENT_SIZE + indent, HashSet::new());
+        pass_edges(writer, edges, table, INDENT_SIZE + indent, HashSet::new())?;
         table.pop();
 
         // Print the closing brackets
-        println!("{}}}", indent!(indent));
+        writeln!(writer, "{}}}", indent!(indent))?;
     }
+
+    // DOne
+    Ok(())
 }
 
 /// Prints a given EdgeBuffer to stdout.
 /// 
 /// # Arguments
+/// - `writer`: The `Write`r to write to.
 /// - `edges`: The EdgeBuffer to print.
 /// - `table`: The VirtualTableState that we use to resolve indices.
 /// - `indent`: The indent with which to print the buffer.
@@ -154,7 +162,7 @@ pub fn pass_f_edges(workflow: &UnresolvedWorkflow, table: &mut VirtualTableState
 /// 
 /// # Returns
 /// Nothing, but does print the buffer to stdout.
-pub fn pass_edges(edges: &EdgeBuffer, table: &mut VirtualTableState, indent: usize, stop: HashSet<EdgeBufferNodePtr>) {
+pub fn pass_edges(writer: &mut impl Write, edges: &EdgeBuffer, table: &mut VirtualTableState, indent: usize, stop: HashSet<EdgeBufferNodePtr>) -> std::io::Result<()> {
     // We will write the edges in an instruction-like way, except that branches will be funky :#
     match edges.start() {
         Some(start) => {
@@ -168,7 +176,7 @@ pub fn pass_edges(edges: &EdgeBuffer, table: &mut VirtualTableState, indent: usi
                 if stop.contains(&node) { break; }
                 // Print it
                 let n: Ref<EdgeBufferNode> = node.borrow();
-                pass_edge(&n.edge, table, indent);
+                pass_edge(writer, &n.edge, table, indent)?;
 
                 // Match on it
                 match &n.next {
@@ -182,21 +190,21 @@ pub fn pass_edges(edges: &EdgeBuffer, table: &mut VirtualTableState, indent: usi
                         if let Some(next) = next { nested_stop.insert(next.clone()); }
 
                         // Print the header
-                        print!("{}Branch {{", indent!(indent));
+                        write!(writer, "{}Branch {{", indent!(indent))?;
                         // Print the true branch
                         if let Some(true_branch) = true_branch {
-                            println!();
-                            pass_edges(&true_branch.into(), table, INDENT_SIZE + indent, nested_stop.clone());
-                            print!("{}", indent!(indent));
+                            writeln!(writer)?;
+                            pass_edges(writer, &true_branch.into(), table, INDENT_SIZE + indent, nested_stop.clone())?;
+                            write!(writer, "{}", indent!(indent))?;
                         }
-                        print!("}} {{");
+                        write!(writer, "}} {{")?;
                         // Print the fales branch
                         if let Some(false_branch) = false_branch {
-                            println!();
-                            pass_edges(&false_branch.into(), table, INDENT_SIZE + indent, nested_stop.clone());
-                            print!("{}", indent!(indent));
+                            writeln!(writer)?;
+                            pass_edges(writer, &false_branch.into(), table, INDENT_SIZE + indent, nested_stop.clone())?;
+                            write!(writer, "{}", indent!(indent))?;
                         }
-                        println!("}}");
+                        writeln!(writer, "}}")?;
 
                         // Continue with the next, if any
                         if let Some(next) = next { temp = Some(next.clone()); }
@@ -207,13 +215,13 @@ pub fn pass_edges(edges: &EdgeBuffer, table: &mut VirtualTableState, indent: usi
                         nested_stop.insert(join.clone());
 
                         // Print the branches things
-                        print!("{}Parallel", indent!(indent));
+                        write!(writer, "{}Parallel", indent!(indent))?;
                         for b in branches {
-                            println!(" {{");
-                            pass_edges(&b.into(), table, INDENT_SIZE + indent, nested_stop.clone());
-                            print!("{}}}", indent!(indent));
+                            writeln!(writer, " {{")?;
+                            pass_edges(writer, &b.into(), table, INDENT_SIZE + indent, nested_stop.clone())?;
+                            write!(writer, "{}}}", indent!(indent))?;
                         }
-                        println!();
+                        writeln!(writer)?;
 
                         // Continue with the join, if any
                         temp = Some(join.clone());
@@ -224,37 +232,41 @@ pub fn pass_edges(edges: &EdgeBuffer, table: &mut VirtualTableState, indent: usi
                         if let Some(next) = next { nested_stop.insert(next.clone()); }
 
                         // Print the branches things
-                        println!("{}Loop {{", indent!(indent));
-                        pass_edges(&cond.into(), table, INDENT_SIZE + indent, nested_stop.clone());
-                        println!("{}}} {{", indent!(indent));
-                        if let Some(body) = body { pass_edges(&body.into(), table, INDENT_SIZE + indent, nested_stop); }
-                        println!("{}}}", indent!(indent));
+                        writeln!(writer, "{}Loop {{", indent!(indent))?;
+                        pass_edges(writer, &cond.into(), table, INDENT_SIZE + indent, nested_stop.clone())?;
+                        writeln!(writer, "{}}} {{", indent!(indent))?;
+                        if let Some(body) = body { pass_edges(writer, &body.into(), table, INDENT_SIZE + indent, nested_stop)?; }
+                        writeln!(writer, "{}}}", indent!(indent))?;
 
                         // Continue with the next, if any
                         if let Some(next) = next { temp = Some(next.clone()); }
                     },
 
                     // The rest doest not progress but print for niceness (if we feel like it)
-                    EdgeBufferNodeLink::None => { println!("{}<None>", indent!(indent)); }
-                    EdgeBufferNodeLink::End  => { println!("{}<End>", indent!(indent)); }
+                    EdgeBufferNodeLink::None => { writeln!(writer, "{}<None>", indent!(indent))?; }
+                    EdgeBufferNodeLink::End  => { writeln!(writer, "{}<End>", indent!(indent))?; }
                     _                        => {},
                 };
             }
         },
-        None => { println!("{}<no edges>", indent!(indent)); }
+        None => { writeln!(writer, "{}<no edges>", indent!(indent))?; }
     }
+
+    // DOne
+    Ok(())
 }
 
 /// Prints a given Edge to stdout.
 /// 
 /// # Arguments
+/// - `writer`: The `Write`r to write to.
 /// - `edge`: The Edge to print.
 /// - `table`: The VirtualTableState that we use to resolve indices.
 /// - `indent`: The indent with which to print the buffer.
 /// 
 /// # Returns
 /// Nothing, but does print the edge to stdout.
-pub fn pass_edge(edge: &Edge, table: &mut VirtualTableState, indent: usize) {
+pub fn pass_edge(writer: &mut impl Write, edge: &Edge, table: &mut VirtualTableState, indent: usize) -> std::io::Result<()> {
     // Match the Edge
     use Edge::*;
     match edge {
@@ -264,70 +276,77 @@ pub fn pass_edge(edge: &Edge, table: &mut VirtualTableState, indent: usize) {
             let task: String = format!("{}{}::{}", task.package_name, if !task.package_version.is_latest() { format!("<{}>", task.package_version) } else { String::new() }, task.name);
 
             // Write it
-            println!("{}Node({})", indent!(indent), task);
+            writeln!(writer, "{}Node({})", indent!(indent), task)?;
         },
         Linear{ instrs, .. } => {
             // Print the instructions linearly
-            print!("{}[", indent!(indent));
+            write!(writer, "{}[", indent!(indent))?;
             let mut first: bool = true;
             for i in instrs {
                 if first { first = false; }
-                else { print!("\n{}", indent!(1 + indent)); }
-                pass_edge_instr(i, table);
+                else { write!(writer, "\n{}", indent!(1 + indent))?; }
+                pass_edge_instr(writer, i, table)?;
             }
-            println!("]");
+            writeln!(writer, "]")?;
         },
         Stop{} => {
-            println!("{}<Stop>", indent!(indent));
+            writeln!(writer, "{}<Stop>", indent!(indent))?;
         },
 
         Call{ .. } => {
-            println!("{}Call", indent!(indent));
+            writeln!(writer, "{}Call", indent!(indent))?;
         },
         Return{} => {
-            println!("{}<Return>", indent!(indent));
+            writeln!(writer, "{}<Return>", indent!(indent))?;
         },
 
         // The rest doesn't have to be printed
         _ => {},
     }
+
+    // Done
+    Ok(())
 }
 
 /// Prints a given EdgeInstr to stdout.
 /// 
 /// # Arguments
+/// - `writer`: The `Write`r to write to.
 /// - `instr`: The EdgeInstr to print.
 /// - `table`: The VirtualTableState we use to resolve indices.
 /// 
 /// # Returns
 /// Nothing, but does print the instruction to stdout.
-pub fn pass_edge_instr(instr: &EdgeInstr, table: &mut VirtualTableState) {
+pub fn pass_edge_instr(writer: &mut impl Write, instr: &EdgeInstr, table: &mut VirtualTableState) -> std::io::Result<()> {
     // Match the instruction
     use EdgeInstr::*;
     match instr {
-        Cast{ res_type } => { print!("{} {}", instr, res_type); },
+        Cast{ res_type } => { write!(writer, "{} {}", instr, res_type)?; },
 
-        Branch{ next }    => { print!("{} {}", instr, next); },
-        BranchNot{ next } => { print!("{} {}", instr, next); },
+        Branch{ next }    => { write!(writer, "{} {}", instr, next)?; },
+        BranchNot{ next } => { write!(writer, "{} {}", instr, next)?; },
 
-        Proj{ field } => { print!("{} {}", instr, field); },
+        Proj{ field } => { write!(writer, "{} {}", instr, field)?; },
 
-        Array{ length, res_type } => { print!("{} {},{}", instr, res_type, length); },
-        ArrayIndex{ res_type }    => { print!("{} {}", instr, res_type); },
-        Instance{ def }           => { print!("{} {}", instr, table.class(*def).name); },
+        Array{ length, res_type } => { write!(writer, "{} {},{}", instr, res_type, length)?; },
+        ArrayIndex{ res_type }    => { write!(writer, "{} {}", instr, res_type)?; },
+        Instance{ def }           => { write!(writer, "{} {}", instr, table.class(*def).name)?; },
 
-        VarSet{ def } => { print!("{} {}", instr, table.var(*def).name); },
-        VarGet{ def } => { print!("{} {}", instr, table.var(*def).name); },
+        VarSet{ def } => { write!(writer, "{} {}", instr, table.var(*def).name)?; },
+        VarGet{ def } => { write!(writer, "{} {}", instr, table.var(*def).name)?; },
 
-        Boolean{ value } => { print!("{} {}", instr, value); },
-        Integer{ value } => { print!("{} {}", instr, value); },
-        Real{ value }    => { print!("{} {}", instr, value); },
-        String{ value }  => { print!("{} \"{}\"", instr, value.replace('\n', "\\n").replace('\t', "\\t").replace('\r', "\\r").replace('\\', "\\\\").replace('\"', "\\\"")); },
-        Function{ def }  => { print!("{} {}", instr, table.func(*def).name); },
+        Boolean{ value } => { write!(writer, "{} {}", instr, value)?; },
+        Integer{ value } => { write!(writer, "{} {}", instr, value)?; },
+        Real{ value }    => { write!(writer, "{} {}", instr, value)?; },
+        String{ value }  => { write!(writer, "{} \"{}\"", instr, value.replace('\n', "\\n").replace('\t', "\\t").replace('\r', "\\r").replace('\\', "\\\\").replace('\"', "\\\""))?; },
+        Function{ def }  => { write!(writer, "{} {}", instr, table.func(*def).name)?; },
 
         // Any other instruction is just printing it without any value
-        instr => { print!("{}", instr); }
+        instr => { write!(writer, "{}", instr)?; }
     }
+
+    // Done
+    Ok(())
 }
 
 
@@ -338,6 +357,7 @@ pub fn pass_edge_instr(instr: &EdgeInstr, table: &mut VirtualTableState) {
 /// Starts printing the root of the AST (i.e., an UnresolvedWorkflow).
 /// 
 /// # Arguments
+/// - `writer`: The `Write`r to write to.
 /// - `state`: The TableState that we use to resolve definition references.
 /// - `root`: The root node of the tree on which this compiler pass will be done.
 /// 
@@ -346,28 +366,30 @@ pub fn pass_edge_instr(instr: &EdgeInstr, table: &mut VirtualTableState) {
 /// 
 /// # Errors
 /// This pass doesn't really error, but is here for convention purposes.
-pub fn do_traversal(state: &CompileState, root: UnresolvedWorkflow) -> Result<UnresolvedWorkflow, Vec<Error>> {
-    println!("UnresolvedWorkflow {{");
+pub fn do_traversal(state: &CompileState, root: UnresolvedWorkflow, writer: impl Write) -> Result<UnresolvedWorkflow, Vec<Error>> {
+    let mut writer = writer;
+
+    if let Err(err) = writeln!(&mut writer, "UnresolvedWorkflow {{") { return Err(vec![ Error::WriteError{ err } ]); };
 
     // First up: print the workflow's table
-    pass_table(&state.table, INDENT_SIZE);
-    println!();
-    println!();
-    println!();
+    if let Err(err) = pass_table(&mut writer, &state.table, INDENT_SIZE) { return Err(vec![ Error::WriteError{ err } ]); };
+    if let Err(err) = writeln!(&mut writer) { return Err(vec![ Error::WriteError{ err } ]); };
+    if let Err(err) = writeln!(&mut writer) { return Err(vec![ Error::WriteError{ err } ]); };
+    if let Err(err) = writeln!(&mut writer) { return Err(vec![ Error::WriteError{ err } ]); };
 
     // Print the function edges
     if !root.f_edges.is_empty() {
-        pass_f_edges(&root, &mut VirtualTableState::with(&state.table), INDENT_SIZE);
-        println!();
-        println!();
-        println!();
+        if let Err(err) = pass_f_edges(&mut writer, &root, &mut VirtualTableState::with(&state.table), INDENT_SIZE) { return Err(vec![ Error::WriteError{ err } ]); }
+        if let Err(err) = writeln!(&mut writer) { return Err(vec![ Error::WriteError{ err } ]); };
+        if let Err(err) = writeln!(&mut writer) { return Err(vec![ Error::WriteError{ err } ]); };
+        if let Err(err) = writeln!(&mut writer) { return Err(vec![ Error::WriteError{ err } ]); };
     }
 
     // Print the main function body
-    pass_edges(&root.main_edges, &mut VirtualTableState::with(&state.table), INDENT_SIZE, HashSet::new());
+    if let Err(err) = pass_edges(&mut writer, &root.main_edges, &mut VirtualTableState::with(&state.table), INDENT_SIZE, HashSet::new()) { return Err(vec![ Error::WriteError{ err } ]); };
 
     // Done
-    println!("}}");
+    if let Err(err) = writeln!(&mut writer, "}}") { return Err(vec![ Error::WriteError{ err } ]); };
     Ok(root)
 }
 

@@ -7,6 +7,7 @@ authors = [ "Tim Müller" ]
 [dependencies]
 console = "0.15"
 enum-debug = { git = "https://github.com/Lut99/enum-debug", features = ["derive"] }
+im = "15.1"
 lazy_static = "1.4.0"
 log = "0.4"
 serde = { version = "1", features = ["rc"] }

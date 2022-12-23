@@ -4,7 +4,7 @@
 //  Created:
 //    25 Oct 2022, 13:34:31
 //  Last edited:
-//    14 Nov 2022, 10:30:17
+//    23 Dec 2022, 16:35:43
 //  Auto updated?
 //    Yes
 // 
@@ -79,7 +79,7 @@ mod tests {
             };
 
             // Now print the file for prettyness
-            symbol_tables::do_traversal(program).unwrap();
+            symbol_tables::do_traversal(program, std::io::stdout()).unwrap();
             // println!("{}\n", (0..40).map(|_| "- ").collect::<String>());
             // print_state(&state.table, 0);
             println!("{}\n\n", (0..80).map(|_| '-').collect::<String>());
@@ -185,14 +185,18 @@ fn pass_stmt(stmt: &mut Stmt, table: &mut DataState) -> HashSet<Data> {
             pass_expr(condition, table);
             pass_stmt(increment, table);
 
-            // The last one has the returns we're interested in
+            // We do a two-step process; do a first run to emulate the "first iteration"
+            pass_block(consequent, table);
+            // We can now do a loop with better idea what might happen in subsequent iterations
             pass_block(consequent, table)
         },
         While{ condition, consequent, .. } => {
             // The condition is recursed only to resolve in-condition dependencies
             pass_expr(condition, table);
 
-            // The block is what we care about
+            // We do a two-step process; do a first run to emulate the "first iteration"
+            pass_block(consequent, table);
+            // We can now do a loop with better idea what might happen in subsequent iterations
             pass_block(consequent, table)
         },
         On{ block, .. } => {
@@ -275,20 +279,24 @@ fn pass_expr(expr: &mut Expr, table: &DataState) -> HashSet<Data> {
                 }
                 *input = ids.into_iter().collect();
 
-                // If this function returns an IntermediateResult, generate the ID while at it
-                let entry: Ref<FunctionEntry> = st_entry.as_ref().unwrap().borrow();
-                if entry.signature.ret == DataType::Class(BuiltinClasses::IntermediateResult.name().into()) {
-                    // If this call is an external one _and_ it returns a result, we want to note it as such.
+                // If this function returns an IntermediateResult, generate the ID while at it (and it wasn't done so already)
+                if result.is_none() {
+                    let entry: Ref<FunctionEntry> = st_entry.as_ref().unwrap().borrow();
+                    if entry.signature.ret == DataType::Class(BuiltinClasses::IntermediateResult.name().into()) {
+                        // If this call is an external one _and_ it returns a result, we want to note it as such.
 
-                    // Generate the identifier for this result
-                    let uuid : String = Uuid::new_v4().to_string()[..6].into();
-                    let id   : String = format!("result_{}_{}", entry.name, uuid);
+                        // Generate the identifier for this result
+                        let uuid : String = Uuid::new_v4().to_string()[..6].into();
+                        let id   : String = format!("result_{}_{}", entry.name, uuid);
 
-                    // Note it in the function
-                    *result = Some(id.clone());
+                        // Note it in the function
+                        *result = Some(id.clone());
 
-                    // Return the identifier to return from this call
-                    HashSet::from([ Data::IntermediateResult(id) ])
+                        // Return the identifier to return from this call
+                        HashSet::from([ Data::IntermediateResult(id) ])
+                    } else {
+                        HashSet::new()
+                    }
                 } else {
                     HashSet::new()
                 }

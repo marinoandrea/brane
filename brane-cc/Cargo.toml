@@ -16,7 +16,7 @@ env_logger = "0.10"
 expanduser = "1.2.2"
 human-panic = "1.0"
 log = "0.4"
-tokio = { version = "1", features = ["rt"] }
+tokio = { version = "1", features = ["rt","macros"] }
 url = "2.2"
 
 brane-ast = { path = "../brane-ast" }
