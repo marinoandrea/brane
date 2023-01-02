@@ -4,7 +4,7 @@
 //  Created:
 //    25 Oct 2022, 13:34:31
 //  Last edited:
-//    23 Dec 2022, 16:35:43
+//    02 Jan 2023, 13:44:14
 //  Auto updated?
 //    Yes
 // 
@@ -13,13 +13,15 @@
 //!   calls.
 // 
 
-use std::cell::Ref;
+use std::cell::{Ref, RefCell};
 use std::collections::HashSet;
+use std::rc::Rc;
 
+use log::debug;
 use uuid::Uuid;
 
-use brane_dsl::DataType;
-use brane_dsl::symbol_table::{ClassEntry, FunctionEntry, SymbolTableEntry};
+use brane_dsl::{DataType, SymbolTable};
+use brane_dsl::symbol_table::{ClassEntry, FunctionEntry, SymbolTableEntry, VarEntry};
 use brane_dsl::ast::{Block, Data, Expr, Program, Stmt};
 
 use crate::errors::AstError;
@@ -97,14 +99,15 @@ mod tests {
 /// # Arguments
 /// - `block`: The Block to traverse.
 /// - `table`: The DataTable we use to keep track of which variable has what value.
+/// - `is_branch`: Indicates whether the current block is a branching block (true) or not (false). By "branching block", we mean a block that _might_ be taken, but not sure (or that is taken _for sure_ but with different inputs, as in the case of a loop).
 /// 
 /// # Returns
 /// This functions returns the possible datasets that are _returned_ in this block. This is thus different from `pass_expr()`.
-fn pass_block(block: &mut Block, table: &mut DataState) -> HashSet<Data> {
+fn pass_block(block: &mut Block, table: &mut DataState, is_branch: bool) -> HashSet<Data> {
     // Iterate over all the statements
     let mut ids: HashSet<Data> = HashSet::new();
     for s in &mut block.stmts {
-        let sids: HashSet<Data> = pass_stmt(s, table);
+        let sids: HashSet<Data> = pass_stmt(s, table, is_branch, &block.table);
         ids.extend(sids);
     }
 
@@ -117,19 +120,22 @@ fn pass_block(block: &mut Block, table: &mut DataState) -> HashSet<Data> {
 /// # Arguments
 /// - `stmt`: The Stmt to traverse.
 /// - `table`: The DataTable we use to keep track of which variable has what value.
+/// - `is_branch`: Indicates whether the current block is a branching block (true) or not (false). By "branching block", we mean a block that _might_ be taken, but not sure (or that is taken _for sure_ but with different inputs, as in the case of a loop).
+/// - `scope`: The symbol table of the current block we are in, i.e., the current scope.
 /// 
 /// # Returns
 /// This functions returns the possible datasets that are _returned_ in this statement. This is thus different from `pass_expr()`.
-fn pass_stmt(stmt: &mut Stmt, table: &mut DataState) -> HashSet<Data> {
+fn pass_stmt(stmt: &mut Stmt, table: &mut DataState, is_branch: bool, scope: &Rc<RefCell<SymbolTable>>) -> HashSet<Data> {
     // Match on the exact statement
     use Stmt::*;
     match stmt {
         Block{ block, .. } => {
-            pass_block(block, table)
+            pass_block(block, table, is_branch)
         },
 
         FuncDef{ code, st_entry, .. } => {
-            let ids: HashSet<Data> = pass_block(code, table);
+            // Function bodies never branch themselves (once called, they are always executed non-branching)
+            let ids: HashSet<Data> = pass_block(code, table, false);
 
             // Push the results to the data table
             table.set_funcs(&st_entry.as_ref().unwrap().borrow().name, ids);
@@ -140,7 +146,8 @@ fn pass_stmt(stmt: &mut Stmt, table: &mut DataState) -> HashSet<Data> {
         ClassDef{ methods, .. } => {
             // Simply recurse, that'll do it (we are not interested in the results, since this function never returns anyway)
             for m in methods {
-                pass_stmt(m, table);
+                // Function bodies never branch themselves (once called, they are always executed non-branching)
+                pass_stmt(m, table, false, scope);
             }
 
             // The definition itself doesn't return, so it doesn't introduce new identifiers
@@ -160,56 +167,65 @@ fn pass_stmt(stmt: &mut Stmt, table: &mut DataState) -> HashSet<Data> {
             // We don't care about the condition, but recurse it for any inter-expression dependencies
             pass_expr(cond, table);
 
-            // Next, we do different things depending on whether there is an alternative
+            // Do the consequent, in a branching manner
+            let mut ids: HashSet<Data> = pass_block(consequent, table, true);
+            // Do the alternative too if there is one
             if let Some(alternative) = alternative {
-                // If it's both, we first split the table in two halves, since any values added in the true block are not possible to obtain in the false block
-                let mut false_table = table.clone();
-
-                // Next, run the blocks with their own tables
-                let mut ids: HashSet<Data> = pass_block(consequent, table);
-                ids.extend(pass_block(alternative, &mut false_table));
-
-                // Merge the table together again to get the post-if possibilities
-                table.extend(false_table);
-
-                // Now return the list of possible returns
-                ids
-            } else {
-                // If it's only the consequent, we just do that block
-                pass_block(consequent, table)
+                ids.extend(pass_block(alternative, table, true));
             }
+            // Return the found ids
+            ids
+
+            // // Next, we do different things depending on whether there is an alternative
+            // if let Some(alternative) = alternative {
+            //     // If it's both, we first split the table in two halves, since any values added in the true block are not possible to obtain in the false block
+            //     let mut false_table = table.clone();
+
+            //     // Next, run the blocks with their own tables
+            //     let mut ids: HashSet<Data> = pass_block(consequent, table);
+            //     ids.extend(pass_block(alternative, &mut false_table));
+
+            //     // Merge the table together again to get the post-if possibilities
+            //     table.extend(false_table);
+
+            //     // Now return the list of possible returns
+            //     ids
+            // } else {
+            //     // If it's only the consequent, we just do that block
+            //     pass_block(consequent, table)
+            // }
         },
         For{ initializer, condition, increment, consequent, .. } => {
             // Do the initializer, condition and increment for traversal purposes (the order makes sense, I think - if we ever get weird behaviour, check here)
-            pass_stmt(initializer, table);
+            pass_stmt(initializer, table, is_branch, scope);
             pass_expr(condition, table);
-            pass_stmt(increment, table);
+            pass_stmt(increment, table, is_branch, scope);
 
-            // We do a two-step process; do a first run to emulate the "first iteration"
-            pass_block(consequent, table);
-            // We can now do a loop with better idea what might happen in subsequent iterations
-            pass_block(consequent, table)
+            // We consider the body to be branching, since the assignment values of variables may change depending on the first or later iterations (as far as data/result input is concerned)
+            pass_block(consequent, table, true);
+            // Don't forget to run again to update the loop itself
+            pass_block(consequent, table, true)
         },
         While{ condition, consequent, .. } => {
             // The condition is recursed only to resolve in-condition dependencies
             pass_expr(condition, table);
 
-            // We do a two-step process; do a first run to emulate the "first iteration"
-            pass_block(consequent, table);
-            // We can now do a loop with better idea what might happen in subsequent iterations
-            pass_block(consequent, table)
+            // We consider the body to be branching, since the assignment values of variables may change depending on the first or later iterations (as far as data/result input is concerned)
+            pass_block(consequent, table, true);
+            // Don't forget to run again to update the loop itself
+            pass_block(consequent, table, true)
         },
         On{ block, .. } => {
-            // The location is a literal, so we skip
+            // The location is guaranteed to be a literal, so we skip
 
             // Do the block
-            pass_block(block, table)
+            pass_block(block, table, is_branch)
         },
         Parallel{ blocks, st_entry, .. } => {
             // The parallel _does_ return, Tim - or at least, we have to put it in the variable if there is one
             let mut ids: HashSet<Data> = HashSet::new();
             for b in blocks {
-                ids.extend(pass_stmt(b, table));
+                ids.extend(pass_stmt(b, table, is_branch, scope));
             }
 
             // Put it in the variable if this Parallel is returning
@@ -226,8 +242,19 @@ fn pass_stmt(stmt: &mut Stmt, table: &mut DataState) -> HashSet<Data> {
             // Traverse the value
             let ids: HashSet<Data> = pass_expr(value, table);
 
-            // Propagate that to the variable's data table (overwriting any previous, since this is an overwrite as well. If updated? -> that's why we recurse with the old table)
-            table.set_vars(&st_entry.as_ref().unwrap().borrow().name, ids);
+            // Now we do the trick; if this variable originates in this scope, _or_ we are guaranteed to be executing as only branch, we override whatever input is set for the variable; otherwise, we simply extend since whatever it has, it may still have it later
+            let entry: &Rc<RefCell<VarEntry>> = st_entry.as_ref().unwrap();
+            if !is_branch || scope.borrow().variables().find(|v| Rc::ptr_eq(v.1, entry)).is_some() {
+                let entry: Ref<VarEntry> = entry.borrow();
+                debug!("Overwriting data assignment for '{}' (is not branch? {}, is this scope? {})", entry.name, !is_branch, is_branch);
+                table.set_vars(&entry.name, ids);
+            } else {
+                let entry: Ref<VarEntry> = entry.borrow();
+                debug!("Extending data assignment for '{}'", entry.name);
+                let mut new_ids: HashSet<Data> = table.get_var(&entry.name).clone();
+                new_ids.extend(ids);
+                table.set_vars(&entry.name, new_ids);
+            }
 
             // The statement itself never returns, though
             HashSet::new()
@@ -275,7 +302,7 @@ fn pass_expr(expr: &mut Expr, table: &DataState) -> HashSet<Data> {
                 // Traverse into the arguments to find the input identifiers
                 let mut ids: HashSet<Data> = HashSet::new();
                 for a in args {
-                    ids.extend(pass_expr(a, table))
+                    ids.extend(pass_expr(a, table));
                 }
                 *input = ids.into_iter().collect();
 
@@ -298,7 +325,8 @@ fn pass_expr(expr: &mut Expr, table: &DataState) -> HashSet<Data> {
                         HashSet::new()
                     }
                 } else {
-                    HashSet::new()
+                    // Otherwise, we don't generate a new one but return the value of result
+                    HashSet::from([ Data::IntermediateResult(result.clone().unwrap()) ])
                 }
 
             } else {
@@ -429,11 +457,9 @@ pub fn do_traversal(state: &mut CompileState, root: Program) -> Result<Program, 
     let mut root = root;
 
     // Iterate over all statements to analyse dependencies
-    for s in root.block.stmts.iter_mut() {
-        pass_stmt(s, &mut state.data);
-    }
+    // (The main block is obviously never branching either)
+    pass_block(&mut root.block, &mut state.data, false);
 
     // Done
     Ok(root)
 }
-

@@ -240,6 +240,18 @@ impl VolumeBind {
 
 
 
+/// Serializes an Image to a way that Docker likes.
+#[derive(Debug)]
+pub struct ImageDockerFormatter<'a> {
+    /// The image to format
+    image : &'a Image,
+}
+impl<'a> Display for ImageDockerFormatter<'a> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
+        write!(f, "{}", if let Some(digest) = &self.image.digest { format!("{}", &digest[7..]) } else { format!("{}{}", self.image.name, if let Some(version) = &self.image.version { format!(":{}", version) } else { String::new() }) })
+    }
+}
+
 /// Specifies the name of an Image, possibly with digest.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -279,6 +291,13 @@ impl Image {
     /// Returns the digest-part of the Image.
     #[inline]
     pub fn digest(&self) -> Option<&str> { self.digest.as_deref() }
+
+    /// Returns the Docker-compatible serialization of this Image.
+    /// 
+    /// # Returns
+    /// An ImageDockerFormatter which handles the formatting.
+    #[inline]
+    pub fn docker(&self) -> ImageDockerFormatter { ImageDockerFormatter{ image: self } }
 }
 
 impl Display for Image {
@@ -304,19 +323,6 @@ impl From<&mut Image> for Image {
     #[inline]
     fn from(value: &mut Image) -> Self {
         value.clone()
-    }
-}
-
-impl From<Image> for String {
-    #[inline]
-    fn from(value: Image) -> Self {
-        format!("{}", value)
-    }
-}
-impl From<&Image> for String {
-    #[inline]
-    fn from(value: &Image) -> Self {
-        format!("{}", value)
     }
 }
 

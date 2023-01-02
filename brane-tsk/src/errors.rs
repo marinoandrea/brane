@@ -4,7 +4,7 @@
 //  Created:
 //    24 Oct 2022, 15:27:26
 //  Last edited:
-//    12 Dec 2022, 13:22:45
+//    02 Jan 2023, 14:07:06
 //  Auto updated?
 //    Yes
 // 
@@ -587,6 +587,8 @@ pub enum DockerError {
     /// Failed to appropriately tag the pulled image.
     ImageTagError{ image: Image, source: String, err: bollard::errors::Error },
 
+    /// Failed to inspect a certain image.
+    ImageInspectError{ image: Image, err: bollard::errors::Error },
     /// Failed to remove a certain image.
     ImageRemoveError{ image: Image, id: String, err: bollard::errors::Error },
 
@@ -639,6 +641,7 @@ impl Display for DockerError {
             ImagePullError{ source, err }       => write!(f, "Failed to pull image '{}' into Docker engine: {}", source, err),
             ImageTagError{ image, source, err } => write!(f, "Failed to tag pulled image '{}' as '{}': {}", source, image, err),
 
+            ImageInspectError{ image, err }    => write!(f, "Failed to inspect image '{}'{}: {}", image.name(), if let Some(digest) = image.digest() { format!(" ({})", digest) } else { String::new() }, err),
             ImageRemoveError{ image, id, err } => write!(f, "Failed to remove image '{}' (id: {}) from Docker engine: {}", image.name(), id, err),
 
             ImageTarOpenError{ path, err }                 => write!(f, "Could not open given Docker image file '{}': {}", path.display(), err),

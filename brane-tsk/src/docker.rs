@@ -4,7 +4,7 @@
 //  Created:
 //    19 Sep 2022, 14:57:17
 //  Last edited:
-//    19 Dec 2022, 14:43:51
+//    02 Jan 2023, 15:16:50
 //  Auto updated?
 //    Yes
 // 
@@ -779,7 +779,7 @@ pub async fn hash_container(container_path: impl AsRef<Path>) -> Result<String, 
 /// # Arguments
 /// - `docker`: An already connected local instance of Docker.
 /// - `image`: The Docker image name, version & potential digest to pull.
-/// - `image_path`: Path to the physical image file to import. If omitted, attempts to pull it from the interwebs instead.
+/// - `source`: Where to get the image from should it not be present already.
 /// 
 /// # Errors
 /// This function errors if it failed to ensure the image existed (i.e., import or pull failed).
@@ -788,13 +788,17 @@ pub async fn ensure_image(docker: &Docker, image: impl Into<Image>, source: impl
     let source : ImageSource = source.into();
 
     // Abort if image is already loaded
-    let simage: String = (&image).into();
-    if docker.inspect_image(&simage).await.is_ok() {
-        // The image is present, and because we specified the hash in the name, it's also for sure up-to-date
-        debug!("Image already exists in Docker deamon.");
-        return Ok(());
-    } else {
-        debug!("Image doesn't exist in Docker daemon.");
+    match docker.inspect_image(&image.docker().to_string()).await {
+        Ok(_) => {
+            debug!("Image '{}' already exists in Docker deamon.", image.docker());
+            return Ok(());
+        },
+        Err(bollard::errors::Error::DockerResponseServerError { status_code: 404, message: _ }) => {
+            debug!("Image '{}' doesn't exist in Docker daemon.", image.docker());
+        },
+        Err(err) => {
+            return Err(Error::ImageInspectError{ image, err });
+        },
     }
 
     // Otherwise, import it if it is described or pull it
@@ -834,7 +838,7 @@ pub async fn launch(exec: ExecuteInfo, path: impl AsRef<Path>, version: ClientVe
     let path: &Path = path.as_ref();
 
     // Connect to docker
-    let docker = match Docker::connect_with_unix(&path.to_string_lossy(), 600, &version) {
+    let docker = match Docker::connect_with_unix(&path.to_string_lossy(), 900, &version) {
         Ok(res)     => res,
         Err(reason) => { return Err(Error::ConnectionError{ path: path.into(), version, err: reason }); }
     };
@@ -864,7 +868,7 @@ pub async fn join(name: impl AsRef<str>, path: impl AsRef<Path>, version: Client
     let path : &Path = path.as_ref();
 
     // Connect to docker
-    let docker = match Docker::connect_with_unix(&path.to_string_lossy(), 600, &version) {
+    let docker = match Docker::connect_with_unix(&path.to_string_lossy(), 900, &version) {
         Ok(res)     => res,
         Err(reason) => { return Err(Error::ConnectionError{ path: path.into(), version, err: reason }); }
     };
@@ -889,7 +893,7 @@ pub async fn join(name: impl AsRef<str>, path: impl AsRef<Path>, version: Client
 pub async fn run_and_wait(exec: ExecuteInfo, keep_container: bool) -> Result<(i32, String, String), Error> {
     // This next bit's basically launch but copied so that we have a docker connection of our own.
     // Connect to docker
-    let docker = match Docker::connect_with_local_defaults() {
+    let docker = match Docker::connect_with_unix("/var/run/docker.sock", 900, API_DEFAULT_VERSION) {
         Ok(res)     => res,
         Err(reason) => { return Err(Error::ConnectionError{ path: "/var/run/docker.sock".into(), version: *API_DEFAULT_VERSION, err: reason }); }
     };
@@ -917,7 +921,7 @@ pub async fn get_container_address(name: impl AsRef<str>) -> Result<String, Erro
     let name: &str = name.as_ref();
 
     // Try to connect to the local instance
-    let docker = match Docker::connect_with_local_defaults() {
+    let docker = match Docker::connect_with_unix("/var/run/docker.sock", 900, API_DEFAULT_VERSION) {
         Ok(conn)    => conn,
         Err(reason) => { return Err(Error::ConnectionError{ path: "/var/run/docker.sock".into(), version: *API_DEFAULT_VERSION, err: reason }); }
     };
@@ -958,7 +962,7 @@ pub async fn get_container_address(name: impl AsRef<str>) -> Result<String, Erro
 /// This function errors if removing the image failed. Reasons for this may be if the image did not exist, the Docker engine was not reachable, or ...
 pub async fn remove_image(image: &Image) -> Result<(), Error> {
     // Try to connect to the local instance
-    let docker = match Docker::connect_with_local_defaults() {
+    let docker = match Docker::connect_with_unix("/var/run/docker.sock", 900, API_DEFAULT_VERSION) {
         Ok(conn)    => conn,
         Err(reason) => { return Err(Error::ConnectionError{ path: "/var/run/docker.sock".into(), version: *API_DEFAULT_VERSION, err: reason }); }
     };
