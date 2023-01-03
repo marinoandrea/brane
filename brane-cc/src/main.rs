@@ -4,7 +4,7 @@
 //  Created:
 //    18 Nov 2022, 14:36:55
 //  Last edited:
-//    23 Dec 2022, 16:39:32
+//    03 Jan 2023, 13:26:26
 //  Auto updated?
 //    Yes
 // 
@@ -230,17 +230,15 @@ pub async fn compile_iter(state: &mut CompileState, source: &mut String, lang: L
         let mut res: Vec<u8> = vec![];
         ast::do_traversal(workflow, &mut res).unwrap();
         String::from_utf8_lossy(&res).to_string()
+    } else if !compact {
+        match serde_json::to_string_pretty(&workflow) {
+            Ok(sworkflow) => sworkflow,
+            Err(err)      => { return Err(CompileError::WorkflowSerializeError{ err }); },
+        }
     } else {
-        if !compact {
-            match serde_json::to_string_pretty(&workflow) {
-                Ok(sworkflow) => sworkflow,
-                Err(err)      => { return Err(CompileError::WorkflowSerializeError{ err }); },
-            }
-        } else {
-            match serde_json::to_string(&workflow) {
-                Ok(sworkflow) => sworkflow,
-                Err(err)      => { return Err(CompileError::WorkflowSerializeError{ err }); },
-            }
+        match serde_json::to_string(&workflow) {
+            Ok(sworkflow) => sworkflow,
+            Err(err)      => { return Err(CompileError::WorkflowSerializeError{ err }); },
         }
     };
 

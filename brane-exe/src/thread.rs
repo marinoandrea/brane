@@ -4,7 +4,7 @@
 //  Created:
 //    09 Sep 2022, 13:23:41
 //  Last edited:
-//    03 Jan 2023, 12:26:15
+//    03 Jan 2023, 13:25:58
 //  Auto updated?
 //    Yes
 // 
@@ -156,6 +156,7 @@ enum EdgeResult {
 /// # Errors
 /// This function may error if the given `input` does not contain any of the data in the value _or_ if the referenced input is not yet planned.
 #[async_recursion]
+#[allow(clippy::too_many_arguments)]
 async fn preprocess_value<P: VmPlugin>(global: &Arc<RwLock<P::GlobalState>>, local: &P::LocalState, pc: (usize, usize), task: &TaskDef, at: &Location, value: &FullValue, input: &HashMap<DataName, Option<AvailabilityKind>>, data: &mut HashMap<DataName, AccessKind>) -> Result<(), Error> {
     // If it's a data or intermediate result, get it; skip it otherwise
     let name: DataName = match value {

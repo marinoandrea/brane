@@ -4,7 +4,7 @@
 //  Created:
 //    15 Nov 2022, 09:18:40
 //  Last edited:
-//    12 Dec 2022, 13:59:46
+//    03 Jan 2023, 13:29:30
 //  Auto updated?
 //    Yes
 // 
@@ -55,16 +55,16 @@ struct Arguments {
 #[derive(Debug, Subcommand)]
 enum CtlSubcommand {
     #[clap(subcommand)]
-    Generate(GenerateSubcommand),
+    Generate(Box<GenerateSubcommand>),
 
     #[clap(subcommand)]
-    Certs(CertSubcommand),
+    Certs(Box<CertSubcommand>),
 
     #[clap(subcommand)]
-    Packages(PackageSubcommand),
+    Packages(Box<PackageSubcommand>),
 
     #[clap(subcommand)]
-    Data(DataSubcommand),
+    Data(Box<DataSubcommand>),
 
     #[clap(name = "start", about = "Starts the local node by loading and then launching (already compiled) image files.")]
     Start{
@@ -86,7 +86,7 @@ enum CtlSubcommand {
 
         /// Defines the possible nodes and associated flags to start.
         #[clap(subcommand)]
-        kind : StartSubcommand,
+        kind : Box<StartSubcommand>,
     },
 
     #[clap(name = "stop", about = "Stops the local node if it is running.")]
@@ -131,7 +131,7 @@ enum GenerateSubcommand {
 
         /// Defines the possible nodes to generate a new node.yml file for.
         #[clap(subcommand)]
-        kind : GenerateNodeSubcommand,
+        kind : Box<GenerateNodeSubcommand>,
     },
 
     #[clap(name = "infra", about = "Generates a new 'infra.yml' file.")]
@@ -169,7 +169,7 @@ enum GenerateSubcommand {
 
         /// Defines the possible backends to generate a new creds.yml file for.
         #[clap(subcommand)]
-        kind : GenerateCredsSubcommand,
+        kind : Box<GenerateCredsSubcommand>,
     },
 
     #[clap(name = "policy", about = "Generates a new `policies.yml` file.")]
@@ -245,10 +245,10 @@ async fn main() {
 
     // Now match on the command
     match args.subcommand {
-        CtlSubcommand::Generate(subcommand) => match subcommand {
+        CtlSubcommand::Generate(subcommand) => match *subcommand {
             GenerateSubcommand::Node{ hosts, proxy, fix_dirs, config_path, kind } => {
                 // Call the thing
-                if let Err(err) = generate::node(args.node_config, hosts, proxy, fix_dirs, config_path, kind) { error!("{}", err); std::process::exit(1); }
+                if let Err(err) = generate::node(args.node_config, hosts, proxy, fix_dirs, config_path, *kind) { error!("{}", err); std::process::exit(1); }
             },
 
             GenerateSubcommand::Infra{ locations, fix_dirs, path, names, reg_ports, job_ports } => {
@@ -258,7 +258,7 @@ async fn main() {
 
             GenerateSubcommand::Creds{ fix_dirs, path, kind } => {
                 // Call the thing
-                if let Err(err) = generate::creds(fix_dirs, path, kind) { error!("{}", err); std::process::exit(1); }
+                if let Err(err) = generate::creds(fix_dirs, path, *kind) { error!("{}", err); std::process::exit(1); }
             },
             GenerateSubcommand::Policy{ fix_dirs, path, allow_all } => {
                 // Call the thing
@@ -266,23 +266,23 @@ async fn main() {
             },
         },
 
-        CtlSubcommand::Certs(subcommand) => match subcommand {
+        CtlSubcommand::Certs(subcommand) => match *subcommand {
             
         },
 
-        CtlSubcommand::Packages(subcommand) => match subcommand {
+        CtlSubcommand::Packages(subcommand) => match *subcommand {
             PackageSubcommand::Hash{ image } => {
                 // Call the thing
                 if let Err(err) = packages::hash(args.node_config, image).await { error!("{}", err); std::process::exit(1); }
             }
         },
 
-        CtlSubcommand::Data(subcommand) => match subcommand {
+        CtlSubcommand::Data(subcommand) => match *subcommand {
             
         },
 
         CtlSubcommand::Start{ file, docker_socket, docker_version, version, mode, kind, } => {
-            if let Err(err) = lifetime::start(file, docker_socket, docker_version, version, args.node_config, mode, kind).await { error!("{}", err); std::process::exit(1); }
+            if let Err(err) = lifetime::start(file, docker_socket, docker_version, version, args.node_config, mode, *kind).await { error!("{}", err); std::process::exit(1); }
         },
 
         CtlSubcommand::Stop{ file } => {

@@ -248,7 +248,7 @@ pub struct ImageDockerFormatter<'a> {
 }
 impl<'a> Display for ImageDockerFormatter<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
-        write!(f, "{}", if let Some(digest) = &self.image.digest { format!("{}", &digest[7..]) } else { format!("{}{}", self.image.name, if let Some(version) = &self.image.version { format!(":{}", version) } else { String::new() }) })
+        write!(f, "{}", if let Some(digest) = &self.image.digest { digest[7..].into() } else { format!("{}{}", self.image.name, if let Some(version) = &self.image.version { format!(":{}", version) } else { String::new() }) })
     }
 }
 

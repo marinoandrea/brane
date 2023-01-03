@@ -4,7 +4,7 @@
 //  Created:
 //    25 Oct 2022, 13:34:31
 //  Last edited:
-//    02 Jan 2023, 13:44:14
+//    03 Jan 2023, 13:25:24
 //  Auto updated?
 //    Yes
 // 
@@ -244,7 +244,7 @@ fn pass_stmt(stmt: &mut Stmt, table: &mut DataState, is_branch: bool, scope: &Rc
 
             // Now we do the trick; if this variable originates in this scope, _or_ we are guaranteed to be executing as only branch, we override whatever input is set for the variable; otherwise, we simply extend since whatever it has, it may still have it later
             let entry: &Rc<RefCell<VarEntry>> = st_entry.as_ref().unwrap();
-            if !is_branch || scope.borrow().variables().find(|v| Rc::ptr_eq(v.1, entry)).is_some() {
+            if !is_branch || scope.borrow().variables().any(|v| Rc::ptr_eq(v.1, entry)) {
                 let entry: Ref<VarEntry> = entry.borrow();
                 debug!("Overwriting data assignment for '{}' (is not branch? {}, is this scope? {})", entry.name, !is_branch, is_branch);
                 table.set_vars(&entry.name, ids);

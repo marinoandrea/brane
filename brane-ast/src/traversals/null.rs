@@ -4,7 +4,7 @@
 //  Created:
 //    19 Dec 2022, 10:04:38
 //  Last edited:
-//    23 Dec 2022, 16:36:05
+//    03 Jan 2023, 13:24:43
 //  Auto updated?
 //    Yes
 // 
@@ -275,15 +275,9 @@ fn pass_expr(expr: &mut Expr, errors: &mut Vec<Error>) {
 /// # Errors
 /// This function may error if the user made incorrect usage of `null`. In that case, the error is appended to `errors` and the function might return early.
 fn pass_literal(lit: &Literal, errors: &mut Vec<Error>) {
-    // Match on the given literal
-    use Literal::*;
-    match lit {
-        Null{ range } => {
-            errors.push(Error::IllegalNull{ range: range.clone() });
-        },
-
-        // The rest is OK
-        _ => {},
+    // We only do one thing: error if we see a `null` here
+    if let Literal::Null{ range } = lit {
+        errors.push(Error::IllegalNull{ range: range.clone() });
     }
 }
 

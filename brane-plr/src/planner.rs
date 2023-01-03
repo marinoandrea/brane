@@ -4,7 +4,7 @@
 //  Created:
 //    25 Oct 2022, 11:35:00
 //  Last edited:
-//    03 Jan 2023, 11:12:56
+//    03 Jan 2023, 13:29:55
 //  Auto updated?
 //    Yes
 // 
@@ -120,6 +120,7 @@ async fn send_update(producer: Arc<FutureProducer>, topic: impl AsRef<str>, corr
 /// 
 /// # Errors
 /// This function may error if the given list of edges was malformed (usually due to unknown or inaccessible datasets or results).
+#[allow(clippy::too_many_arguments)]
 fn plan_edges(table: &mut SymTable, edges: &mut [Edge], dindex: &DataIndex, infra: &InfraFile, pc: usize, merge: Option<usize>, deferred: bool, done: &mut HashSet<usize>) -> Result<(), PlanError> {
     // We cannot get away simply examining all edges in-order; we have to follow their execution structure
     let mut pc: usize = pc;

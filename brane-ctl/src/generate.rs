@@ -4,7 +4,7 @@
 //  Created:
 //    21 Nov 2022, 15:40:47
 //  Last edited:
-//    19 Dec 2022, 11:56:57
+//    03 Jan 2023, 13:26:55
 //  Auto updated?
 //    Yes
 // 
@@ -156,7 +156,7 @@ fn write_node_header(writer: &mut impl Write) -> Result<(), std::io::Error> {
 /// A new string that might be the same, or be that but prettier.
 fn beautify_id(id: impl AsRef<str>) -> String {
     // Replace underscores and dashes with spaces
-    let id: String = id.as_ref().replace('-', " ").replace('_', " ");
+    let id: String = id.as_ref().replace(['-', '_'], " ");
 
     // Capitalize each word
     let id: String = id.split(' ').map(|w| if !w.is_empty() { let mut chars = w.chars(); format!("{}{}", chars.next().unwrap().to_uppercase(), chars.collect::<String>()) } else { String::new() }).collect::<Vec<String>>().join(" ");
