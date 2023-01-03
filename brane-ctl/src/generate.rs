@@ -4,7 +4,7 @@
 //  Created:
 //    21 Nov 2022, 15:40:47
 //  Last edited:
-//    03 Jan 2023, 13:26:55
+//    03 Jan 2023, 15:10:26
 //  Auto updated?
 //    Yes
 // 
@@ -248,7 +248,7 @@ fn write_policy_header(writer: &mut impl Write) -> Result<(), std::io::Error> {
     writeln!(writer, "# restart.")?;
     writeln!(writer, "# ")?;
     writeln!(writer, "# For an overview of what you can do in this file, refer to")?;
-    writeln!(writer, "# https://wiki.enablingpersonalizedinterventions.nl/user-guide/system-admins/docs/config/creds.md")?;
+    writeln!(writer, "# https://wiki.enablingpersonalizedinterventions.nl/user-guide/system-admins/docs/config/policy.md")?;
     writeln!(writer, "# ")?;
     writeln!(writer)?;
     writeln!(writer)?;
@@ -425,7 +425,7 @@ pub fn infra(locations: Vec<LocationPair<':', String>>, fix_dirs: bool, path: im
     for loc in locations {
         locs.insert(loc.0.clone(), InfraLocation {
             name     : beautify_id(loc.0),
-            registry : Address::hostname(format!("http://{}", loc.1), 50051),
+            registry : Address::hostname(format!("https://{}", loc.1), 50051),
             delegate : Address::hostname(format!("grpc://{}", loc.1), 50052),
         });
     }
