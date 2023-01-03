@@ -4,7 +4,7 @@
 //  Created:
 //    22 Nov 2022, 11:19:22
 //  Last edited:
-//    02 Jan 2023, 14:20:37
+//    03 Jan 2023, 11:39:17
 //  Auto updated?
 //    Yes
 // 
@@ -229,7 +229,7 @@ fn construct_envs(version: &Version, node_config_path: &Path, node_config: &Node
     // Set the global ones first
     let mut res: HashMap<&str, OsString> = HashMap::from([
         ("BRANE_VERSION", OsString::from(version.to_string())),
-        ("NODE_CONFIG_PATH", node_config_path.as_os_str().into()),
+        ("NODE_CONFIG_PATH", canonicalize(node_config_path)?.as_os_str().into()),
     ]);
 
     // Match on the node kind
@@ -473,6 +473,9 @@ pub fn stop(file: impl Into<PathBuf>, node_config_path: impl Into<PathBuf>) -> R
         Err(err)   => { return Err(Error::NodeConfigLoadError{ err }); },
     };
 
+    // Construct the environment variables
+    let envs: HashMap<&str, OsString> = construct_envs(&Version::latest(), &node_config_path, &node_config)?;
+
     // Resolve the filename and deduce the project name
     let file  : PathBuf = resolve_node(file, if node_config.node.kind() == NodeKind::Central { "central" } else { "worker" });
     let pname : String  = format!("brane-{}", match &node_config.node { NodeKindConfig::Central(_) => "central".into(), NodeKindConfig::Worker(node) => format!("worker-{}", node.location_id) });
@@ -485,6 +488,7 @@ pub fn stop(file: impl Into<PathBuf>, node_config_path: impl Into<PathBuf>) -> R
     cmd.args([ "-p", pname.as_str(), "-f" ]);
     cmd.arg(file.as_os_str());
     cmd.args([ "down" ]);
+    cmd.envs(envs);
 
     // Run it
     println!("Running docker-compose {} on {}...", style("down").bold().green(), style(file.display()).bold());

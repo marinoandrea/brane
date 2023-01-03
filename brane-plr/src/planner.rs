@@ -4,7 +4,7 @@
 //  Created:
 //    25 Oct 2022, 11:35:00
 //  Last edited:
-//    12 Dec 2022, 13:14:35
+//    03 Jan 2023, 11:12:56
 //  Auto updated?
 //    Yes
 // 
@@ -14,7 +14,7 @@
 
 
 /***** LIBRARY *****/
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::mem;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -110,75 +110,245 @@ async fn send_update(producer: Arc<FutureProducer>, topic: impl AsRef<str>, corr
 /// - `edges`: The given list to plan.
 /// - `dindex`: The DataIndex we use to resolve data references.
 /// - `infra`: The infrastructure to resolve locations.
+/// - `pc`: The initial value for the program counter. You should use '0' if you're calling this function.
+/// - `merge`: The number of the edge until which we will run. You should use 'None' if you're calling this function.
+/// - `deferred`: Whether or not to show errors when an intermediate result is not generated yet (false) or not (true).
+/// - `done`: A list we use to keep track of edges we've already analyzed (to prevent endless loops).
 /// 
 /// # Returns
 /// Nothing, but does change the given list.
 /// 
 /// # Errors
 /// This function may error if the given list of edges was malformed (usually due to unknown or inaccessible datasets or results).
-fn plan_edges(table: &mut SymTable, edges: &mut [Edge], dindex: &DataIndex, infra: &InfraFile) -> Result<(), PlanError> {
-    for (i, e) in edges.iter_mut().enumerate() {
-        if let Edge::Node{ task, locs, at, input, result, .. } = e {
-            debug!("Planning task '{}' (edge {})...", table.tasks[*task].name(), i);
+fn plan_edges(table: &mut SymTable, edges: &mut [Edge], dindex: &DataIndex, infra: &InfraFile, pc: usize, merge: Option<usize>, deferred: bool, done: &mut HashSet<usize>) -> Result<(), PlanError> {
+    // We cannot get away simply examining all edges in-order; we have to follow their execution structure
+    let mut pc: usize = pc;
+    while pc < edges.len() && (merge.is_none() || pc != merge.unwrap()) {
+        // Match on the edge to progress
+        let edge: &mut Edge = &mut edges[pc];
+        if done.contains(&pc) { break; }
+        done.insert(pc);
+        match edge {
+            Edge::Node{ task, locs, at, input, result, next } => {
+                // This is the node where it all revolves around, in the end
+                debug!("Planning task '{}' (edge {})...", table.tasks[*task].name(), pc);
 
-            // If everything is allowed, we make it one easier for the planner by checking we happen to find only one occurrance based on the datasets
-            if locs.is_all() {
-                // Search all of the input to collect a list of possible locations
-                let mut data_locs: Vec<&String> = vec![];
-                for (d, _) in input.iter() {
-                    // We only take data into account (for now, at least)
-                    if let DataName::Data(name) = d {
-                        // Attempt to find it
-                        if let Some(info) = dindex.get(name) {
-                            // Simply add all locations where it lives
-                            data_locs.append(&mut info.access.keys().collect::<Vec<&String>>());
-                        } else {
-                            return Err(PlanError::UnknownDataset{ name: name.clone() });
+                // If everything is allowed, we make it one easier for the planner by checking we happen to find only one occurrance based on the datasets
+                if locs.is_all() {
+                    // Search all of the input to collect a list of possible locations
+                    let mut data_locs: Vec<&String> = vec![];
+                    for (d, _) in input.iter() {
+                        // We only take data into account (for now, at least)
+                        if let DataName::Data(name) = d {
+                            // Attempt to find it
+                            if let Some(info) = dindex.get(name) {
+                                // Simply add all locations where it lives
+                                data_locs.append(&mut info.access.keys().collect::<Vec<&String>>());
+                            } else {
+                                return Err(PlanError::UnknownDataset{ name: name.clone() });
+                            }
                         }
+                    }
+
+                    // If there is only one location, then we override locs
+                    if data_locs.len() == 1 {
+                        *locs = Locations::Restricted(vec![ data_locs[0].clone() ]);
                     }
                 }
 
-                // If there is only one location, then we override locs
-                if data_locs.len() == 1 {
-                    *locs = Locations::Restricted(vec![ data_locs[0].clone() ]);
-                }
-            }
+                // We resolve all locations by collapsing them to the only possibility indicated by the user. More or less than zero? Error!
+                if !locs.is_restrictive() || locs.restricted().len() != 1 { return Err(PlanError::AmbigiousLocationError{ name: table.tasks[*task].name().into(), locs: locs.clone() }); }
+                let location: &str = &locs.restricted()[0];
+                *at = Some(location.into());
+                debug!("Task '{}' planned at '{}'", table.tasks[*task].name(), location);
 
-            // We resolve all locations by collapsing them to the only possibility indicated by the user. More or less than zero? Error!
-            if !locs.is_restrictive() || locs.restricted().len() != 1 { return Err(PlanError::AmbigiousLocationError{ name: table.tasks[*task].name().into(), locs: locs.clone() }); }
-            let location: &str = &locs.restricted()[0];
-            *at = Some(location.into());
-            debug!("Task '{}' planned at '{}'", table.tasks[*task].name(), location);
+                // For all dataset/intermediate result inputs, we check if these are available on the planned location.
+                for (name, avail) in input {
+                    match name {
+                        DataName::Data(name) => {
+                            if let Some(info) = dindex.get(name) {
+                                // Check if it is local or remote
+                                if let Some(access) = info.access.get(location) {
+                                    debug!("Input dataset '{}' is locally available", name);
+                                    *avail = Some(AvailabilityKind::Available { how: access.clone() });
+                                } else {
+                                    // Select one of the other locations it's available (for now, random?)
+                                    if info.access.is_empty() { return Err(PlanError::DatasetUnavailable { name: name.clone(), locs: vec![] }); }
+                                    let mut rng = rand::thread_rng();
+                                    let location: &str = info.access.keys().choose(&mut rng).unwrap();
 
-            // For all dataset/intermediate result inputs, we check if these are available on the planned location.
-            for (name, avail) in input {
-                match name {
-                    DataName::Data(name) => {
-                        if let Some(info) = dindex.get(name) {
-                            // Check if it is local or remote
-                            if let Some(access) = info.access.get(location) {
-                                debug!("Input dataset '{}' is locally available", name);
-                                *avail = Some(AvailabilityKind::Available { how: access.clone() });
+                                    // Get the registry of that location
+                                    let registry : &Address = &infra.get(location).unwrap_or_else(|| panic!("DataIndex advertises location '{}', but that location is unknown", location)).registry;
+                                    let address  : String  = format!("{}/data/download/{}", registry, name);
+                                    debug!("Input dataset '{}' will be transferred in from '{}'", name, address);
+
+                                    // That's the location where to pull the dataset from
+                                    *avail = Some(AvailabilityKind::Unavailable{ how: PreprocessKind::TransferRegistryTar{ location: location.into(), address } });
+                                }
                             } else {
-                                // Select one of the other locations it's available (for now, random?)
-                                if info.access.is_empty() { return Err(PlanError::DatasetUnavailable { name: name.clone(), locs: vec![] }); }
-                                let mut rng = rand::thread_rng();
-                                let location: &str = info.access.keys().choose(&mut rng).unwrap();
-
-                                // Get the registry of that location
-                                let registry : &Address = &infra.get(location).unwrap_or_else(|| panic!("DataIndex advertises location '{}', but that location is unknown", location)).registry;
-                                let address  : String  = format!("{}/data/download/{}", registry, name);
-                                debug!("Input dataset '{}' will be transferred in from '{}'", name, address);
-
-                                // That's the location where to pull the dataset from
-                                *avail = Some(AvailabilityKind::Unavailable{ how: PreprocessKind::TransferRegistryTar{ location: location.into(), address } });
+                                return Err(PlanError::UnknownDataset{ name: name.clone() });
                             }
-                        } else {
-                            return Err(PlanError::UnknownDataset{ name: name.clone() });
-                        }
-                    },
+                        },
 
-                    DataName::IntermediateResult(name) => {
+                        DataName::IntermediateResult(name) => {
+                            // It has to be declared before
+                            if let Some(loc) = table.results.get(name) {
+                                // Match on whether it is available locally or not
+                                if location == loc {
+                                    debug!("Input intermediate result '{}' is locally available", name);
+                                    *avail = Some(AvailabilityKind::Available { how: AccessKind::File{ path: PathBuf::from(name) } });
+                                } else {
+                                    // Find the remote location in the infra file
+                                    let registry: &Address = &infra.get(loc).unwrap_or_else(|| panic!("IntermediateResult advertises location '{}', but that location is unknown", loc)).registry;
+
+                                    // Compute the registry access method
+                                    let address: String = format!("{}/results/download/{}", registry, name);
+                                    debug!("Input intermediate result '{}' will be transferred in from '{}'", name, address);
+
+                                    // That's the location where to pull the dataset from
+                                    *avail = Some(AvailabilityKind::Unavailable{ how: PreprocessKind::TransferRegistryTar{ location: loc.clone(), address } });
+                                }
+                            } else if !deferred {
+                                return Err(PlanError::UnknownIntermediateResult{ name: name.clone() });
+                            } else {
+                                debug!("Cannot determine value of intermediate result '{}' yet; it might be declared later (deferred)", name);
+                            }
+                        },
+                    }
+                }
+
+                // Then, we make the intermediate result available at the location where the function is being run (if there is any)
+                if let Some(name) = result {
+                    // Insert an entry in the list detailling where to access it and how
+                    debug!("Making intermediate result '{}' accessible after execution of '{}' on '{}'", name, table.tasks[*task].name(), location);
+                    table.results.insert(name.clone(), location.into());
+                }
+
+                // Move to the one indicated by 'next'
+                pc = *next;
+            },
+            Edge::Linear{ next, .. } => {
+                // Simply move to the next one
+                pc = *next;
+            },
+            Edge::Stop{} => {
+                // We've reached the end of the program
+                break;
+            },
+
+            Edge::Branch{ true_next, false_next, merge } => {
+                // Dereference the numbers to dodge the borrow checker
+                let true_next : usize         = *true_next;
+                let false_next: Option<usize> = *false_next;
+                let merge     : Option<usize> = *merge;
+
+                // First analyse the true_next branch, until it reaches the merge (or quits)
+                plan_edges(table, edges, dindex, infra, true_next, merge, deferred, done)?;
+                // If there is a false branch, do that one too
+                if let Some(false_next) = false_next {
+                    plan_edges(table, edges, dindex, infra, false_next, merge, deferred, done)?;
+                }
+
+                // If there is a merge, continue there; otherwise, we can assume that we've returned fully in the branch
+                if let Some(merge) = merge {
+                    pc = merge;
+                } else {
+                    break;
+                }
+            },
+            Edge::Parallel{ branches, merge } => {
+                // Dereference the numbers to dodge the borrow checker
+                let branches : Vec<usize> = branches.clone();
+                let merge: usize = *merge;
+
+                // Analyse any of the branches
+                for b in branches {
+                    // No merge needed since we can be safe in assuming parallel branches end with returns
+                    plan_edges(table, edges, dindex, infra, b, None, deferred, done)?;
+                }
+
+                // Continue at the merge
+                pc = merge;
+            },
+            Edge::Join{ next, .. } => {
+                // Move to the next instruction (joins are not relevant for planning)
+                pc = *next;
+            },
+
+            Edge::Loop{ cond, body, next, .. } => {
+                // Dereference the numbers to dodge the borrow checker
+                let cond : usize         = *cond;
+                let body : usize         = *body;
+                let next : Option<usize> = *next;
+
+                // Run the conditions and body in a first pass, with deferation enabled, to do as much as we can
+                plan_edges(table, edges, dindex, infra, cond, Some(body), true, done)?;
+                plan_edges(table, edges, dindex, infra, body, Some(cond), true, done)?;
+
+                // Then we run through the condition and body again to resolve any unknown things
+                plan_deferred(table, edges, infra, cond, Some(body), &mut HashSet::new())?;
+                plan_deferred(table, edges, infra, cond, Some(cond), &mut HashSet::new())?;
+
+                // When done, move to the next if there is any (otherwise, the body returns and then so can we)
+                if let Some(next) = next {
+                    pc = next;
+                } else {
+                    break;
+                }
+            },
+
+            Edge::Call{ next } => {
+                // We can ignore calls for now, but...
+                // TODO: Check if this planning works across functions *screams*
+                pc = *next;
+            },
+            Edge::Return{} => {
+                // We will stop analysing here too, since we assume we have been called in recursion mode or something
+                break;
+            },
+        }
+    }
+
+    // Done
+    debug!("Planning success");
+    Ok(())
+}
+
+/// Helper function that populates the availability of results right after a first planning round, to catch those that needed to be deferred (i.e., loop variables).
+/// 
+/// # Arguments
+/// - `table`: The SymbolTable these edges live in.
+/// - `edges`: The given list to plan.
+/// - `infra`: The infrastructure to resolve locations.
+/// - `pc`: The started index for the program counter. Should be '0' when called manually, the rest is handled during recursion.
+/// - `merge`: If given, then we will stop analysing once we reach that point.
+/// 
+/// # Returns
+/// Nothing, but does change the given list.
+/// 
+/// # Errors
+/// This function may error if there were still results that couldn't be populated even after we've seen all edges.
+fn plan_deferred(table: &SymTable, edges: &mut [Edge], infra: &InfraFile, pc: usize, merge: Option<usize>, done: &mut HashSet<usize>) -> Result<(), PlanError> {
+    // We cannot get away simply examining all edges in-order; we have to follow their execution structure
+    let mut pc: usize = pc;
+    while pc < edges.len() && (merge.is_none() || pc != merge.unwrap()) {
+        // Match on the edge to progress
+        let edge: &mut Edge = &mut edges[pc];
+        if done.contains(&pc) { break; }
+        done.insert(pc);
+        match edge {
+            // This is the node where it all revolves around, in the end
+            Edge::Node{ at, input, next, .. } => {
+                // This next trick involves checking if the node has any unresolved results as input, then trying to resolve them
+                for (name, avail) in input {
+                    // Continue if it already has a resolved availability
+                    if avail.is_some() { continue; }
+
+                    // Get the name of the result
+                    if let DataName::IntermediateResult(name) = name {
+                        // Extract the planned location
+                        let location: &str = at.as_ref().unwrap();
+
                         // It has to be declared before
                         if let Some(loc) = table.results.get(name) {
                             // Match on whether it is available locally or not
@@ -197,23 +367,97 @@ fn plan_edges(table: &mut SymTable, edges: &mut [Edge], dindex: &DataIndex, infr
                                 *avail = Some(AvailabilityKind::Unavailable{ how: PreprocessKind::TransferRegistryTar{ location: loc.clone(), address } });
                             }
                         } else {
+                            // No more second chances
                             return Err(PlanError::UnknownIntermediateResult{ name: name.clone() });
                         }
-                    },
-                }
-            }
 
-            // Then, we make the intermediate result available at the location where the function is being run (if there is any)
-            if let Some(name) = result {
-                // Insert an entry in the list detailling where to access it and how
-                debug!("Making intermediate result '{}' accessible after execution of '{}' on '{}'", name, table.tasks[*task].name(), location);
-                table.results.insert(name.clone(), location.into());
-            }
+                    } else {
+                        panic!("Should never see an unresolved Data in the workflow");
+                    }
+                }
+
+                // Finally, don't forget to move to the next one
+                pc = *next;
+            },
+            Edge::Linear{ next, .. } => {
+                // Simply move to the next one
+                pc = *next;
+            },
+            Edge::Stop{} => {
+                // We've reached the end of the program
+                break;
+            },
+
+            Edge::Branch{ true_next, false_next, merge } => {
+                // Dereference the numbers to dodge the borrow checker
+                let true_next : usize         = *true_next;
+                let false_next: Option<usize> = *false_next;
+                let merge     : Option<usize> = *merge;
+
+                // First analyse the true_next branch, until it reaches the merge (or quits)
+                plan_deferred(table, edges, infra, true_next, merge, done)?;
+                // If there is a false branch, do that one too
+                if let Some(false_next) = false_next {
+                    plan_deferred(table, edges, infra, false_next, merge, done)?;
+                }
+
+                // If there is a merge, continue there; otherwise, we can assume that we've returned fully in the branch
+                if let Some(merge) = merge {
+                    pc = merge;
+                } else {
+                    break;
+                }
+            },
+            Edge::Parallel{ branches, merge } => {
+                // Dereference the numbers to dodge the borrow checker
+                let branches : Vec<usize> = branches.clone();
+                let merge: usize = *merge;
+
+                // Analyse any of the branches
+                for b in branches {
+                    // No merge needed since we can be safe in assuming parallel branches end with returns
+                    plan_deferred(table, edges, infra, b, None, done)?;
+                }
+
+                // Continue at the merge
+                pc = merge;
+            },
+            Edge::Join{ next, .. } => {
+                // Move to the next instruction (joins are not relevant for planning)
+                pc = *next;
+            },
+
+            Edge::Loop{ cond, body, next, .. } => {
+                // Dereference the numbers to dodge the borrow checker
+                let cond : usize         = *cond;
+                let body : usize         = *body;
+                let next : Option<usize> = *next;
+
+                // We only have to analyse further deferrence; the actual planning should have been done before `plan_deferred()` is called
+                plan_deferred(table, edges, infra, cond, Some(body), done)?;
+                plan_deferred(table, edges, infra, cond, Some(cond), done)?;
+
+                // When done, move to the next if there is any (otherwise, the body returns and then so can we)
+                if let Some(next) = next {
+                    pc = next;
+                } else {
+                    break;
+                }
+            },
+
+            Edge::Call{ next } => {
+                // We can ignore calls for now, but...
+                // TODO: Check if this planning works across functions *screams*
+                pc = *next;
+            },
+            Edge::Return{} => {
+                // We will stop analysing here too, since we assume we have been called in recursion mode or something
+                break;
+            },
         }
     }
 
     // Done
-    debug!("Planning success");
     Ok(())
 }
 
@@ -349,7 +593,7 @@ pub async fn planner_server(node_config_path: impl Into<PathBuf>, node_config: N
 
                         // Plan them
                         debug!("Planning main edges...");
-                        if let Err(err) = plan_edges(&mut table, &mut edges, &dindex, &infra) {
+                        if let Err(err) = plan_edges(&mut table, &mut edges, &dindex, &infra, 0, None, false, &mut HashSet::new()) {
                             error!("Failed to plan main edges for workflow with correlation ID '{}': {}", id, err);
                             if let Err(err) = send_update(producer.clone(), &node_config.node.central().topics.planner_results, &id, PlanningStatus::Error(format!("{}", err))).await { error!("Failed to update client that planning has failed: {}", err); }
                             return Ok(());
@@ -370,7 +614,7 @@ pub async fn planner_server(node_config_path: impl Into<PathBuf>, node_config: N
                         // Iterate through all of the edges
                         for (idx, edges) in &mut funcs {
                             debug!("Planning '{}' edges...", table.funcs[*idx].name);
-                            if let Err(err) = plan_edges(&mut table, edges, &dindex, &infra) {
+                            if let Err(err) = plan_edges(&mut table, edges, &dindex, &infra, 0, None, false, &mut HashSet::new()) {
                                 error!("Failed to plan function '{}' edges for workflow with correlation ID '{}': {}", table.funcs[*idx].name, id, err);
                                 if let Err(err) = send_update(producer.clone(), &node_config.node.central().topics.planner_results, &id, PlanningStatus::Error(format!("{}", err))).await { error!("Failed to update client that planning has failed: {}", err); }
                                 return Ok(());

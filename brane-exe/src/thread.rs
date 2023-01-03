@@ -4,7 +4,7 @@
 //  Created:
 //    09 Sep 2022, 13:23:41
 //  Last edited:
-//    23 Dec 2022, 16:37:02
+//    03 Jan 2023, 12:26:15
 //  Auto updated?
 //    Yes
 // 
@@ -17,6 +17,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
+use async_recursion::async_recursion;
 use enum_debug::EnumDebug as _;
 use futures::future::{BoxFuture, FutureExt};
 use log::debug;
@@ -145,6 +146,62 @@ enum EdgeResult {
 
 
 /***** HELPER FUNCTIONS *****/
+/// Preprocesses any datasets / intermediate results in the given value.
+/// 
+/// # Arguments
+/// 
+/// # Returns
+/// Nothing, but does add any preprocessed datasets to `data`.
+/// 
+/// # Errors
+/// This function may error if the given `input` does not contain any of the data in the value _or_ if the referenced input is not yet planned.
+#[async_recursion]
+async fn preprocess_value<P: VmPlugin>(global: &Arc<RwLock<P::GlobalState>>, local: &P::LocalState, pc: (usize, usize), task: &TaskDef, at: &Location, value: &FullValue, input: &HashMap<DataName, Option<AvailabilityKind>>, data: &mut HashMap<DataName, AccessKind>) -> Result<(), Error> {
+    // If it's a data or intermediate result, get it; skip it otherwise
+    let name: DataName = match value {
+        // The data and intermediate result, of course
+        FullValue::Data(name)               => DataName::Data(name.into()),
+        FullValue::IntermediateResult(name) => DataName::IntermediateResult(name.into()),
+
+        // Also handle any nested stuff
+        FullValue::Array(values)      => { for v in values { preprocess_value::<P>(global, local, pc, task, at, v, input, data).await?; }; return Ok(()); },
+        FullValue::Instance(_, props) => { for v in props.values() { preprocess_value::<P>(global, local, pc, task, at, v, input, data).await?; }; return Ok(()); },
+
+        // The rest is irrelevant
+        _ => { return Ok(()); },
+    };
+
+    // Fetch it from the input
+    let avail: &AvailabilityKind = match input.get(&name) {
+        Some(avail) => match avail {
+            Some(avail) => avail,
+            None        => { return Err(Error::UnplannedInput{ edge: pc.1, task: task.name().into(), name }); },
+        },
+        None => { return Err(Error::UnknownInput{ edge: pc.1, task: task.name().into(), name }); },
+    };
+
+    // If it is unavailable, download it and make it available
+    let access: AccessKind = match avail {
+        AvailabilityKind::Available { how }   => {
+            debug!("{} '{}' is locally available", name.variant(), name.name());
+            how.clone()
+        },
+        AvailabilityKind::Unavailable { how } => {
+            debug!("{} '{}' is remotely available", name.variant(), name.name());
+
+            // Call the external transfer function
+            match P::preprocess(global, local, at, &name, how).await {
+                Ok(access) => access,
+                Err(err)   => { return Err(Error::Custom{ edge: pc.1, err: Box::new(err) }); }
+            }
+        },
+    };
+
+    // Insert it into the map, done
+    data.insert(name.clone(), access);
+    Ok(())
+}
+
 /// Runs a single instruction, modifying the given stack and variable register.
 /// 
 /// # Arguments
@@ -982,28 +1039,9 @@ impl<G: CustomGlobalState, L: CustomLocalState> Thread<G, L> {
                         // Next, fetch all the datasets required by calling the external transfer function
                         // The map created maps data names to ways of accessing them locally that may be passed to the container itself.
                         let mut data: HashMap<DataName, AccessKind> = HashMap::new();
-                        for (name, avail) in input {
-                            let avail: &AvailabilityKind = avail.as_ref().unwrap_or_else(|| panic!("Encountered an unset AvailabilityKind for input '{}'", name));
-
-                            // If it is unavailable, download it and make it available
-                            let access: AccessKind = match avail {
-                                AvailabilityKind::Available { how }   => {
-                                    debug!("{} '{}' is locally available", name.variant(), name.name());
-                                    how.clone()
-                                },
-                                AvailabilityKind::Unavailable { how } => {
-                                    debug!("{} '{}' is remotely available", name.variant(), name.name());
-
-                                    // Call the external transfer function
-                                    match P::preprocess(&self.global, &self.local, at, name, how).await {
-                                        Ok(access) => access,
-                                        Err(err)   => { return EdgeResult::Err(Error::Custom{ edge: pc.1, err: Box::new(err) }); }
-                                    }
-                                },
-                            };
-
-                            // Insert it into the map
-                            data.insert(name.clone(), access);
+                        for value in args.values() {
+                            // Preprocess the given value
+                            if let Err(err) = preprocess_value::<P>(&self.global, &self.local, pc, task, at, value, input, &mut data).await { return EdgeResult::Err(err); };
                         }
 
                         // Prepare the TaskInfo for the call

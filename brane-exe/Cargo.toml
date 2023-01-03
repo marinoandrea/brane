@@ -5,6 +5,7 @@ edition = "2021"
 authors = [ "Tim Müller" ]
 
 [dependencies]
+async-recursion = "1.0.0"
 async-trait = "0.1"
 base64 = "0.13"
 # bollard = "0.11"

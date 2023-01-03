@@ -4,7 +4,7 @@
 //  Created:
 //    24 Oct 2022, 16:40:21
 //  Last edited:
-//    02 Jan 2023, 13:44:50
+//    03 Jan 2023, 11:04:41
 //  Auto updated?
 //    Yes
 // 
@@ -13,7 +13,7 @@
 //!   'localhost'.
 // 
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::mem;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -37,20 +37,21 @@ use specifications::data::{AccessKind, AvailabilityKind, DataIndex};
 /// - `pc`: The started index for the program counter. Should be '0' when called manually, the rest is handled during recursion.
 /// - `merge`: If given, then we will stop analysing once we reach that point.
 /// - `deferred`: Whether or not to show errors when an intermediate result is not generated yet (false) or not (true).
+/// - `done`: A list we use to keep track of edges we've already analyzed (to prevent endless loops).
 /// 
 /// # Returns
 /// Nothing, but does change the given list.
 /// 
 /// # Errors
 /// This function may error if the given list of edges was malformed (usually due to unknown or inaccessible datasets or results).
-fn plan_edges(table: &mut SymTable, edges: &mut [Edge], dindex: &Arc<DataIndex>, pc: usize, merge: Option<usize>, deferred: bool, done: &mut HashMap<usize, ()>) -> Result<(), PlanError> {
+fn plan_edges(table: &mut SymTable, edges: &mut [Edge], dindex: &Arc<DataIndex>, pc: usize, merge: Option<usize>, deferred: bool, done: &mut HashSet<usize>) -> Result<(), PlanError> {
     // We cannot get away simply examining all edges in-order; we have to follow their execution structure
     let mut pc: usize = pc;
     while pc < edges.len() && (merge.is_none() || pc != merge.unwrap()) {
         // Match on the edge to progress
         let edge: &mut Edge = &mut edges[pc];
-        if done.contains_key(&pc) { break; }
-        done.insert(pc, ());
+        if done.contains(&pc) { break; }
+        done.insert(pc);
         match edge {
             // This is the node where it all revolves around, in the end
             Edge::Node{ task, at, input, result, next, .. } => {
@@ -132,8 +133,8 @@ fn plan_edges(table: &mut SymTable, edges: &mut [Edge], dindex: &Arc<DataIndex>,
                 plan_edges(table, edges, dindex, body, Some(cond), true, done)?;
 
                 // Then we run through the condition and body again to resolve any unknown things
-                plan_deferred(table, edges, cond, Some(body), &mut HashMap::new())?;
-                plan_deferred(table, edges, cond, Some(cond), &mut HashMap::new())?;
+                plan_deferred(table, edges, cond, Some(body), &mut HashSet::new())?;
+                plan_deferred(table, edges, cond, Some(cond), &mut HashSet::new())?;
 
                 // When done, move to the next if there is any (otherwise, the body returns and then so can we)
                 if let Some(next) = next {
@@ -195,14 +196,14 @@ fn plan_edges(table: &mut SymTable, edges: &mut [Edge], dindex: &Arc<DataIndex>,
 /// 
 /// # Errors
 /// This function may error if there were still results that couldn't be populated even after we've seen all edges.
-fn plan_deferred(table: &SymTable, edges: &mut [Edge], pc: usize, merge: Option<usize>, done: &mut HashMap<usize, ()>) -> Result<(), PlanError> {
+fn plan_deferred(table: &SymTable, edges: &mut [Edge], pc: usize, merge: Option<usize>, done: &mut HashSet<usize>) -> Result<(), PlanError> {
     // We cannot get away simply examining all edges in-order; we have to follow their execution structure
     let mut pc: usize = pc;
     while pc < edges.len() && (merge.is_none() || pc != merge.unwrap()) {
         // Match on the edge to progress
         let edge: &mut Edge = &mut edges[pc];
-        if done.contains_key(&pc) { break; }
-        done.insert(pc, ());
+        if done.contains(&pc) { break; }
+        done.insert(pc);
         match edge {
             // This is the node where it all revolves around, in the end
             Edge::Node{ input, next, .. } => {
@@ -417,7 +418,7 @@ impl Planner for OfflinePlanner {
 
             // Plan them
             debug!("Planning main edges...");
-            plan_edges(&mut table, &mut edges, &self.data_index, 0, None, false, &mut HashMap::new())?;
+            plan_edges(&mut table, &mut edges, &self.data_index, 0, None, false, &mut HashSet::new())?;
 
             // Move the edges back
             let mut edges: Arc<Vec<Edge>> = Arc::new(edges);
@@ -434,7 +435,7 @@ impl Planner for OfflinePlanner {
             // Iterate through all of the edges
             for (idx, edges) in &mut funcs {
                 debug!("Planning '{}' edges...", table.funcs[*idx].name);
-                plan_edges(&mut table, edges, &self.data_index, 0, None, false, &mut HashMap::new())?;
+                plan_edges(&mut table, edges, &self.data_index, 0, None, false, &mut HashSet::new())?;
             }
 
             // Put the map back

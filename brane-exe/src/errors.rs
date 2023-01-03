@@ -4,7 +4,7 @@
 //  Created:
 //    26 Aug 2022, 18:01:09
 //  Last edited:
-//    19 Dec 2022, 10:48:01
+//    03 Jan 2023, 12:07:29
 //  Auto updated?
 //    Yes
 // 
@@ -17,6 +17,7 @@ use std::fmt::{Display, Formatter, Result as FResult};
 use std::path::PathBuf;
 
 use console::style;
+use enum_debug::EnumDebug as _;
 
 use brane_ast::{DataType, MergeStrategy};
 use brane_ast::ast::DataName;
@@ -261,8 +262,12 @@ pub enum VmError {
     FunctionTypeError{ edge: usize, name: String, arg: usize, got: DataType, expected: DataType },
     /// We got told to run a function but do not know where.
     UnresolvedLocation{ edge: usize, name: String },
-    /// The given dataset was not locally available by the time it has to be executed.
-    UnavailableDataset{ edge: usize, name: DataName },
+    /// The given input (dataset, result) was not there as possible option for the given task.
+    UnknownInput{ edge: usize, task: String, name: DataName },
+    /// The given input (dataset, result) was not yet planned at the time of execution.
+    UnplannedInput{ edge: usize, task: String, name: DataName },
+    // /// The given dataset was not locally available by the time it has to be executed.
+    // UnavailableDataset{ edge: usize, name: DataName },
     /// Attempted to call a function but the framestack thought otherwise.
     FrameStackPushError{ edge: usize, err: FrameStackError },
     /// Attempted to call a function but the framestack was empty.
@@ -314,7 +319,9 @@ impl VmError {
             IllegalBranchType{ edge, .. }   => prettyprint_err(*edge, self),
             FunctionTypeError{ edge, .. }   => prettyprint_err(*edge, self),
             UnresolvedLocation{ edge, .. }  => prettyprint_err(*edge, self),
-            UnavailableDataset{ edge, .. }  => prettyprint_err(*edge, self),
+            UnknownInput{ edge, .. }        => prettyprint_err(*edge, self),
+            UnplannedInput{ edge, .. }      => prettyprint_err(*edge, self),
+            // UnavailableDataset{ edge, .. }  => prettyprint_err(*edge, self),
             FrameStackPushError{ edge, .. } => prettyprint_err(*edge, self),
             FrameStackPopError{ edge, .. }  => prettyprint_err(*edge, self),
             ReturnTypeError{ edge, .. }     => prettyprint_err(*edge, self),
@@ -357,7 +364,9 @@ impl Display for VmError {
             IllegalBranchType{ branch, merge, got, expected, .. } => write!(f, "Branch {} returned a value of type {}, but the current merge strategy ({:?}) requires values of {} type", branch, got, merge, expected),
             FunctionTypeError{ name, arg, got, expected, .. }     => write!(f, "Argument {} for function '{}' has incorrect type: expected {}, got {}", arg, name, expected, got),
             UnresolvedLocation{ name, .. }                        => write!(f, "Cannot call task '{}' because it has no resolved location.", name),
-            UnavailableDataset{ name, .. }                        => write!(f, "Dataset '{}' is unavailable at execution time", name),
+            UnknownInput{ task, name, .. }                        => write!(f, "{} '{}' is not a possible input for task '{}'", name.variant(), name.name(), task),
+            UnplannedInput{ task, name, .. }                      => write!(f, "{} '{}' as input for task '{}' is not yet planned", name.variant(), name.name(), task),
+            // UnavailableDataset{ name, .. }                        => write!(f, "Dataset '{}' is unavailable at execution time", name),
             FrameStackPushError{ err, .. }                        => write!(f, "Failed to push to frame stack: {}", err),
             FrameStackPopError{ err, .. }                         => write!(f, "Failed to pop from frame stack: {}", err),
             ReturnTypeError{ got, expected, .. }                  => write!(f, "Got incorrect return type for function: expected {}, got {}", expected, got),
