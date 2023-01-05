@@ -4,7 +4,7 @@
 //  Created:
 //    26 Sep 2022, 15:11:44
 //  Last edited:
-//    06 Dec 2022, 11:34:07
+//    05 Jan 2023, 11:35:05
 //  Auto updated?
 //    Yes
 // 
@@ -27,6 +27,7 @@ use brane_reg::spec::Context;
 use brane_reg::server::serve_with_auth;
 use brane_reg::health;
 use brane_reg::version;
+use brane_reg::infra;
 use brane_reg::data;
 
 
@@ -114,13 +115,19 @@ async fn main() {
         .and(warp::path::end())
         .and(context.clone())
         .and_then(data::download_result);
+    let infra_capabilities = warp::get()
+        .and(warp::path("infra"))
+        .and(warp::path("capabilities"))
+        .and(warp::path::end())
+        .and(context.clone())
+        .and_then(infra::get_capabilities);
     let version = warp::path("version")
         .and(warp::path::end())
         .and_then(version::get);
     let health = warp::path("health")
         .and(warp::path::end())
         .and_then(health::get);
-    let filter = list_assets.or(get_asset).or(download_asset).or(download_result).or(version).or(health);
+    let filter = list_assets.or(get_asset).or(download_asset).or(download_result).or(infra_capabilities).or(version).or(health);
 
     // Run it
     match serve_with_auth(node_config.paths.certs.join("server.pem"), node_config.paths.certs.join("server-key.pem"), node_config.paths.certs.join("ca.pem"), filter, node_config.node.worker().ports.reg).await {

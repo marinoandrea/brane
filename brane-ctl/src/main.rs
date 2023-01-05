@@ -4,7 +4,7 @@
 //  Created:
 //    15 Nov 2022, 09:18:40
 //  Last edited:
-//    03 Jan 2023, 13:29:30
+//    05 Jan 2023, 12:03:58
 //  Auto updated?
 //    Yes
 // 
@@ -19,9 +19,10 @@ use dotenvy::dotenv;
 use log::{error, LevelFilter};
 
 use brane_cfg::spec::Address;
+use specifications::package::Capability;
 use specifications::version::Version;
 
-use brane_ctl::spec::{DockerClientVersion, GenerateCredsSubcommand, GenerateNodeSubcommand, HostnamePair, LocationPair, StartSubcommand};
+use brane_ctl::spec::{DockerClientVersion, GenerateBackendSubcommand, GenerateNodeSubcommand, HostnamePair, LocationPair, StartSubcommand};
 use brane_ctl::{generate, lifetime, packages};
 
 
@@ -158,18 +159,22 @@ enum GenerateSubcommand {
         job_ports : Vec<LocationPair<'=', u16>>,
     },
 
-    #[clap(name = "creds", about = "Generates a new `creds.yml` file.")]
-    Creds {
+    #[clap(name = "backend", about = "Generates a new `backend.yml` file.")]
+    Backend {
         /// If given, will generate missing directories instead of throwing errors.
         #[clap(short='f', long, help = "If given, will generate any missing directories.")]
         fix_dirs : bool,
         /// The path to write to.
-        #[clap(short, long, default_value = "./creds.yml", help = "The path to write the credentials file to.")]
+        #[clap(short, long, default_value = "./backend.yml", help = "The path to write the credentials file to.")]
         path     : PathBuf,
 
-        /// Defines the possible backends to generate a new creds.yml file for.
+        /// The list of capabilities to advertise for this domain.
+        #[clap(short, long, help = "The list of capabilities to advertise for this domain. Use '--list-capabilities' to see them.")]
+        capabilities : Vec<Capability>,
+
+        /// Defines the possible backends to generate a new backend.yml file for.
         #[clap(subcommand)]
-        kind : Box<GenerateCredsSubcommand>,
+        kind : Box<GenerateBackendSubcommand>,
     },
 
     #[clap(name = "policy", about = "Generates a new `policies.yml` file.")]
@@ -256,9 +261,9 @@ async fn main() {
                 if let Err(err) = generate::infra(locations, fix_dirs, path, names, reg_ports, job_ports) { error!("{}", err); std::process::exit(1); }
             },
 
-            GenerateSubcommand::Creds{ fix_dirs, path, kind } => {
+            GenerateSubcommand::Backend{ fix_dirs, path, capabilities,kind } => {
                 // Call the thing
-                if let Err(err) = generate::creds(fix_dirs, path, *kind) { error!("{}", err); std::process::exit(1); }
+                if let Err(err) = generate::backend(fix_dirs, path, capabilities, *kind) { error!("{}", err); std::process::exit(1); }
             },
             GenerateSubcommand::Policy{ fix_dirs, path, allow_all } => {
                 // Call the thing

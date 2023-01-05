@@ -13,4 +13,5 @@ serde = { version = "1", features = ["derive"] }
 serde_yaml = "0.9"
 tokio = { version = "1", features = [] }
 
-brane-shr = { path = "../brane-shr" }
+brane-shr      = { path = "../brane-shr" }
+specifications = { path = "../specifications" }

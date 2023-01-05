@@ -4,7 +4,7 @@
 //  Created:
 //    25 Oct 2022, 11:35:00
 //  Last edited:
-//    03 Jan 2023, 13:29:55
+//    05 Jan 2023, 14:44:34
 //  Auto updated?
 //    Yes
 // 
@@ -20,6 +20,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+use async_recursion::async_recursion;
 use futures_util::TryStreamExt;
 use log::{debug, info, error};
 use prost::Message as _;
@@ -30,17 +31,19 @@ use rdkafka::consumer::stream_consumer::StreamConsumer;
 use rdkafka::message::OwnedMessage;
 use rdkafka::producer::{FutureProducer, FutureRecord};
 use rdkafka::util::Timeout;
+use reqwest::Response;
 
 use brane_ast::Workflow;
 use brane_ast::locations::Locations;
-use brane_ast::ast::{DataName, Edge, SymTable};
+use brane_ast::ast::{DataName, Edge, SymTable, TaskDef};
 use brane_cfg::spec::Address;
 use brane_cfg::infra::InfraFile;
-use brane_cfg::node::NodeConfig;
+use brane_cfg::node::{CentralConfig, NodeConfig, NodeKindConfig};
 use brane_shr::kafka::{ensure_topics, restore_committed_offsets};
 use brane_tsk::errors::PlanError;
 use brane_tsk::api::get_data_index;
 use specifications::data::{AccessKind, AvailabilityKind, DataIndex, PreprocessKind};
+use specifications::package::Capability;
 use specifications::planning::{PlanningStatus, PlanningStatusKind, PlanningUpdate};
 
 
@@ -108,6 +111,7 @@ async fn send_update(producer: Arc<FutureProducer>, topic: impl AsRef<str>, corr
 /// # Arguments
 /// - `table`: The SymbolTable where this edge lives in.
 /// - `edges`: The given list to plan.
+/// - `api_addr`: The address where we can reach the `brane-api` service on. Used for asserting that the target domain supports what the package needs.
 /// - `dindex`: The DataIndex we use to resolve data references.
 /// - `infra`: The infrastructure to resolve locations.
 /// - `pc`: The initial value for the program counter. You should use '0' if you're calling this function.
@@ -121,7 +125,8 @@ async fn send_update(producer: Arc<FutureProducer>, topic: impl AsRef<str>, corr
 /// # Errors
 /// This function may error if the given list of edges was malformed (usually due to unknown or inaccessible datasets or results).
 #[allow(clippy::too_many_arguments)]
-fn plan_edges(table: &mut SymTable, edges: &mut [Edge], dindex: &DataIndex, infra: &InfraFile, pc: usize, merge: Option<usize>, deferred: bool, done: &mut HashSet<usize>) -> Result<(), PlanError> {
+#[async_recursion]
+async fn plan_edges(table: &mut SymTable, edges: &mut [Edge], api_addr: &Address, dindex: &DataIndex, infra: &InfraFile, pc: usize, merge: Option<usize>, deferred: bool, done: &mut HashSet<usize>) -> Result<(), PlanError> {
     // We cannot get away simply examining all edges in-order; we have to follow their execution structure
     let mut pc: usize = pc;
     while pc < edges.len() && (merge.is_none() || pc != merge.unwrap()) {
@@ -160,6 +165,31 @@ fn plan_edges(table: &mut SymTable, edges: &mut [Edge], dindex: &DataIndex, infr
                 // We resolve all locations by collapsing them to the only possibility indicated by the user. More or less than zero? Error!
                 if !locs.is_restrictive() || locs.restricted().len() != 1 { return Err(PlanError::AmbigiousLocationError{ name: table.tasks[*task].name().into(), locs: locs.clone() }); }
                 let location: &str = &locs.restricted()[0];
+
+                // Fetch the list of capabilities supported by the planned location
+                let address: String = format!("{}/infra/capabilities/{}", api_addr, location);
+                let res: Response = match reqwest::get(&address).await {
+                    Ok(req)  => req,
+                    Err(err) => { return Err(PlanError::RequestError{ address, err }); },
+                };
+                if !res.status().is_success() { return Err(PlanError::RequestFailure{ address, code: res.status(), err: res.text().await.ok() }); }
+                let capabilities: String = match res.text().await {
+                    Ok(caps) => caps,
+                    Err(err) => { return Err(PlanError::RequestBodyError{ address, err }); },
+                };
+                let capabilities: HashSet<Capability> = match serde_json::from_str(&capabilities) {
+                    Ok(caps) => caps,
+                    Err(err) => { return Err(PlanError::RequestParseError{ address, raw: capabilities, err }); },
+                };
+
+                // Assert that this is what we need
+                if let TaskDef::Compute{ function, requirements, .. } = &table.tasks[*task] {
+                    if !capabilities.is_superset(requirements) { return Err(PlanError::UnsupportedCapabilities{ task: function.name.clone(), loc: location.into(), expected: requirements.clone(), got: capabilities }); }
+                } else {
+                    panic!("Non-compute tasks are not (yet) supported.");
+                };
+
+                // It checks out, plan it
                 *at = Some(location.into());
                 debug!("Task '{}' planned at '{}'", table.tasks[*task].name(), location);
 
@@ -244,10 +274,10 @@ fn plan_edges(table: &mut SymTable, edges: &mut [Edge], dindex: &DataIndex, infr
                 let merge     : Option<usize> = *merge;
 
                 // First analyse the true_next branch, until it reaches the merge (or quits)
-                plan_edges(table, edges, dindex, infra, true_next, merge, deferred, done)?;
+                plan_edges(table, edges, api_addr, dindex, infra, true_next, merge, deferred, done).await?;
                 // If there is a false branch, do that one too
                 if let Some(false_next) = false_next {
-                    plan_edges(table, edges, dindex, infra, false_next, merge, deferred, done)?;
+                    plan_edges(table, edges, api_addr, dindex, infra, false_next, merge, deferred, done).await?;
                 }
 
                 // If there is a merge, continue there; otherwise, we can assume that we've returned fully in the branch
@@ -265,7 +295,7 @@ fn plan_edges(table: &mut SymTable, edges: &mut [Edge], dindex: &DataIndex, infr
                 // Analyse any of the branches
                 for b in branches {
                     // No merge needed since we can be safe in assuming parallel branches end with returns
-                    plan_edges(table, edges, dindex, infra, b, None, deferred, done)?;
+                    plan_edges(table, edges, api_addr, dindex, infra, b, None, deferred, done).await?;
                 }
 
                 // Continue at the merge
@@ -283,8 +313,8 @@ fn plan_edges(table: &mut SymTable, edges: &mut [Edge], dindex: &DataIndex, infr
                 let next : Option<usize> = *next;
 
                 // Run the conditions and body in a first pass, with deferation enabled, to do as much as we can
-                plan_edges(table, edges, dindex, infra, cond, Some(body), true, done)?;
-                plan_edges(table, edges, dindex, infra, body, Some(cond), true, done)?;
+                plan_edges(table, edges, api_addr, dindex, infra, cond, Some(body), true, done).await?;
+                plan_edges(table, edges, api_addr, dindex, infra, body, Some(cond), true, done).await?;
 
                 // Then we run through the condition and body again to resolve any unknown things
                 plan_deferred(table, edges, infra, cond, Some(body), &mut HashSet::new())?;
@@ -535,10 +565,15 @@ pub async fn planner_server(node_config_path: impl Into<PathBuf>, node_config: N
                     return Ok(());
                 },
             };
+            let central: CentralConfig = if let NodeKindConfig::Central(config) = node_config.node {
+                config
+            } else {
+                panic!("Got a node.yml that is not for a central node");
+            };
 
             // Parse the key
             let id: String = String::from_utf8_lossy(owned_message.key().unwrap_or(&[])).to_string();
-            info!("Received new plan request with ID '{}' on topic '{}'", id, node_config.node.central().topics.planner_command);
+            info!("Received new plan request with ID '{}' on topic '{}'", id, central.topics.planner_command);
 
             // Parse the payload, if any
             if let Some(payload) = owned_message.payload() {
@@ -551,16 +586,16 @@ pub async fn planner_server(node_config_path: impl Into<PathBuf>, node_config: N
                 let mut workflow: Workflow = match serde_json::from_str(&message) {
                     Ok(workflow) => workflow,
                     Err(err)     => {
-                        error!("Failed to parse incoming message workflow on topic '{}' as Workflow JSON: {}\n\nworkflow:\n{}\n{}\n{}\n", node_config.node.central().topics.planner_command, err, (0..80).map(|_| '-').collect::<String>(), message, (0..80).map(|_| '-').collect::<String>());
+                        error!("Failed to parse incoming message workflow on topic '{}' as Workflow JSON: {}\n\nworkflow:\n{}\n{}\n{}\n", central.topics.planner_command, err, (0..80).map(|_| '-').collect::<String>(), message, (0..80).map(|_| '-').collect::<String>());
                         return Ok(());
                     }
                 };
 
                 // Send that we've started planning
-                if let Err(err) = send_update(producer.clone(), &node_config.node.central().topics.planner_results, &id, PlanningStatus::Started(None)).await { error!("Failed to update client that planning has started: {}", err); };
+                if let Err(err) = send_update(producer.clone(), &central.topics.planner_results, &id, PlanningStatus::Started(None)).await { error!("Failed to update client that planning has started: {}", err); };
 
                 // Fetch the data index
-                let data_index_addr: String = format!("{}/data/info", node_config.node.central().services.api);
+                let data_index_addr: String = format!("{}/data/info", central.services.api);
                 let dindex: DataIndex = match get_data_index(&data_index_addr).await {
                     Ok(dindex) => dindex,
                     Err(err)   => {
@@ -572,10 +607,10 @@ pub async fn planner_server(node_config_path: impl Into<PathBuf>, node_config: N
                 // Now we do the planning
                 {
                     // Load the infrastructure file
-                    let infra: InfraFile = match InfraFile::from_path(&node_config.node.central().paths.infra) {
+                    let infra: InfraFile = match InfraFile::from_path(&central.paths.infra) {
                         Ok(infra) => infra,
                         Err(err)  => {
-                            error!("Failed to load infrastructure file '{}': {}", node_config.node.central().paths.infra.display(), err);
+                            error!("Failed to load infrastructure file '{}': {}", central.paths.infra.display(), err);
                             return Ok(());
                         }
                     };
@@ -594,9 +629,9 @@ pub async fn planner_server(node_config_path: impl Into<PathBuf>, node_config: N
 
                         // Plan them
                         debug!("Planning main edges...");
-                        if let Err(err) = plan_edges(&mut table, &mut edges, &dindex, &infra, 0, None, false, &mut HashSet::new()) {
+                        if let Err(err) = plan_edges(&mut table, &mut edges, &central.services.api, &dindex, &infra, 0, None, false, &mut HashSet::new()).await {
                             error!("Failed to plan main edges for workflow with correlation ID '{}': {}", id, err);
-                            if let Err(err) = send_update(producer.clone(), &node_config.node.central().topics.planner_results, &id, PlanningStatus::Error(format!("{}", err))).await { error!("Failed to update client that planning has failed: {}", err); }
+                            if let Err(err) = send_update(producer.clone(), &central.topics.planner_results, &id, PlanningStatus::Error(format!("{}", err))).await { error!("Failed to update client that planning has failed: {}", err); }
                             return Ok(());
                         };
 
@@ -615,9 +650,9 @@ pub async fn planner_server(node_config_path: impl Into<PathBuf>, node_config: N
                         // Iterate through all of the edges
                         for (idx, edges) in &mut funcs {
                             debug!("Planning '{}' edges...", table.funcs[*idx].name);
-                            if let Err(err) = plan_edges(&mut table, edges, &dindex, &infra, 0, None, false, &mut HashSet::new()) {
+                            if let Err(err) = plan_edges(&mut table, edges, &central.services.api, &dindex, &infra, 0, None, false, &mut HashSet::new()).await {
                                 error!("Failed to plan function '{}' edges for workflow with correlation ID '{}': {}", table.funcs[*idx].name, id, err);
-                                if let Err(err) = send_update(producer.clone(), &node_config.node.central().topics.planner_results, &id, PlanningStatus::Error(format!("{}", err))).await { error!("Failed to update client that planning has failed: {}", err); }
+                                if let Err(err) = send_update(producer.clone(), &central.topics.planner_results, &id, PlanningStatus::Error(format!("{}", err))).await { error!("Failed to update client that planning has failed: {}", err); }
                                 return Ok(());
                             }
                         }
@@ -638,13 +673,13 @@ pub async fn planner_server(node_config_path: impl Into<PathBuf>, node_config: N
                     Ok(splan) => splan,
                     Err(err)  => {
                         error!("Failed to serialize plan: {}", err);
-                        if let Err(err) = send_update(producer.clone(), &node_config.node.central().topics.planner_results, &id, PlanningStatus::Error(format!("{}", err))).await { error!("Failed to update client that planning has failed: {}", err); }
+                        if let Err(err) = send_update(producer.clone(), &central.topics.planner_results, &id, PlanningStatus::Error(format!("{}", err))).await { error!("Failed to update client that planning has failed: {}", err); }
                         return Ok(());
                     },
                 };
 
                 // Send the result
-                if let Err(err) = send_update(producer.clone(), &node_config.node.central().topics.planner_results, &id, PlanningStatus::Success(splan)).await { error!("Failed to update client that planning has succeeded: {}", err); }
+                if let Err(err) = send_update(producer.clone(), &central.topics.planner_results, &id, PlanningStatus::Success(splan)).await { error!("Failed to update client that planning has succeeded: {}", err); }
                 debug!("Planning OK");
             }
 

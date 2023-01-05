@@ -1,10 +1,10 @@
-//  CREDS.rs
+//  BACKEND.rs
 //    by Lut99
 // 
 //  Created:
 //    18 Oct 2022, 13:50:11
 //  Last edited:
-//    12 Dec 2022, 13:53:09
+//    05 Jan 2023, 15:06:44
 //  Auto updated?
 //    Yes
 // 
@@ -13,11 +13,14 @@
 //!   service to connect with its backend.
 // 
 
+use std::collections::HashSet;
 use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
+
+use specifications::package::Capability;
 
 pub use crate::errors::CredsFileError as Error;
 
@@ -68,22 +71,24 @@ pub enum Credentials {
 /// 
 /// Note that this struct is designed to act as a "handle"; i.e., keep it only around when using it but otherwise refer to it only by path.
 #[derive(Debug, Deserialize, Serialize)]
-pub struct CredsFile {
+pub struct BackendFile {
+    /// The capabilities advertised by this domain.
+    pub capabilities : Option<HashSet<Capability>>,
     /// The method of connecting
-    pub method : Credentials,
+    pub method       : Credentials,
 }
 
-impl CredsFile {
-    /// Creates a new CredsFile by loading it from the given path.
+impl BackendFile {
+    /// Creates a new BackendFile by loading it from the given path.
     /// 
     /// # Arguments
-    /// - `path`: The path to load the CredsFile from.
+    /// - `path`: The path to load the BackendFile from.
     /// 
     /// # Returns
-    /// A new CredsFile instance.
+    /// A new BackendFile instance.
     /// 
     /// # Errors
-    /// This function may error if the CredsFile was missing, unreadable or incorrectly formatted.
+    /// This function may error if the BackendFile was missing, unreadable or incorrectly formatted.
     pub fn from_path(path: impl AsRef<Path>) -> Result<Self, Error> {
         let path: &Path = path.as_ref();
 
@@ -100,10 +105,10 @@ impl CredsFile {
         }
     }
 
-    /// Writes the CredsFile to the given writer.
+    /// Writes the BackendFile to the given writer.
     /// 
     /// # Arguments
-    /// - `writer`: The writer to write the CredsFile to.
+    /// - `writer`: The writer to write the BackendFile to.
     /// 
     /// # Returns
     /// Nothing, but does obviously populate the given writer with its own serialized contents.

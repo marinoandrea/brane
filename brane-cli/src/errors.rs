@@ -4,7 +4,7 @@
 //  Created:
 //    17 Feb 2022, 10:27:28
 //  Last edited:
-//    23 Dec 2022, 13:43:15
+//    05 Jan 2023, 12:16:36
 //  Auto updated?
 //    Yes
 // 
@@ -575,6 +575,8 @@ pub enum RegistryError {
     KindParseError{ url: String, raw: String, err: specifications::package::PackageKindError },
     /// Could not parse the version as a proper PackageInfo version
     VersionParseError{ url: String, raw: String, err: specifications::version::ParseError },
+    /// Could not parse the list of requirements of the package.
+    RequirementParseError{ url: String, raw: String, err: serde_json::Error },
     /// Could not parse the functions as proper PackageInfo functions
     FunctionsParseError{ url: String, raw: String, err: serde_json::Error },
     /// Could not parse the types as proper PackageInfo types
@@ -622,6 +624,7 @@ impl Display for RegistryError {
             GraphQLResponseError{ url, err }         => write!(f, "Could not get the GraphQL respones from '{}': {}", url, err),
             KindParseError{ url, raw, err }          => write!(f, "Could not parse '{}' (received from '{}') as package kind: {}", raw, url, err),
             VersionParseError{ url, raw, err }       => write!(f, "Could not parse '{}' (received from '{}') as package version: {}", raw, url, err),
+            RequirementParseError{ url, raw, err }   => write!(f, "Could not parse '{}' (received from '{}') as package requirement: {}", raw, url, err),
             FunctionsParseError{ url, raw, err }     => write!(f, "Could not parse '{}' (received from '{}') as package functions: {}", raw, url, err),
             TypesParseError{ url, raw, err }         => write!(f, "Could not parse '{}' (received from '{}') as package types: {}", raw, url, err),
             PackageInfoCreateError{ path, err }      => write!(f, "Could not create PackageInfo file '{}': {}", path.display(), err),

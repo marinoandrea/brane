@@ -4,7 +4,7 @@
 //  Created:
 //    16 Nov 2022, 16:54:43
 //  Last edited:
-//    12 Dec 2022, 13:32:29
+//    05 Jan 2023, 11:40:32
 //  Auto updated?
 //    Yes
 // 
@@ -416,8 +416,8 @@ pub struct WorkerNames {
 /// Defines where to find various paths for a worker node.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct WorkerPaths {
-    /// The path of the credentials file (`creds.yml`).
-    pub creds    : PathBuf,
+    /// The path of the backend file (`backend.yml`).
+    pub backend  : PathBuf,
     /// The path to the "policy" file (`policies.yml` - temporary)
     pub policies : PathBuf,
 

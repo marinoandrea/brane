@@ -4,7 +4,7 @@
 //  Created:
 //    17 Oct 2022, 15:18:32
 //  Last edited:
-//    07 Dec 2022, 11:30:22
+//    05 Jan 2023, 12:39:01
 //  Auto updated?
 //    Yes
 // 
@@ -127,17 +127,17 @@ impl TryFrom<PackageInfo> for PackageUdt {
 
         // We can then simply populate the package info
         Ok(Self {
-            created     : package.created.timestamp_millis(),
-            description : package.description,
-            detached    : package.detached,
+            created      : package.created.timestamp_millis(),
+            description  : package.description,
+            detached     : package.detached,
             digest,
             functions_as_json,
-            id          : package.id,
-            kind        : String::from(package.kind),
-            name        : package.name,
-            owners      : package.owners,
+            id           : package.id,
+            kind         : String::from(package.kind),
+            name         : package.name,
+            owners       : package.owners,
             types_as_json,
-            version     : package.version.to_string(),
+            version      : package.version.to_string(),
         })
     }
 }

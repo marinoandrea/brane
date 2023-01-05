@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::error::Error;
 use std::fmt::{Display, Formatter, Result as FResult};
 use std::fs::{self, File};
@@ -9,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
 
 use crate::common::{CallPattern, Parameter, Type};
-use crate::package::PackageKind;
+use crate::package::{Capability, PackageKind};
 use crate::version::Version;
 
 
@@ -643,6 +644,7 @@ impl ContainerInfo {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Action {
+    pub requirements: Option<HashSet<Capability>>,
     pub command: Option<ActionCommand>,
     pub description: Option<String>,
     pub endpoint: Option<ActionEndpoint>,

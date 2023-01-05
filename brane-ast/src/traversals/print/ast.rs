@@ -4,7 +4,7 @@
 //  Created:
 //    31 Aug 2022, 09:25:11
 //  Last edited:
-//    23 Dec 2022, 16:35:17
+//    05 Jan 2023, 13:15:02
 //  Auto updated?
 //    Yes
 // 
@@ -88,7 +88,8 @@ fn pass_table(writer: &mut impl Write, table: &SymTable, indent: usize) -> std::
     // ...and all tasks
     for t in &table.tasks {
         match t {
-            TaskDef::Compute { package, version, function, args_names }  => {
+            TaskDef::Compute { package, version, function, args_names, requirements }  => {
+                if !requirements.is_empty() { writeln!(writer, "{}#[requirements = {:?}]", indent!(indent), requirements)?; }
                 writeln!(writer, "{}Task<Compute> {}{}::{}({}){};", indent!(indent),
                     package,
                     if !version.is_latest() { format!("<{}>", version) } else { String::new() },

@@ -4,7 +4,7 @@
 //  Created:
 //    26 Sep 2022, 15:40:40
 //  Last edited:
-//    22 Dec 2022, 15:37:37
+//    05 Jan 2023, 11:37:45
 //  Auto updated?
 //    Yes
 // 
@@ -147,8 +147,6 @@ pub async fn assert_data_permission(node_config: &NodeConfig, identifier: impl A
     // Otherwise, didn't find a rule
     Err(AuthorizeError::NoUserPolicy { user: identifier.into(), data: data.into() })
 }
-
-
 
 /// Runs the do-be-done intermediate result transfer by the checker to assess if we're allowed to do it.
 /// 

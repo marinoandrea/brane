@@ -45,9 +45,10 @@ message TaskRequest {
     string package_name    = 4;
     string package_version = 5;
 
-    string input           = 6;
-    optional string result = 7;
-    string args            = 8;
+    string input                 = 6;
+    optional string result       = 7;
+    string args                  = 8;
+    repeated string requirements = 9;
 }
 
 

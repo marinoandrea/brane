@@ -4,7 +4,7 @@
 //  Created:
 //    21 Nov 2022, 15:46:26
 //  Last edited:
-//    12 Dec 2022, 14:04:03
+//    05 Jan 2023, 11:48:31
 //  Auto updated?
 //    Yes
 // 
@@ -54,7 +54,7 @@ pub enum GenerateError {
     InfraWriteError{ path: PathBuf, err: brane_cfg::infra::Error },
 
     /// Failed to write the main body to the new file.
-    CredsWriteError{ path: PathBuf, err: brane_cfg::creds::Error },
+    BackendWriteError{ path: PathBuf, err: brane_cfg::backend::Error },
 
     /// Failed to write the main body to the new file.
     PolicyWriteError{ path: PathBuf, err: brane_cfg::policies::Error },
@@ -76,7 +76,7 @@ impl Display for GenerateError {
             UnknownLocation{ loc }     => write!(f, "Unknown location '{}' (did you forget to specify it in the LOCATIONS argument?)", loc),
             InfraWriteError{ err, .. } => write!(f, "Failed to write body to infra.yml file: {}", err),
 
-            CredsWriteError{ err, .. } => write!(f, "Failed to write body to creds.yml file: {}", err),
+            BackendWriteError{ err, .. } => write!(f, "Failed to write body to backend.yml file: {}", err),
 
             PolicyWriteError{ err, .. } => write!(f, "Failed to write body to policies.yml file: {}", err),
         }

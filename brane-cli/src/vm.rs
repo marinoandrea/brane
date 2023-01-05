@@ -4,7 +4,7 @@
 //  Created:
 //    24 Oct 2022, 15:34:05
 //  Last edited:
-//    02 Jan 2023, 13:45:01
+//    05 Jan 2023, 13:16:41
 //  Auto updated?
 //    Yes
 // 
@@ -119,8 +119,8 @@ impl VmPlugin for OfflinePlugin {
                 base64::encode(params),
             ],
             binds,
-            devices : vec![],
-            network : Network::None,
+            network      : Network::None,
+            capabilities : info.requirements.clone(),
         };
 
         // We can now execute the task on the local Docker daemon

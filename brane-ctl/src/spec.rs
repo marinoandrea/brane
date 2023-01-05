@@ -4,7 +4,7 @@
 //  Created:
 //    21 Nov 2022, 17:27:52
 //  Last edited:
-//    12 Dec 2022, 13:46:33
+//    05 Jan 2023, 11:54:25
 //  Auto updated?
 //    Yes
 // 
@@ -197,9 +197,9 @@ pub enum GenerateNodeSubcommand {
         #[clap(name = "LOCATION_ID", help = "The location identifier (location ID) of this node.")]
         location_id : String,
 
-        /// Custom credentials file path.
-        #[clap(long, default_value = "$CONFIG/creds.yml", help = "The location of the `creds.yml` file. Use `$CONFIG` to reference the value given by --config-path. ")]
-        creds        : PathBuf,
+        /// Custom backend file path.
+        #[clap(long, default_value = "$CONFIG/backend.yml", help = "The location of the `backend.yml` file. Use `$CONFIG` to reference the value given by --config-path. ")]
+        backend      : PathBuf,
         /// Custom hash file path.
         #[clap(long, default_value = "$CONFIG/policies.yml", help = "The location of the `policies.yml` file that determines which containers and users are allowed to be executed. Use `$CONFIG` to reference the value given by --config-path.")]
         policies     : PathBuf,
@@ -252,9 +252,9 @@ pub enum GenerateNodeSubcommand {
 
 /// A bit awkward here, but defines the generate subcommand, which basically defines the possible kinds of nodes to generate the node.yml config file for.
 #[derive(Debug, EnumDebug, Subcommand)]
-pub enum GenerateCredsSubcommand {
+pub enum GenerateBackendSubcommand {
     /// A backend on the local Docker engine.
-    #[clap(name = "local", about = "Generate a creds.yml for a local backend.")]
+    #[clap(name = "local", about = "Generate a backend.yml for a local backend.")]
     Local {
         /// The location of the Docker socket to connect to.
         #[clap(short, long, default_value = "/var/run/docker.sock", help = "The location of the Docker socket that the delegate service should connect to.")]

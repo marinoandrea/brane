@@ -167,7 +167,7 @@ pub fn build_oas_function(
     let name = operation_id.to_lowercase();
     let call_pattern = CallPattern::new(Some(name.clone()), None, None);
     let functions = hashmap! {
-        name => Function::new(input, Some(call_pattern), output)
+        name => Function::new(input, Some(call_pattern), output, None)
     };
 
     // Combine input and output types

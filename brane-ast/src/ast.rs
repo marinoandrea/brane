@@ -4,7 +4,7 @@
 //  Created:
 //    30 Aug 2022, 11:55:49
 //  Last edited:
-//    19 Dec 2022, 10:56:17
+//    05 Jan 2023, 13:06:58
 //  Auto updated?
 //    Yes
 // 
@@ -17,7 +17,7 @@
 //!   intelligent edges.
 // 
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter, Result as FResult};
 use std::sync::Arc;
 
@@ -27,6 +27,7 @@ use serde_json_any_key::any_key_map;
 
 use brane_dsl::spec::MergeStrategy;
 use specifications::data::AvailabilityKind;
+use specifications::package::Capability;
 use specifications::version::Version;
 
 use crate::data_type::DataType;
@@ -199,6 +200,9 @@ pub enum TaskDef {
         /// A list of names for every argument.
         #[serde(rename = "a")]
         args_names : Vec<String>,
+        /// Any requirements required for this task.
+        #[serde(rename = "r")]
+        requirements : HashSet<Capability>,
     },
 
     /// Defines a transfer task, i.e., a data transfer between two domains.

@@ -1,0 +1,41 @@
+# CONTAINER.yml
+#   by Tim Müller
+#
+# This file implements a test for interacting with a CUDA backend.
+#
+
+
+# Define the file metadata
+# Note the 'kind', which defines that it is an Executable Code Unit (i.e., runs arbitrary code)
+name: cuda
+version: 1.0.0
+kind: ecu
+
+# Specify the files that are part of the package. All entries will be resolved to relative to the container.yml file (by default)
+files:
+- smi.sh
+
+# Define the entrypoint: i.e., which file to call when the package function(s) are run
+entrypoint:
+  kind: task
+  exec: smi.sh
+
+# Install NVIDIA
+dependencies:
+- nvidia-utils-525
+
+# Define the functions in this package
+actions:
+  # We only have one: the 'hello_world()' function
+  'nvidia_smi':
+    # No special arguments needed to pass to the script
+    command:
+    # No input needed
+    input:
+    # We define the output: a string string, which will be read from the return YAML under the 'output' key.
+    output:
+    - type: string
+      name: output
+    # The important bit: we need a GPU for this function
+    requirements:
+    - cuda_gpu

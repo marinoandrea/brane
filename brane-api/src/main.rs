@@ -4,7 +4,7 @@
 //  Created:
 //    17 Oct 2022, 15:15:36
 //  Last edited:
-//    28 Nov 2022, 17:30:48
+//    05 Jan 2023, 11:01:28
 //  Auto updated?
 //    Yes
 // 
@@ -159,7 +159,14 @@ async fn main() {
         .and(warp::path::end())
         .and(context.clone())
         .and_then(infra::get_registry);
-    let infra = get_registry.or(list_registries);
+    let get_capabilities = warp::get()
+        .and(warp::path("infra"))
+        .and(warp::path("capabilities"))
+        .and(warp::path::param())
+        .and(warp::path::end())
+        .and(context.clone())
+        .and_then(infra::get_capabilities);
+    let infra = get_registry.or(list_registries.or(get_capabilities));
     
     // Configure the health & version
     let health = warp::path("health")

@@ -4,7 +4,7 @@
 //  Created:
 //    22 Nov 2022, 11:19:22
 //  Last edited:
-//    03 Jan 2023, 11:39:17
+//    05 Jan 2023, 11:56:52
 //  Auto updated?
 //    Yes
 // 
@@ -262,9 +262,9 @@ fn construct_envs(version: &Version, node_config_path: &Path, node_config: &Node
 
         NodeKindConfig::Worker(worker) => {
             // Now we do a little ugly something, but we unpack the paths here so that we get compile errors if we add more later on
-            let CommonPaths{ certs, packages }                                         = &node_config.paths;
-            let WorkerPaths{ creds, policies, data, results, temp_data, temp_results } = &worker.paths;
-            let WorkerPorts{ reg, job }                                                = &worker.ports;
+            let CommonPaths{ certs, packages }                                           = &node_config.paths;
+            let WorkerPaths{ backend, policies, data, results, temp_data, temp_results } = &worker.paths;
+            let WorkerPorts{ reg, job }                                                  = &worker.ports;
 
             // Add the environment variables, which are basically just central-specific paths to mount in the compose file
             res.extend([
@@ -278,7 +278,7 @@ fn construct_envs(version: &Version, node_config_path: &Path, node_config: &Node
                 ("CHK_NAME", OsString::from(&node_config.node.worker().names.chk.as_str())),
 
                 // Paths
-                ("CREDS", canonicalize(node_config_dir.join(creds))?.as_os_str().into()),
+                ("BACKEND", canonicalize(node_config_dir.join(backend))?.as_os_str().into()),
                 ("POLICIES", canonicalize(node_config_dir.join(policies))?.as_os_str().into()),
                 ("CERTS", canonicalize(node_config_dir.join(certs))?.as_os_str().into()),
                 ("PACKAGES", canonicalize(node_config_dir.join(packages))?.as_os_str().into()),

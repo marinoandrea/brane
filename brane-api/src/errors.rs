@@ -4,7 +4,7 @@
 //  Created:
 //    04 Feb 2022, 10:35:12
 //  Last edited:
-//    12 Dec 2022, 13:19:09
+//    05 Jan 2023, 11:18:14
 //  Auto updated?
 //    Yes
 // 
@@ -17,6 +17,7 @@ use std::fmt::{Display, Formatter, Result as FResult};
 use std::path::PathBuf;
 
 use enum_debug::EnumDebug as _;
+use reqwest::StatusCode;
 use scylla::transport::errors::NewSessionError;
 
 use brane_cfg::spec::Address;
@@ -53,6 +54,19 @@ pub enum InfraError {
     /// Failed to serialize the response body.
     SerializeError{ what: &'static str, err: serde_json::Error },
 
+    /// Failed to do the proxy redirection thing.
+    ProxyError{ err: brane_prx::errors::ClientError },
+    /// Failed to send a request to the given address.
+    RequestError{ address: String, err: reqwest::Error },
+    /// The request was not met with an OK
+    RequestFailure{ address: String, code: StatusCode, message: Option<String> },
+    /// Failed to read the body sent by the other domain.
+    ResponseBodyError{ address: String, err: reqwest::Error },
+    /// Failed to parse the body as JSON
+    ResponseParseError{ address: String, raw: String, err: serde_json::Error },
+    /// Failed to re-serialize the parsed body
+    CapabilitiesSerializeError{ err: serde_json::Error },
+
     /// An internal error occurred that we would not like to divulge.
     SecretError,
 }
@@ -61,8 +75,15 @@ impl Display for InfraError {
     fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
         use InfraError::*;
         match self {
-            InfrastructureOpenError{ path, err }           => write!(f, "Failed to open infrastructure file '{}': {}", path.display(), err),
-            SerializeError{ what, err }        => write!(f, "Failed to serialize {}: {}", what, err),
+            InfrastructureOpenError{ path, err } => write!(f, "Failed to open infrastructure file '{}': {}", path.display(), err),
+            SerializeError{ what, err }          => write!(f, "Failed to serialize {}: {}", what, err),
+
+            ProxyError{ err }                        => write!(f, "Failed to send request through Brane proxy service: {}", err),
+            RequestError{ address, err }             => write!(f, "Failed to send GET-request to '{}': {}", address, err),
+            RequestFailure{ address, code, message } => write!(f, "Request to '{}' failed with status code {} ({}){}", address, code, code.canonical_reason().unwrap_or("???"), if let Some(err) = message { format!(": {}", err) } else { String::new() }),
+            ResponseBodyError{ address, err }        => write!(f, "Failed to get body of response sent by '{}': {}", address, err),
+            ResponseParseError{ address, raw, err }  => write!(f, "Failed to parse '{}' as valid JSON sent by '{}': {}", raw, address, err),
+            CapabilitiesSerializeError{ err }        => write!(f, "Failed to re-serialize capabilities: {}", err),
 
             SecretError => write!(f, "An internal error has occurred"),
         }

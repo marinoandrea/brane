@@ -4,7 +4,7 @@
 //  Created:
 //    09 Sep 2022, 13:23:41
 //  Last edited:
-//    03 Jan 2023, 13:25:58
+//    05 Jan 2023, 13:16:12
 //  Auto updated?
 //    Yes
 // 
@@ -1009,7 +1009,7 @@ impl<G: CustomGlobalState, L: CustomLocalState> Thread<G, L> {
 
                 // Match the thing to do
                 match task {
-                    TaskDef::Compute { package, version, function, args_names } => {
+                    TaskDef::Compute { package, version, function, args_names, requirements } => {
                         debug!("Calling compute task '{}' ('{}' v{})", task.name(), package, version);
 
                         // Collect the arguments from the stack (remember, reverse order)
@@ -1050,6 +1050,7 @@ impl<G: CustomGlobalState, L: CustomLocalState> Thread<G, L> {
                             name            : &function.name,
                             package_name    : package,
                             package_version : version,
+                            requirements    : &requirements,
 
                             args,
                             location : at,

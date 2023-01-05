@@ -4,7 +4,7 @@
 //  Created:
 //    27 Oct 2022, 10:14:26
 //  Last edited:
-//    12 Dec 2022, 13:22:38
+//    05 Jan 2023, 15:38:18
 //  Auto updated?
 //    Yes
 // 
@@ -151,6 +151,7 @@ impl VmPlugin for InstancePlugin {
         debug!("Input data: {:?}", info.input.keys().map(|k| format!("{}", k)).collect::<Vec<String>>());
         debug!("Result: {:?}", info.result);
         debug!("Input arguments: {:#?}", info.args);
+        debug!("Requirements: {:?}", info.requirements);
 
         // Resolve the location to an address (and get the proxy and the workflow while we have a lock anyway)
         let (proxy, api_address, delegate_address, workflow): (Arc<ProxyClient>, Address, Address, String) = {
@@ -188,9 +189,10 @@ impl VmPlugin for InstancePlugin {
             package_name    : info.package_name.into(),
             package_version : info.package_version.into(),
 
-            input  : info.input.to_json_map().unwrap(),
-            result : info.result.clone(),
-            args   : serde_json::to_string(&info.args).unwrap(),
+            input        : info.input.to_json_map().unwrap(),
+            result       : info.result.clone(),
+            args         : serde_json::to_string(&info.args).unwrap(),
+            requirements : info.requirements.iter().map(|c| serde_json::to_string(&c).unwrap()).collect(),
         };
 
         // Create the client

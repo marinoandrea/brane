@@ -4,7 +4,7 @@
 //  Created:
 //    24 Oct 2022, 15:27:26
 //  Last edited:
-//    02 Jan 2023, 14:07:06
+//    05 Jan 2023, 15:12:39
 //  Auto updated?
 //    Yes
 // 
@@ -12,6 +12,7 @@
 //!   Defines errors that occur in the `brane-tsk` crate.
 // 
 
+use std::collections::HashSet;
 use std::error::Error;
 use std::fmt::{Display, Formatter, Result as FResult};
 use std::path::PathBuf;
@@ -26,6 +27,7 @@ use brane_ast::ast::DataName;
 use brane_cfg::spec::Address;
 use brane_shr::debug::{BlockFormatter, Capitalizeable};
 use specifications::container::Image;
+use specifications::package::Capability;
 use specifications::planning::PlanningStatusKind;
 use specifications::version::Version;
 
@@ -66,6 +68,16 @@ pub enum PlanError {
 
     /// The user didn't specify the location (specifically enough).
     AmbigiousLocationError{ name: String, locs: Locations },
+    /// Failed to send a request to the API service.
+    RequestError{ address: String, err: reqwest::Error },
+    /// The request failed with a non-OK status code
+    RequestFailure{ address: String, code: reqwest::StatusCode, err: Option<String> },
+    /// Failed to get the body of a request.
+    RequestBodyError{ address: String, err: reqwest::Error },
+    /// Failed to parse the body of the request as valid JSON
+    RequestParseError{ address: String, raw: String, err: serde_json::Error },
+    /// The planned domain does not support the task.
+    UnsupportedCapabilities{ task: String, loc: String, expected: HashSet<Capability>, got: HashSet<Capability> },
     /// The given dataset was unknown to us.
     UnknownDataset{ name: String },
     /// The given intermediate result was unknown to us.
@@ -112,12 +124,17 @@ impl Display for PlanError {
         match self {
             InfraFileLoadError{ err } => write!(f, "Failed to load infrastructure file: {}", err),
 
-            AmbigiousLocationError{ name, locs }        => write!(f, "Ambigious location for task '{}': {}", name, if let Locations::Restricted(locs) = locs { format!("possible locations are {}, but you need to reduce that to only 1 (use On-structs for that)", locs.join(", ")) } else { "all locations are possible, but you need to reduce that to only 1 (use On-structs for that)".into() }),
-            UnknownDataset{ name }                      => write!(f, "Unknown dataset '{}'", name),
-            UnknownIntermediateResult{ name }           => write!(f, "Unknown intermediate result '{}'", name),
-            DataPlanError{ err }                        => write!(f, "Failed to plan dataset: {}", err),
-            DatasetUnavailable{ name, locs }            => write!(f, "Dataset '{}' is unavailable{}", name, if !locs.is_empty() { format!("; however, locations {} do (try to get download permission to those datasets)", locs.iter().map(|l| format!("'{}'", l)).collect::<Vec<String>>().join(", ")) } else { String::new() }),
-            IntermediateResultUnavailable{ name, locs } => write!(f, "Intermediate result '{}' is unavailable{}", name, if !locs.is_empty() { format!("; however, locations {} do (try to get download permission to those datasets)", locs.iter().map(|l| format!("'{}'", l)).collect::<Vec<String>>().join(", ")) } else { String::new() }),
+            AmbigiousLocationError{ name, locs }                => write!(f, "Ambigious location for task '{}': {}", name, if let Locations::Restricted(locs) = locs { format!("possible locations are {}, but you need to reduce that to only 1 (use On-structs for that)", locs.join(", ")) } else { "all locations are possible, but you need to reduce that to only 1 (use On-structs for that)".into() }),
+            RequestError{ address, err }                        => write!(f, "Failed to send GET-request to '{}': {}", address, err),
+            RequestFailure{ address, code, err }                => write!(f, "GET-request to '{}' failed with {} ({}){}", address, code, code.canonical_reason().unwrap_or("???"), if let Some(err) = err { format!(": {}", err) } else { String::new() }),
+            RequestBodyError{ address, err }                    => write!(f, "Failed to get the body of response from '{}' as UTF-8 text: {}", address, err),
+            RequestParseError{ address, raw, err }              => write!(f, "Failed to parse response '{}' from '{}' as valid JSON: {}", raw, address, err),
+            UnsupportedCapabilities{ task, loc, expected, got } => write!(f, "Location '{}' only supports capabilities {:?}, whereas task '{}' requires capabilities {:?}", loc, got, task, expected),
+            UnknownDataset{ name }                              => write!(f, "Unknown dataset '{}'", name),
+            UnknownIntermediateResult{ name }                   => write!(f, "Unknown intermediate result '{}'", name),
+            DataPlanError{ err }                                => write!(f, "Failed to plan dataset: {}", err),
+            DatasetUnavailable{ name, locs }                    => write!(f, "Dataset '{}' is unavailable{}", name, if !locs.is_empty() { format!("; however, locations {} do (try to get download permission to those datasets)", locs.iter().map(|l| format!("'{}'", l)).collect::<Vec<String>>().join(", ")) } else { String::new() }),
+            IntermediateResultUnavailable{ name, locs }         => write!(f, "Intermediate result '{}' is unavailable{}", name, if !locs.is_empty() { format!("; however, locations {} do (try to get download permission to those datasets)", locs.iter().map(|l| format!("'{}'", l)).collect::<Vec<String>>().join(", ")) } else { String::new() }),
 
             UpdateEncodeError{ correlation_id, kind, err } => write!(f, "Failed to encode status update '{:?}' for a planning session with ID '{}': {}", kind, correlation_id, err),
             KafkaSendError{ correlation_id, topic, err }   => write!(f, "Failed to send status update on Kafka topic '{}' for a planning session with ID '{}': {}", topic, correlation_id, err),
@@ -342,8 +359,8 @@ pub enum ExecuteError {
     AuthorizationError{ checker: Address, err: AuthorizeError },
     /// Failed to get an up-to-date package index.
     PackageIndexError{ endpoint: String, err: ApiError },
-    /// Failed to load the credentials file.
-    CredsFileError{ path: PathBuf, err: brane_cfg::creds::Error },
+    /// Failed to load the backend file.
+    BackendFileError{ path: PathBuf, err: brane_cfg::backend::Error },
 }
 
 impl Display for ExecuteError {
@@ -391,7 +408,7 @@ impl Display for ExecuteError {
             AuthorizationFailure{ checker: _ }    => write!(f, "Checker rejected workflow"),
             AuthorizationError{ checker: _, err } => write!(f, "Checker failed to authorize workflow: {}", err),
             PackageIndexError{ endpoint, err }    => write!(f, "Failed to get PackageIndex from '{}': {}", endpoint, err),
-            CredsFileError{ path, err }           => write!(f, "Failed to load credentials file '{}': {}", path.display(), err),
+            BackendFileError{ path, err }         => write!(f, "Failed to load backend file '{}': {}", path.display(), err),
         }
     }
 }

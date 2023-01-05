@@ -1,9 +1,11 @@
 use std::fs::{self, File};
 use std::io::{BufReader, Read, Write};
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 
 use anyhow::Result;
 use chrono::{DateTime, Utc};
+use enum_debug::EnumDebug;
 // use semver::Version;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JValue;
@@ -32,7 +34,6 @@ pub enum PackageKindError {
     /// We tried to convert a string to a PackageKind but failed
     IllegalKind{ skind: String },
 }
-
 impl PackageKindError {
     /// Static helper that collects a list of possible package kinds.
     /// 
@@ -47,7 +48,6 @@ impl PackageKindError {
         kinds
     }
 }
-
 impl std::fmt::Display for PackageKindError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -55,9 +55,24 @@ impl std::fmt::Display for PackageKindError {
         }
     }
 }
-
 impl std::error::Error for PackageKindError {}
 
+/// Lists the error for parsing a Capability from a string.
+#[derive(Debug)]
+pub enum CapabilityParseError {
+    /// An unknown capability was given.
+    UnknownCapability{ raw: String },
+}
+impl std::fmt::Display for CapabilityParseError {
+    #[inline]
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use CapabilityParseError::*;
+        match self {
+            UnknownCapability{ raw } => write!(f, "Unknown capability '{}'", raw),
+        }
+    }
+}
+impl std::error::Error for CapabilityParseError {}
 
 
 /// Lists the errors that can occur for the PackageInfo struct
@@ -77,7 +92,6 @@ pub enum PackageInfoError {
     /// Could not write to the given writer
     FileWriteError{ err: serde_yaml::Error },
 }
-
 impl std::fmt::Display for PackageInfoError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -91,10 +105,7 @@ impl std::fmt::Display for PackageInfoError {
         }
     }
 }
-
 impl std::error::Error for PackageInfoError {}
-
-
 
 /// Lists the errors that can occur for the PackageIndex struct
 #[derive(Debug)]
@@ -118,7 +129,6 @@ pub enum PackageIndexError{
     /// Could not open the file we wanted to load
     IOError{ path: PathBuf, err: std::io::Error },
 }
-
 impl std::fmt::Display for PackageIndexError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -135,14 +145,13 @@ impl std::fmt::Display for PackageIndexError {
         }
     }
 }
-
 impl std::error::Error for PackageIndexError {}
 
 
 
 
 
-/***** SPECIFICATIONS *****/
+/***** AUXILLARY *****/
 /// Enum that lists possible package types
 #[derive(Debug, Deserialize, Clone, Copy, EnumIter, Eq, PartialEq, Serialize)]
 pub enum PackageKind {
@@ -215,6 +224,45 @@ impl std::fmt::Display for PackageKind {
 
 
 
+/// Defines if the package has any additional requirements on the system it will run.
+#[derive(Clone, Copy, Deserialize, EnumDebug, Eq, Hash, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Capability {
+    /// The package requires access to a CUDA GPU
+    CudaGpu,
+}
+
+impl std::fmt::Debug for Capability {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use Capability::*;
+        match self {
+            CudaGpu => write!(f, "cuda_gpu"),
+        }
+    }
+}
+
+impl AsRef<Capability> for Capability {
+    #[inline]
+    fn as_ref(&self) -> &Self { self }
+}
+
+impl FromStr for Capability {
+    type Err = CapabilityParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "cuda_gpu" => Ok(Self::CudaGpu),
+
+            _ => Err(CapabilityParseError::UnknownCapability{ raw: s.into() }),
+        }
+    }
+}
+
+
+
+
+
+/***** LIBRARY *****/
 /// The PackageInfo struct, which might be used alongside a Docker container to define its metadata.
 #[skip_serializing_none]
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -395,7 +443,7 @@ impl From<ContainerInfo> for PackageInfo {
             };
 
             // Save the function under the original name
-            let function = Function::new(arguments, pattern, return_type);
+            let function = Function::new(arguments, pattern, return_type, action.requirements);
             functions.insert(action_name, function);
         }
 
@@ -430,7 +478,7 @@ impl From<&ContainerInfo> for PackageInfo {
             };
 
             // Save the function under the original name
-            let function = Function::new(arguments, pattern, return_type);
+            let function = Function::new(arguments, pattern, return_type, action.requirements.clone());
             functions.insert(action_name.clone(), function);
         }
 

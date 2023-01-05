@@ -4,7 +4,7 @@
 //  Created:
 //    15 Sep 2022, 08:26:20
 //  Last edited:
-//    23 Dec 2022, 16:35:53
+//    05 Jan 2023, 13:14:31
 //  Auto updated?
 //    Yes
 // 
@@ -233,9 +233,10 @@ fn move_task(task: &Rc<RefCell<FunctionEntry>>, table: &mut TableState) {
     let state: TaskState = {
         let entry: Ref<FunctionEntry> = task.borrow();
         TaskState {
-            name      : entry.name.clone(),
-            signature : entry.signature.clone(),
-            arg_names : entry.arg_names.clone(),
+            name         : entry.name.clone(),
+            signature    : entry.signature.clone(),
+            arg_names    : entry.arg_names.clone(),
+            requirements : entry.requirements.clone().unwrap(),
 
             package_name    : entry.package_name.clone().unwrap(),
             package_version : entry.package_version.clone().unwrap(),

@@ -4,7 +4,7 @@
 //  Created:
 //    31 Oct 2022, 11:21:14
 //  Last edited:
-//    19 Dec 2022, 12:05:45
+//    05 Jan 2023, 15:33:27
 //  Auto updated?
 //    Yes
 // 
@@ -14,7 +14,7 @@
 //!   execution to publicizing/committing.
 // 
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
@@ -34,7 +34,7 @@ use tonic::{Response, Request, Status};
 use brane_ast::Workflow;
 use brane_ast::locations::Location;
 use brane_ast::ast::DataName;
-use brane_cfg::creds::{CredsFile, Credentials};
+use brane_cfg::backend::{BackendFile, Credentials};
 use brane_cfg::node::NodeConfig;
 use brane_cfg::policies::{ContainerPolicy, PolicyFile};
 use brane_exe::FullValue;
@@ -49,7 +49,7 @@ use brane_tsk::tools::decode_base64;
 use brane_tsk::docker::{self, ExecuteInfo, ImageSource, Network};
 use specifications::container::{Image, VolumeBind};
 use specifications::data::{AccessKind, AssetInfo};
-use specifications::package::{PackageIndex, PackageInfo, PackageKind};
+use specifications::package::{Capability, PackageIndex, PackageInfo, PackageKind};
 use specifications::version::Version;
 
 
@@ -185,7 +185,9 @@ pub struct TaskInfo {
     pub result : Option<String>,
 
     /// The input arguments to the task. Still need to be resolved before running.
-    pub args: HashMap<String, FullValue>
+    pub args         : HashMap<String, FullValue>,
+    /// The requirements for this task.
+    pub requirements : HashSet<Capability>,
 }
 impl TaskInfo {
     /// Constructor for the TaskInfo.
@@ -197,11 +199,12 @@ impl TaskInfo {
     /// - `input`: The input datasets/results to this task, if any.
     /// - `result`: If this call returns an intermediate result, its name is defined here.
     /// - `args`: The input arguments to the task. Still need to be resolved before running.
+    /// - `requirements`: The list of required capabilities for this task.
     /// 
     /// # Returns
     /// A new TaskInfo instance.
     #[inline]
-    pub fn new(name: impl Into<String>, package_name: impl Into<String>, package_version: impl Into<Version>, input: HashMap<DataName, AccessKind>, result: Option<String>, args: HashMap<String, FullValue>) -> Self {
+    pub fn new(name: impl Into<String>, package_name: impl Into<String>, package_version: impl Into<Version>, input: HashMap<DataName, AccessKind>, result: Option<String>, args: HashMap<String, FullValue>, requirements: HashSet<Capability>) -> Self {
         Self {
             name : name.into(),
 
@@ -214,6 +217,7 @@ impl TaskInfo {
             result,
 
             args,
+            requirements,
         }
     }
 }
@@ -637,7 +641,7 @@ async fn execute_task_local(node_config: &NodeConfig, dinfo: DockerInfo, tx: &Se
             base64::encode(params),
         ],
         binds,
-        vec![],
+        tinfo.requirements,
         Network::None,
     );
 
@@ -727,9 +731,9 @@ async fn execute_task(node_config: &NodeConfig, proxy: Arc<ProxyClient>, tx: Sen
     tinfo.image = Some(Image::new(&tinfo.package_name, Some(tinfo.package_version.clone()), info.digest.clone()));
 
     // Now load the credentials file to get things going
-    let creds: CredsFile = match CredsFile::from_path(&node_config.node.worker().paths.creds) {
+    let creds: BackendFile = match BackendFile::from_path(&node_config.node.worker().paths.backend) {
         Ok(creds) => creds,
-        Err(err)  => { return err!(tx, ExecuteError::CredsFileError{ path: node_config.node.worker().paths.creds.clone(), err }); },
+        Err(err)  => { return err!(tx, ExecuteError::BackendFileError{ path: node_config.node.worker().paths.backend.clone(), err }); },
     };
 
     // Download the container from the central node
@@ -1127,6 +1131,20 @@ impl JobService for WorkerServer {
             },
         };
 
+        // Attempt to parse the requirements
+        let mut requirements: HashSet<Capability> = HashSet::with_capacity(request.requirements.len());
+        for r in request.requirements {
+            // Parse it using serde
+            requirements.insert(match serde_json::from_str(&r) {
+                Ok(c)    => c,
+                Err(err) => {
+                    error!("Failed to deserialize capability '{}': {}", r, err);
+                    if let Err(err) = tx.send(Err(Status::invalid_argument(format!("Failed to deserialize capability '{}': {}", r, err)))).await { error!("{}", err); }
+                    return Ok(Response::new(ReceiverStream::new(rx)));
+                }
+            });
+        }
+
         // Load the node config file
         let node_config: NodeConfig = match NodeConfig::from_path(&self.node_config_path) {
             Ok(config) => config,
@@ -1146,6 +1164,7 @@ impl JobService for WorkerServer {
             input,
             request.result,
             args,
+            requirements,
         );
 
         // Now move the rest to a separate task so we can return the start of the stream

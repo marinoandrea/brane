@@ -4,7 +4,7 @@
 //  Created:
 //    19 Sep 2022, 14:57:17
 //  Last edited:
-//    02 Jan 2023, 15:16:50
+//    05 Jan 2023, 12:46:43
 //  Auto updated?
 //    Yes
 // 
@@ -12,7 +12,7 @@
 //!   Defines functions that interact with the local Docker daemon.
 // 
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter, Result as FResult};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -43,6 +43,7 @@ use brane_ast::ast::DataName;
 use brane_exe::FullValue;
 use specifications::container::{Image, VolumeBind};
 use specifications::data::AccessKind;
+use specifications::package::Capability;
 
 pub use crate::errors::DockerError as Error;
 use crate::errors::ExecuteError;
@@ -246,13 +247,13 @@ pub struct ExecuteInfo {
     pub image_source : ImageSource,
 
     /// The command(s) to pass to Branelet.
-    pub command : Vec<String>,
+    pub command      : Vec<String>,
     /// The extra mounts we want to add, if any (this includes any data folders).
-    pub binds   : Vec<VolumeBind>,
+    pub binds        : Vec<VolumeBind>,
     /// The extra device requests we want to add, if any (e.g., GPUs).
-    pub devices : Vec<DeviceRequest>,
+    pub capabilities : HashSet<Capability>,
     /// The netwok to connect the container to.
-    pub network : Network,
+    pub network      : Network,
 }
 
 impl ExecuteInfo {
@@ -264,13 +265,13 @@ impl ExecuteInfo {
     /// - `image_source`: The location where we import (as file) or create (from repo) the image from if it's not already loaded.
     /// - `command`: The command(s) to pass to Branelet.
     /// - `binds`: The extra mounts we want to add, if any (this includes any data folders).
-    /// - `devices`: The extra device requests we want to add, if any (e.g., GPUs).
+    /// - `capabilities`: The extra device requests we want to add, if any (e.g., GPUs).
     /// - `network`: The netwok to connect the container to.
     /// 
     /// # Returns
     /// A new ExecuteInfo instance populated with the given values.
     #[inline]
-    pub fn new(name: impl Into<String>, image: impl Into<Image>, image_source: impl Into<ImageSource>, command: Vec<String>, binds: Vec<VolumeBind>, devices: Vec<DeviceRequest>, network: Network) -> Self {
+    pub fn new(name: impl Into<String>, image: impl Into<Image>, image_source: impl Into<ImageSource>, command: Vec<String>, binds: Vec<VolumeBind>, capabilities: HashSet<Capability>, network: Network) -> Self {
         ExecuteInfo {
             name         : name.into(),
             image        : image.into(),
@@ -278,7 +279,7 @@ impl ExecuteInfo {
 
             command,
             binds,
-            devices,
+            capabilities,
             network,
         }
     }
@@ -388,12 +389,26 @@ async fn create_and_start_container(docker: &Docker, info: &ExecuteInfo) -> Resu
     let container_name: String = format!("{}-{}", info.name, &uuid::Uuid::new_v4().to_string()[..6]);
     let create_options = CreateContainerOptions { name: &container_name };
 
+    // Extract device requests from the capabilities
+    let device_requests: Vec<DeviceRequest> = info.capabilities.iter().filter_map(|c| match c {
+        // We need a CUDA-enabled GPU
+        Capability::CudaGpu => {
+            debug!("Requesting CUDA GPU");
+            Some(DeviceRequest {
+                driver       : Some("nvidia".into()),
+                count        : Some(1),
+                capabilities : Some(vec![ vec![ "gpu".into() ] ]),
+                ..Default::default()
+            })
+        },
+    }).collect();
+
     // Combine the properties in the execute info into a HostConfig
     let host_config = HostConfig {
         binds           : Some(info.binds.iter().map(|b| { debug!("Binding '{}' (host) -> '{}' (container)", b.host.display(), b.container.display()); b.docker().to_string() }).collect()),
         network_mode    : Some(info.network.clone().into()),
         privileged      : Some(false),
-        device_requests : Some(info.devices.clone()),
+        device_requests : Some(device_requests),
         ..Default::default()
     };
 

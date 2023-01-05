@@ -31,7 +31,7 @@ services:
     restart: always
     volumes:
     - ${NODE_CONFIG_PATH}:/node.yml
-    - ${CREDS}:${CREDS}
+    - ${BACKEND}:${BACKEND}
     - ${POLICIES}:${POLICIES}
     - ${CERTS}:${CERTS}
     - ${DATA}:${DATA}
@@ -46,7 +46,7 @@ services:
     restart: always
     volumes:
     - ${NODE_CONFIG_PATH}:/node.yml
-    - ${CREDS}:${CREDS}
+    - ${BACKEND}:${BACKEND}
     - ${POLICIES}:${POLICIES}
     - ${CERTS}:${CERTS}
     - ${PACKAGES}:${PACKAGES}
