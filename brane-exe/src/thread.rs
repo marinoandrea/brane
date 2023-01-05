@@ -4,7 +4,7 @@
 //  Created:
 //    09 Sep 2022, 13:23:41
 //  Last edited:
-//    05 Jan 2023, 13:16:12
+//    05 Jan 2023, 16:53:02
 //  Auto updated?
 //    Yes
 // 
@@ -157,7 +157,7 @@ enum EdgeResult {
 /// This function may error if the given `input` does not contain any of the data in the value _or_ if the referenced input is not yet planned.
 #[async_recursion]
 #[allow(clippy::too_many_arguments)]
-async fn preprocess_value<P: VmPlugin>(global: &Arc<RwLock<P::GlobalState>>, local: &P::LocalState, pc: (usize, usize), task: &TaskDef, at: &Location, value: &FullValue, input: &HashMap<DataName, Option<AvailabilityKind>>, data: &mut HashMap<DataName, AccessKind>) -> Result<(), Error> {
+async fn preprocess_value<P: VmPlugin>(global: &Arc<RwLock<P::GlobalState>>, local: &P::LocalState, pc: (usize, usize), task: &TaskDef, at: &Location, value: &FullValue, input: &HashMap<DataName, Option<AvailabilityKind>>, data: &mut HashMap<DataName, JoinHandle<Result<AccessKind, P::PreprocessError>>>) -> Result<(), Error> {
     // If it's a data or intermediate result, get it; skip it otherwise
     let name: DataName = match value {
         // The data and intermediate result, of course
@@ -165,41 +165,42 @@ async fn preprocess_value<P: VmPlugin>(global: &Arc<RwLock<P::GlobalState>>, loc
         FullValue::IntermediateResult(name) => DataName::IntermediateResult(name.into()),
 
         // Also handle any nested stuff
-        FullValue::Array(values)      => { for v in values { preprocess_value::<P>(global, local, pc, task, at, v, input, data).await?; }; return Ok(()); },
-        FullValue::Instance(_, props) => { for v in props.values() { preprocess_value::<P>(global, local, pc, task, at, v, input, data).await?; }; return Ok(()); },
+        FullValue::Array(values)      => { for v in values { preprocess_value::<P>(global, local, pc, task, at, v, input, data).await?; } return Ok(()); },
+        FullValue::Instance(_, props) => { for v in props.values() { preprocess_value::<P>(global, local, pc, task, at, v, input, data).await?; } return Ok(()); },
 
         // The rest is irrelevant
         _ => { return Ok(()); },
     };
 
     // Fetch it from the input
-    let avail: &AvailabilityKind = match input.get(&name) {
+    let avail: AvailabilityKind = match input.get(&name) {
         Some(avail) => match avail {
-            Some(avail) => avail,
+            Some(avail) => avail.clone(),
             None        => { return Err(Error::UnplannedInput{ edge: pc.1, task: task.name().into(), name }); },
         },
         None => { return Err(Error::UnknownInput{ edge: pc.1, task: task.name().into(), name }); },
     };
 
     // If it is unavailable, download it and make it available
-    let access: AccessKind = match avail {
+    let access: JoinHandle<_> = match avail {
         AvailabilityKind::Available { how }   => {
             debug!("{} '{}' is locally available", name.variant(), name.name());
-            how.clone()
+            tokio::spawn(async move { Ok(how) })
         },
         AvailabilityKind::Unavailable { how } => {
             debug!("{} '{}' is remotely available", name.variant(), name.name());
 
             // Call the external transfer function
-            match P::preprocess(global, local, at, &name, how).await {
-                Ok(access) => access,
-                Err(err)   => { return Err(Error::Custom{ edge: pc.1, err: Box::new(err) }); }
-            }
+            // match P::preprocess(global, local, at, &name, how).await {
+            //     Ok(access) => access,
+            //     Err(err)   => { return Err(Error::Custom{ edge: pc.1, err: Box::new(err) }); }
+            // }
+            tokio::spawn(P::preprocess(global.clone(), local.clone(), at.clone(), name.clone(), how))
         },
     };
 
     // Insert it into the map, done
-    data.insert(name.clone(), access);
+    data.insert(name, access);
     Ok(())
 }
 
@@ -1037,12 +1038,23 @@ impl<G: CustomGlobalState, L: CustomLocalState> Thread<G, L> {
                             None     => { return EdgeResult::Err(Error::UnresolvedLocation{ edge: pc.1, name: function.name.clone() }); }
                         };
 
-                        // Next, fetch all the datasets required by calling the external transfer function
+                        // Next, fetch all the datasets required by calling the external transfer function;
                         // The map created maps data names to ways of accessing them locally that may be passed to the container itself.
-                        let mut data: HashMap<DataName, AccessKind> = HashMap::new();
+                        let mut handles: HashMap<DataName, JoinHandle<Result<AccessKind, P::PreprocessError>>> = HashMap::new();
                         for value in args.values() {
                             // Preprocess the given value
-                            if let Err(err) = preprocess_value::<P>(&self.global, &self.local, pc, task, at, value, input, &mut data).await { return EdgeResult::Err(err); };
+                            if let Err(err) = preprocess_value::<P>(&self.global, &mut self.local, pc, task, at, value, input, &mut handles).await { return EdgeResult::Err(err); };
+                        }
+                        // Join the handles
+                        let mut data: HashMap<DataName, AccessKind> = HashMap::with_capacity(handles.len());
+                        for (name, handle) in handles {
+                            match handle.await {
+                                Ok(res)  => match res {
+                                    Ok(access) => { data.insert(name, access); },
+                                    Err(err)   => { return EdgeResult::Err(Error::Custom{ edge: pc.1, err: Box::new(err) }); },
+                                },
+                                Err(err) => { return EdgeResult::Err(Error::Custom{ edge: pc.1, err: Box::new(err) }); },
+                            }
                         }
 
                         // Prepare the TaskInfo for the call

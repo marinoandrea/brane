@@ -4,7 +4,7 @@
 //  Created:
 //    24 Oct 2022, 15:34:05
 //  Last edited:
-//    05 Jan 2023, 13:16:41
+//    05 Jan 2023, 18:55:33
 //  Auto updated?
 //    Yes
 // 
@@ -60,7 +60,7 @@ impl VmPlugin for OfflinePlugin {
     type CommitError     = CommitError;
 
 
-    async fn preprocess(_global: &Arc<RwLock<Self::GlobalState>>, _local: &Self::LocalState, _loc: &Location, name: &DataName, preprocess: &PreprocessKind) -> Result<AccessKind, Self::PreprocessError> {
+    async fn preprocess(_global: Arc<RwLock<Self::GlobalState>>, _local: Self::LocalState, _loc: Location, name: DataName, preprocess: PreprocessKind) -> Result<AccessKind, Self::PreprocessError> {
         info!("Preprocessing data '{}' in an offline environment", name);
         debug!("Method of preprocessing: {:?}", preprocess);
 
@@ -238,7 +238,6 @@ impl VmPlugin for OfflinePlugin {
                 Ok(sinfo) => sinfo,
                 Err(err)  => { return Err(CommitError::DataInfoSerializeError{ err }); },
             };
-            println!("{}", sinfo);
             if let Err(err) = handle.write_all(sinfo.as_bytes()).await {
                 return Err(CommitError::DataInfoWriteError{ path: info_path, err });
             }

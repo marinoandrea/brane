@@ -4,7 +4,7 @@
 //  Created:
 //    27 Oct 2022, 10:14:26
 //  Last edited:
-//    05 Jan 2023, 15:38:18
+//    05 Jan 2023, 16:53:40
 //  Auto updated?
 //    Yes
 // 
@@ -71,7 +71,7 @@ impl VmPlugin for InstancePlugin {
     type CommitError     = CommitError;
 
 
-    async fn preprocess(global: &Arc<RwLock<Self::GlobalState>>, _local: &Self::LocalState, loc: &Location, name: &DataName, preprocess: &PreprocessKind) -> Result<AccessKind, Self::PreprocessError> {
+    async fn preprocess(global: Arc<RwLock<Self::GlobalState>>, _local: Self::LocalState, loc: Location, name: DataName, preprocess: PreprocessKind) -> Result<AccessKind, Self::PreprocessError> {
         info!("Preprocessing {} '{}' on '{}' in a distributed environment...", name.variant(), name.name(), loc);
         debug!("Preprocessing to be done: {:?}", preprocess);
 
@@ -91,9 +91,9 @@ impl VmPlugin for InstancePlugin {
             };
 
             // Resolve to an address
-            match infra.get(loc) {
+            match infra.get(&loc) {
                 Some(info) => (state.proxy.clone(), info.delegate.clone()),
-                None       => { return Err(PreprocessError::UnknownLocationError{ loc: loc.clone() }); },
+                None       => { return Err(PreprocessError::UnknownLocationError{ loc }); },
             }
         };
 
@@ -133,7 +133,7 @@ impl VmPlugin for InstancePlugin {
             return Err(PreprocessError::PreprocessError{ endpoint: delegate_address, kind: name.variant().to_string(), name: name.name().into(), err: result.access });
         }
 
-        // WOtherwise, attempt to serialize the accesskind
+        // If it was, attempt to deserialize the accesskind
         let access: AccessKind = match serde_json::from_str(&result.access) {
             Ok(access) => access,
             Err(err)   => { return Err(PreprocessError::AccessKindParseError{ endpoint: delegate_address, raw: result.access, err }); },

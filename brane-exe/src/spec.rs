@@ -4,7 +4,7 @@
 //  Created:
 //    26 Aug 2022, 18:26:40
 //  Last edited:
-//    05 Jan 2023, 13:16:06
+//    05 Jan 2023, 16:48:23
 //  Auto updated?
 //    Yes
 // 
@@ -34,7 +34,7 @@ pub trait CustomGlobalState: 'static + Send + Sync {}
 impl CustomGlobalState for () {}
 
 /// Defines whatever is needed for the custom local part of a RunState.
-pub trait CustomLocalState: 'static + Send + Sync {
+pub trait CustomLocalState: 'static + Send + Sync + Clone {
     /// Constructs a new CustomLocalState from the given global state.
     /// 
     /// # Arguments
@@ -86,7 +86,7 @@ pub trait VmPlugin: 'static + Send + Sync {
     /// 
     /// # Errors
     /// This function may error whenever it likes.
-    async fn preprocess(global: &Arc<RwLock<Self::GlobalState>>, local: &Self::LocalState, loc: &Location, name: &DataName, preprocess: &PreprocessKind) -> Result<AccessKind, Self::PreprocessError>;
+    async fn preprocess(global: Arc<RwLock<Self::GlobalState>>, local: Self::LocalState, loc: Location, name: DataName, preprocess: PreprocessKind) -> Result<AccessKind, Self::PreprocessError>;
 
 
 
