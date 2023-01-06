@@ -2,10 +2,10 @@
 
 All notable changes to the Brane framework will be documented in this file.
 
-## [1.0.0] - 2022-11-14
+## [1.0.0] - 2023-01-06
 **IMPORTANT NOTICE**: From now on, the framework will stick to [semantic versioning](https://semver.org). Because we are still in development, however, we will consider any API-breaking change to be any change relating to the _usage_ of the program, not to any Rust-API the library provides. However, that will likely change once the framework is more mature.
 
-This release basically sees the release of an entirely rebuilt framework. Expect to find bugs and change of how you worked with it (especially as administrator).
+This release basically sees the release of an entirely rebuilt framework. Expect to find bugs and change how you worked with it (especially as administrator).
 
 ### Added
 - Extra example code that implements more advanced filesystem features, which may be used to inspect the shared `/data` partition at runtime.
@@ -22,7 +22,8 @@ This release basically sees the release of an entirely rebuilt framework. Expect
 - `unpack` as a new section in `container.yml` files, which replaces the semantics of the old `install` section (see below).
 - `contrib/scripts/create_certs.sh` to generate scripts in the format that Brane wants.
 - Lots of BraneScript example/test files, which may be useful for understanding the language. Check `tests/branescript`.
-- A way of compiling the scripts to a workflow file offline (by use of `brane compile`; see below).
+- A way of compiling the scripts to a workflow file offline with the new `branec` executable.
+- The option to defer initialization of a variable in BraneScript using the `null` value.
 
 ### Changed
 - The way that scripts are compiled. Instead of bytecode, the system now compiles to so-called Workflows, which is like bytecode but ordered in such a way that control flow information is preserved.
@@ -41,10 +42,13 @@ This release basically sees the release of an entirely rebuilt framework. Expect
 - The `brane` CLI failing to run a pulled package.
 - Keywords in BraneScript being parsed as such when part of an identifier (i.e., 'new_a' would error because of 'new').
 - Lockfiles not always being removed during builds (especially things like interruptions).
-- Other BraneScript issues.
+- Other BraneScript issues, including but not limited to:
+  - Fixing data- and result analysis w.r.t. loops
 
 ### Known bugs
-- The framework cannot currently connect to domains that are accessed by IP instead of hostname (resulting in TLS errors; check [this issue](https://github.com/seanmonstar/reqwest/issues/1328)).
+- [[#27](https://github.com/epi-project/brane/issues/27)] The framework cannot currently connect to domains that are accessed by IP instead of hostname (resulting in TLS errors; check [this issue](https://github.com/seanmonstar/reqwest/issues/1328)). As a workaround, use the `Hostnames` option in `node.yml` to provide hostnames for a set of IP addresses and use those instead.
+- [[#28](https://github.com/epi-project/brane/issues/28)] The REPL is quite buggy as well, often not properly carrying information between two statements. For now, as a workaround, put the loose statements in a single line to keep the information consistent.
+- [[#29](https://github.com/epi-project/brane/issues/29)] Data transfer pre-task execution is unreasonably slow, making the framework effectively unusable for use-cases which rely on iteration in BraneScript.
 
 ## [0.6.3] - 2022-05-31
 ### Added
