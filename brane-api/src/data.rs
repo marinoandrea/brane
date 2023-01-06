@@ -4,7 +4,7 @@
 //  Created:
 //    26 Sep 2022, 17:20:55
 //  Last edited:
-//    06 Nov 2022, 13:11:47
+//    12 Dec 2022, 13:17:34
 //  Auto updated?
 //    Yes
 // 
@@ -14,17 +14,16 @@
 // 
 
 use std::collections::HashMap;
-use std::path::PathBuf;
 
 use log::{debug, error};
-use reqwest::{Client, ClientBuilder, StatusCode};
-use reqwest::tls::Certificate;
+use reqwest::StatusCode;
 use warp::{Rejection, Reply};
 use warp::http::{HeaderValue, Response};
 use warp::hyper::Body;
 
-use brane_cfg::InfraFile;
-use brane_cfg::certs::load_cert;
+use brane_cfg::infra::InfraFile;
+use brane_cfg::node::NodeConfig;
+use brane_prx::spec::NewPathRequestTlsOptions;
 use specifications::data::{AssetInfo, DataInfo};
 
 pub use crate::errors::DataError as Error;
@@ -57,71 +56,50 @@ macro_rules! fail {
 pub async fn list(context: Context) -> Result<impl Reply, Rejection> {
     debug!("Handling GET on `/data/info` (i.e., list all datasets)...");
 
+    // Load the node config file
+    let node_config: NodeConfig = match NodeConfig::from_path(&context.node_config_path) {
+        Ok(config) => config,
+        Err(err)   => {
+            error!("Failed to load NodeConfig file: {}", err);
+            return Err(warp::reject::custom(Error::SecretError));
+        },
+    };
+    if !node_config.node.is_central() {
+        error!("Provided node config file '{}' is not for a central node", context.node_config_path.display());
+        return Err(warp::reject::custom(Error::SecretError));
+    }
+
     // Load the infrastructure file
-    let infra: InfraFile = match InfraFile::from_path(&context.infra) {
+    let infra: InfraFile = match InfraFile::from_path(&node_config.node.central().paths.infra) {
         Ok(infra) => infra,
         Err(err)  => {
-            error!("{}", Error::InfrastructureOpenError{ path: context.infra.infra.clone(), err });
-            fail!();
+            error!("{}", Error::InfrastructureOpenError{ path: node_config.node.central().paths.infra.clone(), err });
+            return Err(warp::reject::custom(Error::SecretError));
         },
     };
 
     // Iterate through all the locations (each of which have their own registry service)
     let mut datasets: HashMap<String, DataInfo> = HashMap::new();
-    for (name, loc) in infra {
-        // Load the certificates for this domain
-        let root: Certificate = {
-            // Load the root store for this location (also as a list of certificates)
-            let cafile: PathBuf = context.certs.join(&name).join("ca.pem");
-            match load_cert(&cafile) {
-                Ok(mut root) => if !root.is_empty() {
-                    match Certificate::from_der(&root.swap_remove(0).0) {
-                        Ok(root) => root,
-                        Err(err) => {
-                            error!("Failed to parse CA certificate file '{}' for location '{}': {} (skipping domain)", cafile.display(), name, err);
-                            continue;
-                        },
-                    }
-                } else {
-                    error!("No certificates found in CA certificate file '{}' for location '{}' (skipping domain)", cafile.display(), name);
+    for (loc_name, loc) in infra {
+        // Run a GET-request on `/data/info` to fetch all datasets in this domain
+        let address: String = format!("{}/data/info", loc.registry);
+        let res: reqwest::Response = match context.proxy.get(&address, Some(NewPathRequestTlsOptions{ location: loc_name.clone(), use_client_auth: false })).await {
+            Ok(res)  => match res {
+                Ok(res)  => res,
+                Err(err) => {
+                    error!("{} (skipping domain)", Error::RequestError{ address, err });
                     continue;
                 },
-                Err(err) => {
-                    error!("Failed to load CA certificate file '{}' for location '{}': {} (skipping domain)", cafile.display(), name, err);
-                    continue;
-                },  
-            }
-        };
-
-        // Build a client with that certificate
-        let client: ClientBuilder = Client::builder()
-            .add_root_certificate(root);
-        let client: Client = match client.build() {
-            Ok(client) => client,
-            Err(err)   => {
-                error!("Failed to create client: {} (skipping domain)", err);
-                continue;
-            }
-        };
-
-        // Build the request
-        let address: String = format!("{}/data/info", loc.registry);
-        let req: reqwest::Request = match client.get(&address).build() {
-            Ok(res)  => res,
+            },
             Err(err) => {
-                error!("Failed to create GET-request to '{}': {} (skipping domain)", address, err);
+                error!("{} (skipping domain)", Error::ProxyError{ err });
                 continue;
             },
         };
-
-        // Run a GET-request on `/data/info` to fetch all datasets known in this domain
-        let res: reqwest::Response = match client.execute(req).await {
-            Ok(res)  => res,
-            Err(err) => {
-                error!("{} (skipping domain)", Error::RequestError { address, err });
-                continue;
-            },
-        };
+        if res.status() == StatusCode::NOT_FOUND {
+            // Search the next one instead
+            continue;
+        }
 
         // Fetch the body
         let body: String = match res.text().await {
@@ -144,9 +122,9 @@ pub async fn list(context: Context) -> Result<impl Reply, Rejection> {
         for (n, d) in local_sets {
             if let Some(info) = datasets.get_mut(&n) {
                 // Add this location
-                info.access.insert(name.clone(), d.access);
+                info.access.insert(loc_name.clone(), d.access);
             } else {
-                datasets.insert(n, d.into_data_info(name.clone()));
+                datasets.insert(n, d.into_data_info(loc_name.clone()));
             }
         }
     }
@@ -188,70 +166,43 @@ pub async fn list(context: Context) -> Result<impl Reply, Rejection> {
 pub async fn get(name: String, context: Context) -> Result<impl Reply, Rejection> {
     debug!("Handling GET on `/data/info/{}` (i.e., get dataset info)...", name);
 
+    // Load the node config file
+    let node_config: NodeConfig = match NodeConfig::from_path(&context.node_config_path) {
+        Ok(config) => config,
+        Err(err)   => {
+            error!("Failed to load NodeConfig file: {}", err);
+            return Err(warp::reject::custom(Error::SecretError));
+        },
+    };
+    if !node_config.node.is_central() {
+        error!("Provided node config file '{}' is not for a central node", context.node_config_path.display());
+        return Err(warp::reject::custom(Error::SecretError));
+    }
+
     // Load the infrastructure file
-    let infra: InfraFile = match InfraFile::from_path(&context.infra) {
+    let infra: InfraFile = match InfraFile::from_path(&node_config.node.central().paths.infra) {
         Ok(infra) => infra,
         Err(err)  => {
-            error!("{}", Error::InfrastructureOpenError{ path: context.infra.infra.clone(), err });
-            fail!();
+            error!("{}", Error::InfrastructureOpenError{ path: node_config.node.central().paths.infra.clone(), err });
+            return Err(warp::reject::custom(Error::SecretError));
         },
     };
 
     // Iterate through all the locations (each of which have their own registry service)
     let mut dataset: Option<DataInfo> = None;
     for (loc_name, loc) in infra {
-        // Load the certificates for this domain
-        let root: Certificate = {
-            // Load the root store for this location (also as a list of certificates)
-            let cafile: PathBuf = context.certs.join(&name).join("ca.pem");
-            match load_cert(&cafile) {
-                Ok(mut root) => {
-                    if !root.is_empty() {
-                        match Certificate::from_der(&root.swap_remove(0).0) {
-                            Ok(root) => root,
-                            Err(err) => {
-                                error!("Failed to parse CA certificate file '{}' for location '{}': {} (skipping domain)", cafile.display(), name, err);
-                                continue;
-                            },
-                        }
-                    } else {
-                        error!("No certificates found in CA certificate file '{}' for location '{}' (skipping domain)", cafile.display(), name);
-                        continue;
-                    }
-                },
-                Err(err) => {
-                    error!("Failed to load CA certificate file '{}' for location '{}': {} (skipping domain)", cafile.display(), name, err);
-                    continue;
-                },  
-            }
-        };
-
-        // Build a client with that certificate
-        let client: ClientBuilder = Client::builder()
-            .add_root_certificate(root);
-        let client: Client = match client.build() {
-            Ok(client) => client,
-            Err(err)   => {
-                error!("Failed to create client: {} (skipping domain)", err);
-                continue;
-            }
-        };
-
-        // Build the request
-        let address: String = format!("{}/data/info/{}", loc.registry, name);
-        let req: reqwest::Request = match client.get(&address).build() {
-            Ok(res)  => res,
-            Err(err) => {
-                error!("Failed to create GET-request to '{}': {} (skipping domain)", address, err);
-                continue;
-            },
-        };
-
         // Run a GET-request on `/data` to fetch the specific dataset we're asked for
-        let res: reqwest::Response = match client.execute(req).await {
-            Ok(res)  => res,
+        let address: String = format!("{}/data/info/{}", loc.registry, name);
+        let res: reqwest::Response = match context.proxy.get(&address, Some(NewPathRequestTlsOptions{ location: loc_name.clone(), use_client_auth: false })).await {
+            Ok(res)  => match res {
+                Ok(res)  => res,
+                Err(err) => {
+                    error!("{} (skipping domain)", Error::RequestError{ address, err });
+                    continue;
+                },
+            },
             Err(err) => {
-                error!("{} (skipping domain datasets)", Error::RequestError { address, err });
+                error!("{} (skipping domain)", Error::ProxyError{ err });
                 continue;
             },
         };

@@ -2,23 +2,28 @@
 
 All notable changes to the Brane framework will be documented in this file.
 
-## [1.0.0] - 2022-11-14
+## [1.0.0] - 2023-01-06
 **IMPORTANT NOTICE**: From now on, the framework will stick to [semantic versioning](https://semver.org). Because we are still in development, however, we will consider any API-breaking change to be any change relating to the _usage_ of the program, not to any Rust-API the library provides. However, that will likely change once the framework is more mature.
 
-This release basically sees the release of an entirely rebuilt framework. Expect to find bugs and change of how you worked with it (especially as administrator).
+This release basically sees the release of an entirely rebuilt framework. Expect to find bugs and change how you worked with it (especially as administrator).
 
 ### Added
 - Extra example code that implements more advanced filesystem features, which may be used to inspect the shared `/data` partition at runtime.
+- `branectl` binary (as the `brane-ctl` crate) as a `brane` counterpart to servers. This takes over starting and stopping nodes from the `make.py` script as well, meaning it no longer offers `start-instance` (see below).
+- `node.yml` file as a "node config file", that defines IP addresses, necessary paths, the kind, w/e of a single node's environment.
 - `brane data ...` subcommand to manage local datasets.
 - `brane-ast` crate, which provides compiler methods for transforming the BraneScript/Bakery AST to the workflow representation (see below).
 - `brane-exe` crate, which replaces `brane-bvm` to execute the workflow representation (see below).
 - `brane-tsk` crate, which collects much of the logic in `brane-plr` and `brane-job` into a new crate that builds upon `brane-exe` to execute tasks on either offline or distributed backends (see below).
 - `brane-reg` service, that is a domain-local registry of datasets (and, in the future, packages).
+- `brane-prx` service, which is a service that acts as a relay in front of all inter-domain traffic to enable proxying through bridging functions and whatnot.
+- _Policies_, which, although hardcoded, restricted who may do what with which datasets. Currently, policies are present in `brane-reg` and `brane-job` as simple hardcoded rules. This requires TLS for data transfers (see below).
 - TLS to data transfers. This means that setting up a domain is now marginally more complex, since certificates have to be generated.
 - `unpack` as a new section in `container.yml` files, which replaces the semantics of the old `install` section (see below).
 - `contrib/scripts/create_certs.sh` to generate scripts in the format that Brane wants.
-- `start-central-instance.sh` and `start-worker-instance.sh` as alternative startup scripts that don't do compilation but just run already compiled images.
 - Lots of BraneScript example/test files, which may be useful for understanding the language. Check `tests/branescript`.
+- A way of compiling the scripts to a workflow file offline with the new `branec` executable.
+- The option to defer initialization of a variable in BraneScript using the `null` value.
 
 ### Changed
 - The way that scripts are compiled. Instead of bytecode, the system now compiles to so-called Workflows, which is like bytecode but ordered in such a way that control flow information is preserved.
@@ -30,17 +35,20 @@ This release basically sees the release of an entirely rebuilt framework. Expect
 - `brane-api` now needs to have knowledge about the infrastructure too (i.e., be provided with the `infra.yml` file).
 - `brane-job` to now explicitly live on a domain instead of the central node.
 - the semantics of the `install` section in `container.yml` files: now, the commands are processed _before_ the workspace is copied over instead of after in order to be much nicer to Docker caching. To emulate the old behaviour, use the new `unpack` section (see above).
+- Bumped `clap` to `4.0.25`.
 
 ### Fixed
 - `brane-api` not accepting 'latest' when pulling packages
 - The `brane` CLI failing to run a pulled package.
 - Keywords in BraneScript being parsed as such when part of an identifier (i.e., 'new_a' would error because of 'new').
 - Lockfiles not always being removed during builds (especially things like interruptions).
-- Other BraneScript issues.
+- Other BraneScript issues, including but not limited to:
+  - Fixing data- and result analysis w.r.t. loops
 
 ### Known bugs
-- The framework cannot currently connect to domains that are accessed by IP instead of hostname (resulting in TLS errors; check [this issue](https://github.com/seanmonstar/reqwest/issues/1328)).
-- The lock file is not _always_ always removed; more work is necessary.
+- [[#27](https://github.com/epi-project/brane/issues/27)] The framework cannot currently connect to domains that are accessed by IP instead of hostname (resulting in TLS errors; check [this issue](https://github.com/seanmonstar/reqwest/issues/1328)). As a workaround, use the `Hostnames` option in `node.yml` to provide hostnames for a set of IP addresses and use those instead.
+- [[#28](https://github.com/epi-project/brane/issues/28)] The REPL is quite buggy as well, often not properly carrying information between two statements. For now, as a workaround, put the loose statements in a single line to keep the information consistent.
+- [[#29](https://github.com/epi-project/brane/issues/29)] Data transfer pre-task execution is unreasonably slow, making the framework effectively unusable for use-cases which rely on iteration in BraneScript.
 
 ## [0.6.3] - 2022-05-31
 ### Added

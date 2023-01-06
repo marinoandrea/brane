@@ -4,7 +4,7 @@
 //  Created:
 //    10 Aug 2022, 13:52:37
 //  Last edited:
-//    26 Oct 2022, 17:18:24
+//    23 Dec 2022, 16:08:21
 //  Auto updated?
 //    Yes
 // 
@@ -324,6 +324,8 @@ pub enum AstError {
     ReaderReadError{ err: std::io::Error },
     /// The parser failed.
     ParseError{ err: brane_dsl::Error },
+    /// Failed to write to the given writer.
+    WriteError{ err: std::io::Error },
 
     // Nested errors
     /// An error has occurred while resolving enum variants.
@@ -332,6 +334,8 @@ pub enum AstError {
     ResolveError(ResolveError),
     /// An error has occurred during type checking.
     TypeError(TypeError),
+    /// An error has occurred during null-analysis.
+    NullError(NullError),
     /// An error has occurred during location analysis.
     LocationError(LocationError),
     /// An error has occurred while pruning the tree for compilation.
@@ -359,10 +363,12 @@ impl AstError {
         match self {
             ReaderReadError { .. } => { eprintln!("{}", self); },
             ParseError { .. }      => { eprintln!("{}", self); },
+            WriteError{ .. }       => { eprintln!("{}", self); },
 
             SanityError(err)   => err.prettyprint(file, source),
             ResolveError(err)  => err.prettyprint(file, source),
             TypeError(err)     => err.prettyprint(file, source),
+            NullError(err)     => err.prettyprint(file, source),
             LocationError(err) => err.prettyprint(file, source),
             PruneError(err)    => err.prettyprint(file, source),
             FlattenError(err)  => err.prettyprint(file, source),
@@ -376,35 +382,36 @@ impl From<SanityError> for AstError {
         Self::SanityError(err)
     }
 }
-
 impl From<ResolveError> for AstError {
     #[inline]
     fn from(err: ResolveError) -> Self {
         Self::ResolveError(err)
     }
 }
-
 impl From<TypeError> for AstError {
     #[inline]
     fn from(err: TypeError) -> Self {
         Self::TypeError(err)
     }
 }
-
+impl From<NullError> for AstError {
+    #[inline]
+    fn from(err: NullError) -> Self {
+        Self::NullError(err)
+    }
+}
 impl From<LocationError> for AstError {
     #[inline]
     fn from(err: LocationError) -> Self {
         Self::LocationError(err)
     }
 }
-
 impl From<PruneError> for AstError {
     #[inline]
     fn from(err: PruneError) -> Self {
         Self::PruneError(err)
     }
 }
-
 impl From<FlattenError> for AstError {
     #[inline]
     fn from(err: FlattenError) -> Self {
@@ -419,10 +426,12 @@ impl Display for AstError {
         match self {
             ReaderReadError { err } => write!(f, "Failed to read given reader: {}", err),
             ParseError{ err }       => write!(f, "{}", err),
+            WriteError{ err }       => write!(f, "Failed to write to given writer: {}", err),
 
             SanityError(err)   => write!(f, "{}", err),
             ResolveError(err)  => write!(f, "{}", err),
             TypeError(err)     => write!(f, "{}", err),
+            NullError(err)     => write!(f, "{}", err),
             LocationError(err) => write!(f, "{}", err),
             PruneError(err)    => write!(f, "{}", err),
             FlattenError(err)  => write!(f, "{}", err),
@@ -745,6 +754,48 @@ impl Display for TypeError {
 }
 
 impl Error for TypeError {}
+
+
+
+/// Defines errors that occur while resolving null-usage.
+#[derive(Debug)]
+pub enum NullError {
+    /// We found a Null used in an illegal spot.
+    IllegalNull{ range: TextRange },
+}
+
+impl NullError {
+    /// Prints the error in a pretty way to stderr.
+    /// 
+    /// # Generic arguments:
+    /// - `S1`: The &str-like type of the `file` path.
+    /// - `S2`: The &str-like type of the `source` text.
+    /// 
+    /// # Arguments
+    /// - `file`: The 'path' of the file (or some other identifier) where the source text originates from.
+    /// - `source`: The source text to read the debug range from.
+    /// 
+    /// # Returns
+    /// Nothing, but does print the error to stderr.
+    #[inline]
+    pub fn prettyprint<S1: AsRef<str>, S2: AsRef<str>>(&self, file: S1, source: S2) {
+        use NullError::*;
+        match self {
+            IllegalNull{ range } => prettyprint_err(file, source, self, range),
+        }
+    }
+}
+
+impl Display for NullError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
+        use NullError::*;
+        match self {
+            IllegalNull{ .. } => write!(f, "You can only use 'null' to initialize a new variable"),
+        }
+    }
+}
+
+impl Error for NullError {}
 
 
 

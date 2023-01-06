@@ -11,21 +11,21 @@ FROM rust:1
 
 # Install build dependencies (that are not in the rust image already)
 RUN apt-get update && apt-get install -y \
-    gcc g++ \
-    gcc-aarch64-linux-gnu \
     cmake \
-    musl-tools \
+    build-essential \
+    libssl-dev \
+    pkg-config \
  && rm -rf /var/lib/apt/lists/*
 
-# Make symlinks
-RUN ln -s /bin/gcc /usr/local/bin/musl-gcc \
- && ln -s /bin/g++ /usr/local/bin/musl-g++ \
- && ln -s /usr/bin/aarch64-linux-gnu-gcc /usr/local/bin/aarch64-linux-musl-gcc \
- && ln -s /usr/bin/aarch64-linux-gnu-g++ /usr/local/bin/aarch64-linux-musl-g++
-
-# Fetch the target(s)
-RUN rustup target add "x86_64-unknown-linux-musl"
-RUN rustup target add "aarch64-unknown-linux-musl"
+# Install protobuf
+ARG PROTOBUF_VERSION=3.21.11
+RUN curl -L https://github.com/protocolbuffers/protobuf/archive/refs/tags/v${PROTOBUF_VERSION}.tar.gz | tar -xvz \
+ && cd /protobuf-${PROTOBUF_VERSION} \
+ && cmake -Dprotobuf_BUILD_TESTS=off . \
+ && cmake --build . -j $(nproc) \
+ && mv $(readlink protoc) /usr/bin/protoc \
+ && cd / \
+ && rm -r /protobuf-${PROTOBUF_VERSION}
 
 # Prepare the linked directory
 RUN mkdir /build

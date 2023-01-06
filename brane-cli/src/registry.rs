@@ -21,12 +21,13 @@ use tokio_util::codec::{BytesCodec, FramedRead};
 use url::Url;
 use uuid::Uuid;
 
+use brane_tsk::local::get_package_versions;
 use specifications::package::{PackageKind, PackageInfo};
 use specifications::registry::RegistryConfig;
 use specifications::version::Version;
 
 use crate::errors::RegistryError;
-use crate::utils::{get_config_dir, get_packages_dir, get_registry_file, ensure_package_dir, get_package_versions, ensure_packages_dir, ensure_config_dir};
+use crate::utils::{get_config_dir, get_packages_dir, get_registry_file, ensure_package_dir, ensure_packages_dir, ensure_config_dir};
 
 
 type DateTimeUtc = DateTime<Utc>;
@@ -123,7 +124,7 @@ pub fn logout() -> Result<()> {
 /// Pulls packages from a remote registry to the local registry. 
 /// 
 /// # Arguments
-/// - `packages`: The list of NAME[:VERSION] pairs indicating what to pull.
+/// - `packages`: The list of `NAME[:VERSION]` pairs indicating what to pull.
 /// 
 /// # Errors
 /// This function may error for about a million different reasons, chief of which are the remote not being reachable, the user not being logged-in, not being able to write to the package folder, etc.
@@ -141,7 +142,10 @@ pub async fn pull(
 
     // Iterate over the packages
     for (name, version) in packages {
+        debug!("Pulling package '{}' version {}", name, version);
+
         // Get the package directory
+        debug!("Downloading container...");
         let packages_dir = match get_packages_dir() {
             Ok(packages_dir) => packages_dir,
             Err(err)         => { return Err(RegistryError::PackagesDirError{ err }); }
@@ -194,6 +198,7 @@ pub async fn pull(
         // Retreive package information from API.
         let client = reqwest::Client::new();
         let graphql_endpoint = get_graphql_endpoint()?;
+        debug!("Fetching package metadata from '{}'...", graphql_endpoint);
 
         // Prepare GraphQL query.
         let variables = get_package::Variables {
@@ -311,9 +316,7 @@ pub async fn pull(
 /// 
 /// **Returns**  
 /// Nothing on success, or an anyhow error on failure.
-pub async fn push(
-    packages: Vec<(String, Version)>,
-) -> Result<(), RegistryError> {
+pub async fn push(packages: Vec<(String, Version)>) -> Result<(), RegistryError> {
     // Try to get the general package directory
     let packages_dir = match ensure_packages_dir(false) {
         Ok(dir)  => dir,
@@ -347,10 +350,12 @@ pub async fn push(
             Ok(dir)  => dir,
             Err(err) => { return Err(RegistryError::PackageDirError{ name, version, err }); }
         };
-        let temp_file = match tempfile::NamedTempFile::new() {
-            Ok(file) => file,
-            Err(err) => { return Err(RegistryError::TempFileError{ err }); }
-        };
+        // let temp_file = match tempfile::NamedTempFile::new() {
+        //     Ok(file) => file,
+        //     Err(err) => { return Err(RegistryError::TempFileError{ err }); }
+        // };
+        let temp_path: std::path::PathBuf = std::path::PathBuf::from("/tmp/temp.tar.gz");
+        let temp_file: File = File::create(&temp_path).unwrap();
 
         // We do a nice progressbar while compressing the package
         let progress = ProgressBar::new(0);
@@ -360,37 +365,48 @@ pub async fn push(
         // Create package tarball, effectively compressing it
         let gz = GzEncoder::new(&temp_file, Compression::fast());
         let mut tar = tar::Builder::new(gz);
-        if let Err(err) = tar.append_dir_all(".", package_dir) {
-            return Err(RegistryError::CompressionError{ name, version, path: temp_file.path().into(), err });
+        if let Err(err) = tar.append_path_with_name(package_dir.join("package.yml"), "package.yml") {
+            // return Err(RegistryError::CompressionError{ name, version, path: temp_file.path().into(), err });
+            return Err(RegistryError::CompressionError { name, version, path: temp_path, err });
+        };
+        if let Err(err) = tar.append_path_with_name(package_dir.join("image.tar"), "image.tar") {
+            // return Err(RegistryError::CompressionError{ name, version, path: temp_file.path().into(), err });
+            return Err(RegistryError::CompressionError { name, version, path: temp_path, err });
         };
         if let Err(err) = tar.into_inner() {
-            return Err(RegistryError::CompressionError{ name, version, path: temp_file.path().into(), err });
+            // return Err(RegistryError::CompressionError{ name, version, path: temp_file.path().into(), err });
+            return Err(RegistryError::CompressionError { name, version, path: temp_path, err });
         };
         progress.finish();
 
         // Upload file (with progress bar, of course)
         let url = get_packages_endpoint()?;
+        debug!("Pushing package '{}' to '{}'...", temp_path.display(), url);
         let request = Client::new().post(&url);
         let progress = ProgressBar::new(0);
         progress.set_style(ProgressStyle::default_bar().template("Uploading...   [{elapsed_precise}]"));
         progress.enable_steady_tick(250);
 
         // Re-open the temporary file we've just written to
-        let handle = match TokioFile::open(&temp_file).await {
+        // let handle = match TokioFile::open(&temp_file).await {
+        let handle = match TokioFile::open(&temp_path).await {
             Ok(handle) => handle,
-            Err(err)   => { return Err(RegistryError::PackageArchiveOpenError{ path: temp_file.path().into(), err }); }
+            // Err(err)   => { return Err(RegistryError::PackageArchiveOpenError{ path: temp_file.path().into(), err }); }
+            Err(err)   => { return Err(RegistryError::PackageArchiveOpenError{ path: temp_path, err }); }
         };
         let file = FramedRead::new(handle, BytesCodec::new());
 
         // Upload the file as a request
-        let content_length = temp_file.path().metadata().unwrap().len();
+        // let content_length = temp_file.path().metadata().unwrap().len();
+        let content_length = temp_path.metadata().unwrap().len();
         let request = request
             .body(Body::wrap_stream(file))
             .header("Content-Type", "application/gzip")
             .header("Content-Length", content_length);
         let response = match request.send().await {
             Ok(response) => response,
-            Err(err)     => { return Err(RegistryError::UploadError{ path: temp_file.path().into(), endpoint: url, err }); }
+            // Err(err)     => { return Err(RegistryError::UploadError{ path: temp_file.path().into(), endpoint: url, err }); }
+            Err(err)     => { return Err(RegistryError::UploadError{ path: temp_path, endpoint: url, err }); }
         };
         let response_status = response.status();
         progress.finish();

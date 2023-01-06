@@ -37,6 +37,24 @@ ENTRYPOINT [ "/bin/bash" ]
 
 
 
+##### BRANE-PRX #####
+# This image contains the Brane proxy service.
+FROM brane-base AS brane-prx
+
+# Define the architecture argument
+ARG ARCH
+
+# Copy `brane-prx` from build stage
+COPY ./.container-bins/$ARCH/brane-prx /brane-prx
+RUN chmod +x /brane-prx
+
+# Run the compiled executable as base
+ENTRYPOINT [ "/brane-prx", "--debug" ]
+
+
+
+
+
 ##### BRANE-API #####
 # This image contains the Brane API service.
 FROM brane-base AS brane-api
@@ -48,7 +66,6 @@ ARG ARCH
 RUN apt-get update && apt-get install -y \
     gnupg2 \
     wget \
-    skopeo \
  && rm -rf /var/lib/apt/lists/*
 
 # Copy `brane-api` from build stage
@@ -74,7 +91,7 @@ COPY ./.container-bins/$ARCH/brane-clb /brane-clb
 RUN chmod +x /brane-clb
 
 # Run the compiled executable as base
-ENTRYPOINT [ "./brane-clb", "--debug" ]
+ENTRYPOINT [ "/brane-clb", "--debug" ]
 
 
 
@@ -92,7 +109,7 @@ COPY ./.container-bins/$ARCH/brane-drv /brane-drv
 RUN chmod +x /brane-drv
 
 # Run the compiled executable as base
-ENTRYPOINT [ "./brane-drv", "--debug" ]
+ENTRYPOINT [ "/brane-drv", "--debug" ]
 
 
 
@@ -110,7 +127,7 @@ COPY ./.container-bins/$ARCH/brane-plr /brane-plr
 RUN chmod +x /brane-plr
 
 # Run the compiled executable as base
-ENTRYPOINT [ "./brane-plr", "--debug" ]
+ENTRYPOINT [ "/brane-plr", "--debug" ]
 
 
 
@@ -128,7 +145,7 @@ COPY ./.container-bins/$ARCH/brane-job /brane-job
 RUN chmod +x /brane-job
 
 # Run the compiled executable as base
-ENTRYPOINT [ "./brane-job", "--debug" ]
+ENTRYPOINT [ "/brane-job", "--debug" ]
 
 
 
@@ -146,4 +163,4 @@ COPY ./.container-bins/$ARCH/brane-reg /brane-reg
 RUN chmod +x /brane-reg
 
 # Run the compiled executable as base
-ENTRYPOINT [ "./brane-reg", "--debug" ]
+ENTRYPOINT [ "/brane-reg", "--debug" ]

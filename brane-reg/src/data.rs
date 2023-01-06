@@ -4,7 +4,7 @@
 //  Created:
 //    26 Sep 2022, 15:40:40
 //  Last edited:
-//    13 Nov 2022, 15:19:45
+//    05 Jan 2023, 11:37:45
 //  Auto updated?
 //    Yes
 // 
@@ -29,6 +29,8 @@ use warp::reply::{self, Response};
 use x509_parser::certificate::X509Certificate;
 use x509_parser::prelude::FromDer;
 
+use brane_cfg::node::NodeConfig;
+use brane_cfg::policies::{PolicyFile, UserPolicy};
 use brane_shr::fs::archive_async;
 use specifications::data::{AccessKind, AssetInfo};
 
@@ -42,14 +44,20 @@ use crate::store::Store;
 /// Retrieves the client name from the given Certificate provided by the, well, client.
 /// 
 /// # Arguments
-/// - `certificate`: The Certificate to analyze.
+/// - `certificate`: The Certificate to analyze, if any.
 /// 
 /// # Returns
 /// The name of the client, as provided by the Certificate's `CN` field.
 /// 
 /// # Errors
 /// This function errors if we could not extract the name for some reason. You should consider the client unauthenticated, in that case.
-pub fn extract_client_name(cert: Certificate) -> Result<String, AuthorizeError> {
+pub fn extract_client_name(cert: Option<Certificate>) -> Result<String, AuthorizeError> {
+    // Extract the cert
+    let cert: Certificate = match cert {
+        Some(cert) => cert,
+        None       => { return Err(AuthorizeError::ClientNoCert); },
+    };
+
     // Attempt to parse the certificate as a real x509 one
     match X509Certificate::from_der(&cert.0) {
         Ok((_, cert)) => {
@@ -81,22 +89,64 @@ pub fn extract_client_name(cert: Certificate) -> Result<String, AuthorizeError> 
 /// 
 /// # Errors
 /// This function errors if we failed to ask the checker. Clearly, that should be treated as permission denied.
-pub async fn assert_data_permission(identifier: impl AsRef<str>, data: impl AsRef<str>) -> Result<bool, AuthorizeError> {
+pub async fn assert_data_permission(node_config: &NodeConfig, identifier: impl AsRef<str>, data: impl AsRef<str>) -> Result<bool, AuthorizeError> {
     let identifier : &str = identifier.as_ref();
     let data       : &str = data.as_ref();
 
     // We don't have a checker yet to ask ;(
 
-    // Instead, consider a few hardcoded policies:
+    // Instead, consider a simpler policy model...
 
-    // 1. Finally, if we have the global results, the client (let's call them Rosanne) may download it
-    if identifier == "rosanne" && data == "surf_result" { return Ok(true); }
+    // Load the policy file
+    let policies: PolicyFile = match PolicyFile::from_path_async(&node_config.node.worker().paths.policies).await {
+        Ok(policies) => policies,
+        Err(err)     => { return Err(AuthorizeError::PolicyFileError{ err }); },
+    };
 
-    // Otherwise, permission _not_ allowed
-    Ok(false)
+    // Match all the rules in-order
+    for (i, rule) in policies.users.into_iter().enumerate() {
+        // Match on the rule
+        match rule {
+            UserPolicy::AllowAll => {
+                debug!("Allowed downloading of dataset '{}' to '{}' based on rule {} (AllowAll)", data, identifier, i);
+                return Ok(true);
+            },
+            UserPolicy::DenyAll => {
+                debug!("Denied downloading of dataset '{}' to '{}' based on rule {} (DenyAll)", data, identifier, i);
+                return Ok(false);
+            },
+
+            UserPolicy::AllowUserAll { name } => {
+                if name == identifier {
+                    debug!("Allowed downloading of dataset '{}' to '{}' based on rule {} (AllowUserAll '{}')", data, identifier, i, name);
+                    return Ok(true);
+                }
+            },
+            UserPolicy::DenyUserAll { name } => {
+                if name == identifier {
+                    debug!("Denied downloading of dataset '{}' to '{}' based on rule {} (DenyUserAll '{}')", data, identifier, i, name);
+                    return Ok(false);
+                }
+            },
+
+            UserPolicy::Allow{ name, data: allowed_data } => {
+                if name == identifier && data == allowed_data {
+                    debug!("Allowed downloading of dataset '{}' to '{}' based on rule {} (Allow '{}' on {:?})", data, identifier, i, name, allowed_data);
+                    return Ok(true);
+                }
+            },
+            UserPolicy::Deny{ name, data: denied_data } => {
+                if name == identifier && data == denied_data {
+                    debug!("Denied downloading of dataset '{}' to '{}' based on rule {} (Deny '{}' on {:?})", data, identifier, i, name, denied_data);
+                    return Ok(false);
+                }
+            },
+        }
+    }
+
+    // Otherwise, didn't find a rule
+    Err(AuthorizeError::NoUserPolicy { user: identifier.into(), data: data.into() })
 }
-
-
 
 /// Runs the do-be-done intermediate result transfer by the checker to assess if we're allowed to do it.
 /// 
@@ -109,18 +159,63 @@ pub async fn assert_data_permission(identifier: impl AsRef<str>, data: impl AsRe
 /// 
 /// # Errors
 /// This function errors if we failed to ask the checker. Clearly, that should be treated as permission denied.
-pub async fn assert_result_permission(identifier: impl AsRef<str>, _result: impl AsRef<str>) -> Result<bool, AuthorizeError> {
+pub async fn assert_result_permission(node_config: &NodeConfig, identifier: impl AsRef<str>, result: impl AsRef<str>) -> Result<bool, AuthorizeError> {
     let identifier : &str = identifier.as_ref();
+    let result     : &str = result.as_ref();
 
     // We don't have a checker yet to ask ;(
 
-    // Instead, consider a few hardcoded policies:
+    // Instead, consider a simpler policy model...
 
-    // 1. SURF may download any result LOOOOL (this is because we can't really distinguish results beforehand yet...)
-    if identifier == "surf" { return Ok(true); }
+    // Load the policy file
+    let policies: PolicyFile = match PolicyFile::from_path_async(&node_config.node.worker().paths.policies).await {
+        Ok(policies) => policies,
+        Err(err)     => { return Err(AuthorizeError::PolicyFileError{ err }); },
+    };
 
-    // Otherwise, permission _not_ allowed
-    Ok(false)
+    // Match all the rules in-order
+    for (i, rule) in policies.users.into_iter().enumerate() {
+        // Match on the rule
+        match rule {
+            UserPolicy::AllowAll => {
+                debug!("Allowed downloading of dataset '{}' to '{}' based on rule {} (AllowAll)", result, identifier, i);
+                return Ok(true);
+            },
+            UserPolicy::DenyAll => {
+                debug!("Denied downloading of dataset '{}' to '{}' based on rule {} (DenyAll)", result, identifier, i);
+                return Ok(false);
+            },
+
+            UserPolicy::AllowUserAll { name } => {
+                if name == identifier {
+                    debug!("Allowed downloading of dataset '{}' to '{}' based on rule {} (AllowUserAll '{}')", result, identifier, i, name);
+                    return Ok(true);
+                }
+            },
+            UserPolicy::DenyUserAll { name } => {
+                if name == identifier {
+                    debug!("Denied downloading of dataset '{}' to '{}' based on rule {} (DenyUserAll '{}')", result, identifier, i, name);
+                    return Ok(false);
+                }
+            },
+
+            UserPolicy::Allow{ name, data: allowed_result } => {
+                if name == identifier && result == allowed_result {
+                    debug!("Allowed downloading of dataset '{}' to '{}' based on rule {} (Allow '{}' on {:?})", result, identifier, i, name, allowed_result);
+                    return Ok(true);
+                }
+            },
+            UserPolicy::Deny{ name, data: denied_result } => {
+                if name == identifier && result == denied_result {
+                    debug!("Denied downloading of dataset '{}' to '{}' based on rule {} (Deny '{}' on {:?})", result, identifier, i, name, denied_result);
+                    return Ok(false);
+                }
+            },
+        }
+    }
+
+    // Otherwise, didn't find a rule
+    Err(AuthorizeError::NoUserPolicy { user: identifier.into(), data: result.into() })
 }
 
 
@@ -139,10 +234,21 @@ pub async fn assert_result_permission(identifier: impl AsRef<str>, _result: impl
 /// # Errors
 /// This function may error (i.e., reject) if we could not serialize the given store.
 pub async fn list(context: Arc<Context>) -> Result<impl Reply, Rejection> {
-    debug!("Handling GET on `/data/info` (i.e., list all datasets)...");
+    info!("Handling GET on `/data/info` (i.e., list all datasets)...");
+
+    // Load the config file
+    let node_config: NodeConfig = match NodeConfig::from_path(&context.node_config_path) {
+        Ok(config) => config,
+        Err(err)   => {
+            error!("Failed to load NodeConfig file: {}", err);
+            return Err(warp::reject::reject());
+        },
+    };
+    if !node_config.node.is_worker() { error!("Given NodeConfig file '{}' does not have properties for a worker node.", context.node_config_path.display()); return Err(warp::reject::reject()); }
 
     // Load the store
-    let store: Store = match Store::from_dirs(&context.data_path, &context.results_path).await {
+    debug!("Loading data ('{}') and results ('{}')...", node_config.node.worker().paths.data.display(), node_config.node.worker().paths.results.display());
+    let store: Store = match Store::from_dirs(&node_config.node.worker().paths.data, &node_config.node.worker().paths.results).await {
         Ok(store) => store,
         Err(err)  => {
             error!("Failed to load the store: {}", err);
@@ -151,6 +257,7 @@ pub async fn list(context: Arc<Context>) -> Result<impl Reply, Rejection> {
     };
 
     // Simply parse to a string
+    debug!("Writing list of datasets as response...");
     let body: String = match serde_json::to_string(&store.datasets) {
         Ok(body) => body,
         Err(err) => {
@@ -184,10 +291,21 @@ pub async fn list(context: Arc<Context>) -> Result<impl Reply, Rejection> {
 /// # Errors
 /// This function may error (i.e., reject) if we didn't know the given name or we failred to serialize the relevant AssetInfo.
 pub async fn get(name: String, context: Arc<Context>) -> Result<impl Reply, Rejection> {
-    debug!("Handling GET on `/data/info/{}` (i.e., get dataset metdata)...", name);
+    info!("Handling GET on `/data/info/{}` (i.e., get dataset metdata)...", name);
+
+    // Load the config file
+    let node_config: NodeConfig = match NodeConfig::from_path(&context.node_config_path) {
+        Ok(config) => config,
+        Err(err)   => {
+            error!("Failed to load NodeConfig file: {}", err);
+            return Err(warp::reject::reject());
+        },
+    };
+    if !node_config.node.is_worker() { error!("Given NodeConfig file '{}' does not have properties for a worker node.", context.node_config_path.display()); return Err(warp::reject::reject()); }
 
     // Load the store
-    let store: Store = match Store::from_dirs(&context.data_path, &context.results_path).await {
+    debug!("Loading data ('{}') and results ('{}')...", node_config.node.worker().paths.data.display(), node_config.node.worker().paths.results.display());
+    let store: Store = match Store::from_dirs(&node_config.node.worker().paths.data, &node_config.node.worker().paths.results).await {
         Ok(store) => store,
         Err(err)  => {
             error!("Failed to load the store: {}", err);
@@ -205,6 +323,7 @@ pub async fn get(name: String, context: Arc<Context>) -> Result<impl Reply, Reje
     };
 
     // Serialize it (or at least, try so)
+    debug!("Dataset found, returning results");
     let body: String = match serde_json::to_string(info) {
         Ok(body) => body,
         Err(err) => {
@@ -238,11 +357,22 @@ pub async fn get(name: String, context: Arc<Context>) -> Result<impl Reply, Reje
 /// 
 /// # Errors
 /// This function may error (i.e., reject) if we didn't know the given name or we failed to serialize the relevant AssetInfo.
-pub async fn download_data(cert: Certificate, name: String, context: Arc<Context>) -> Result<impl Reply, Rejection> {
-    debug!("Handling GET on `/data/download/{}` (i.e., download dataset)...", name);
+pub async fn download_data(cert: Option<Certificate>, name: String, context: Arc<Context>) -> Result<impl Reply, Rejection> {
+    info!("Handling GET on `/data/download/{}` (i.e., download dataset)...", name);
+
+    // Load the config file
+    let node_config: NodeConfig = match NodeConfig::from_path(&context.node_config_path) {
+        Ok(config) => config,
+        Err(err)   => {
+            error!("Failed to load NodeConfig file: {}", err);
+            return Err(warp::reject::reject());
+        },
+    };
+    if !node_config.node.is_worker() { error!("Given NodeConfig file '{}' does not have properties for a worker node.", context.node_config_path.display()); return Err(warp::reject::reject()); }
 
     // Load the store
-    let store: Store = match Store::from_dirs(&context.data_path, &context.results_path).await {
+    debug!("Loading data ('{}') and results ('{}')...", node_config.node.worker().paths.data.display(), node_config.node.worker().paths.results.display());
+    let store: Store = match Store::from_dirs(&node_config.node.worker().paths.data, &node_config.node.worker().paths.results).await {
         Ok(store) => store,
         Err(err)  => {
             error!("Failed to load the store: {}", err);
@@ -269,7 +399,7 @@ pub async fn download_data(cert: Certificate, name: String, context: Arc<Context
     };
 
     // Before we continue, assert that this dataset may be downloaded by this person (uh-oh, how we gon' do that)
-    match assert_data_permission(&client_name, &info.name).await {
+    match assert_data_permission(&node_config, &client_name, &info.name).await {
         Ok(true)  => {
             info!("Checker authorized download of dataset '{}' by '{}'", info.name, client_name);
         },
@@ -288,7 +418,7 @@ pub async fn download_data(cert: Certificate, name: String, context: Arc<Context
     match &info.access {
         AccessKind::File { path } => {
             debug!("Accessing file '{}' @ '{}' as AccessKind::File...", name, path.display());
-            let path: PathBuf = context.data_path.join(&name).join(path);
+            let path: PathBuf = node_config.node.worker().paths.data.join(&name).join(path);
             debug!("File can be found under: '{}'", path.display());
 
             // First, get a temporary directory
@@ -370,11 +500,22 @@ pub async fn download_data(cert: Certificate, name: String, context: Arc<Context
 /// 
 /// # Errors
 /// This function may error (i.e., reject) if we didn't know the given name or we failed to serialize the relevant AssetInfo.
-pub async fn download_result(cert: Certificate, name: String, context: Arc<Context>) -> Result<impl Reply, Rejection> {
-    debug!("Handling GET on `/results/download/{}` (i.e., download intermediate result)...", name);
+pub async fn download_result(cert: Option<Certificate>, name: String, context: Arc<Context>) -> Result<impl Reply, Rejection> {
+    info!("Handling GET on `/results/download/{}` (i.e., download intermediate result)...", name);
+
+    // Load the config file
+    let node_config: NodeConfig = match NodeConfig::from_path(&context.node_config_path) {
+        Ok(config) => config,
+        Err(err)   => {
+            error!("Failed to load NodeConfig file: {}", err);
+            return Err(warp::reject::reject());
+        },
+    };
+    if !node_config.node.is_worker() { error!("Given NodeConfig file '{}' does not have properties for a worker node.", context.node_config_path.display()); return Err(warp::reject::reject()); }
 
     // Load the store
-    let store: Store = match Store::from_dirs(&context.data_path, &context.results_path).await {
+    debug!("Loading data ('{}') and results ('{}')...", node_config.node.worker().paths.data.display(), node_config.node.worker().paths.results.display());
+    let store: Store = match Store::from_dirs(&node_config.node.worker().paths.data, &node_config.node.worker().paths.results).await {
         Ok(store) => store,
         Err(err)  => {
             error!("Failed to load the store: {}", err);
@@ -401,7 +542,7 @@ pub async fn download_result(cert: Certificate, name: String, context: Arc<Conte
     };
 
     // Before we continue, assert that this dataset may be downloaded by this person (uh-oh, how we gon' do that)
-    match assert_result_permission(&client_name, &name).await {
+    match assert_result_permission(&node_config, &client_name, &name).await {
         Ok(true)  => {
             info!("Checker authorized download of intermediate result '{}' by '{}'", name, client_name);
         },

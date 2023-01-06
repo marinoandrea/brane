@@ -1,13 +1,17 @@
 [package]
 name = "brane-cfg"
-version = "0.6.3"
+version = { workspace = true }
 authors = ["Onno Valkering", "Tim Müller"]
 edition = "2018"
 
 [dependencies]
-kube = "0.72"
+enum-debug = { git = "https://github.com/Lut99/enum-debug", features = ["derive"] }
 log = "0.4"
 rustls = "0.20.7"
 rustls-pemfile = "1.0.1"
 serde = { version = "1", features = ["derive"] }
-serde_yaml = "0.8"
+serde_yaml = "0.9"
+tokio = { version = "1", features = [] }
+
+brane-shr      = { path = "../brane-shr" }
+specifications = { path = "../specifications" }

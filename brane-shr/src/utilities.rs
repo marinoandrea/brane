@@ -4,7 +4,7 @@
 //  Created:
 //    18 Aug 2022, 14:58:16
 //  Last edited:
-//    14 Nov 2022, 10:19:48
+//    17 Nov 2022, 16:07:38
 //  Auto updated?
 //    Yes
 // 
@@ -16,9 +16,10 @@ use std::fs::{self, DirEntry, ReadDir};
 use std::future::Future;
 use std::path::PathBuf;
 
+use log::{debug, warn};
 use regex::Regex;
 use tokio::runtime::{Builder, Runtime};
-use url::Url;
+use url::{Host, Url};
 
 use specifications::container::ContainerInfo;
 use specifications::data::{DataIndex, DataInfo};
@@ -320,7 +321,7 @@ where
 
 
 
-/***** HTTP SCHEMAS *****/
+/***** ADDRESS CHECKING *****/
 ///
 ///
 ///
@@ -344,4 +345,40 @@ where
     let _ = Url::parse(&url)?;
 
     Ok(url)
+}
+
+
+
+/// Returns whether the given address is an IP address or not.
+/// 
+/// The address can already involve paths or an HTTP schema. In that case, only the 'host' part is checked.
+/// 
+/// Both IPv4 and IPv6 addresses are matched.
+/// 
+/// # Arguments
+/// - `address`: The address to check.
+/// 
+/// # Returns
+/// true if the address is an IP-address, or false otherwise.
+pub fn is_ip_addr(address: impl AsRef<str>) -> bool {
+    let address: &str = address.as_ref();
+
+    // Attempt to parse with the URL thing
+    let url: Url = match Url::parse(address) {
+        Ok(url) => url,
+        Err(err) => {
+            warn!("Given URL '{}' is not a valid URL to begin with: {}", address, err);
+            return false;
+        },
+    };
+
+    // Examine the base
+    if let Some(host) = url.host() {
+        let res: bool = matches!(host, Host::Ipv4(_) | Host::Ipv6(_));
+        debug!("Address '{}' has a{} as hostname", address, if res { "n IP address" } else { " domain" });
+        matches!(host, Host::Ipv4(_) | Host::Ipv6(_))
+    } else {
+        debug!("Address '{}' has no hostname (so also no IP address)", address);
+        false
+    }
 }

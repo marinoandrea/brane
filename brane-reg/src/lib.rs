@@ -4,7 +4,7 @@
 //  Created:
 //    26 Sep 2022, 15:12:09
 //  Last edited:
-//    06 Nov 2022, 17:05:33
+//    05 Jan 2023, 11:35:16
 //  Auto updated?
 //    Yes
 // 
@@ -20,4 +20,5 @@ pub mod store;
 pub mod server;
 pub mod health;
 pub mod version;
+pub mod infra;
 pub mod data;

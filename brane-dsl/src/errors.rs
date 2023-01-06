@@ -4,7 +4,7 @@
 //  Created:
 //    17 Aug 2022, 11:29:00
 //  Last edited:
-//    14 Sep 2022, 11:24:24
+//    16 Nov 2022, 16:39:28
 //  Auto updated?
 //    Yes
 // 
@@ -268,6 +268,24 @@ impl Display for SymbolTableError {
 impl Error for SymbolTableError {}
 
 
+
+/// Defines errors that occur when converting language identifiers to Language enums.
+#[derive(Debug)]
+pub enum LanguageParseError {
+    /// Encountered an unknown language ID.
+    UnknownLanguageId{ raw: String },
+}
+
+impl Display for LanguageParseError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
+        use LanguageParseError::*;
+        match self {
+            UnknownLanguageId{ raw } => write!(f, "Unknown language ID '{}'", raw),
+        }
+    }
+}
+
+impl Error for LanguageParseError {}
 
 /// Defines errors that occur when converting patterns to calls.
 #[derive(Debug)]

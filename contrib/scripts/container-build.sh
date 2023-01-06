@@ -5,7 +5,7 @@
 # Created:
 #   18 May 2022, 11:20:02
 # Last edited:
-#   03 Aug 2022, 15:49:06
+#   12 Dec 2022, 16:28:14
 # Auto updated?
 #   Yes
 #
@@ -68,7 +68,7 @@ for arg in "${cli_args[@]}"; do
                 echo "Usage: $0 [opts] <target>"
                 echo ""
                 echo "Positionals:"
-                echo "  <target>               The target to build. Can be 'branelet' or 'openssl'."
+                echo "  <target>               The target to build. Can be any Brane package."
                 echo ""
                 echo "Options:"
                 echo "  -a,--arch <arch>       The architecture for which to compile. Can either be 'x86_64' or 'aarch64'."
@@ -162,66 +162,30 @@ fi
 
 
 ### BUILDING ###
-# Switch on the target
-if [[ "$target" == "branelet" ]]; then
-    # Navigate the correct workspace folder
-    exec_step cd /build
+# Navigate the correct workspace folder
+exec_step cd /build
 
-    # Make sure there is a target/containers folder
-    exec_step mkdir -p ./target/containers
+# Make sure there is a target/containers folder
+exec_step mkdir -p ./target/containers
 
-    # Prepare the release flag or not
-    rls_flag=""
-    rls_dir="debug"
-    if [[ "$development" -ne 1 ]]; then
-        rls_flag="--release"
-        rls_dir="release"
-    fi
-
-    # Compile with cargo, setting the appropriate workspace folder
-    echo " > cargo build \\"
-    echo "       --target \"$arch-unknown-linux-musl\""
-    echo "       $rls_flag \\"
-    echo "       --target-dir ./target/containers \\"
-    echo "       --package brane-let"
-    cargo build \
-        --target "$arch-unknown-linux-musl" \
-        $rls_flag \
-        --target-dir ./target/containers \
-        --package brane-let \
-        || exit $?
-
-    # Done
-    echo "Compiled branelet ($arch) to '/build/target/containers/$arch-unknown-linux-musl/$rls_dir/branelet"
-
-elif [[ "$target" == "openssl" ]]; then
-    # Create the musl binary directories with links
-    exec_step ln -s "/usr/include/$arch-linux-gnu/asm" "/usr/include/$arch-linux-musl/asm"
-    exec_step ln -s "/usr/include/asm-generic" "/usr/include/$arch-linux-musl/asm-generic"
-    exec_step ln -s "/usr/include/linux" "/usr/include/$arch-linux-musl/linux"
-    exec_step mkdir /musl
-
-    # Get the source
-    exec_step wget https://github.com/openssl/openssl/archive/OpenSSL_1_1_1f.tar.gz
-    exec_step tar zxvf OpenSSL_1_1_1f.tar.gz 
-    exec_step cd openssl-OpenSSL_1_1_1f/
-
-    # Configure the project
-    echo " > CC=\"musl-gcc -fPIE -pie\" ./Configure no-shared no-async --prefix=/musl --openssldir=/musl/ssl \"linux-$arch\""
-    CC="musl-gcc -fPIE -pie" ./Configure no-shared no-async --prefix=/musl --openssldir=/musl/ssl "linux-$arch" || exit "$?"
-
-    # Compile it (but not the docs)
-    make depend
-    make -j$(nproc)
-    make install_sw install_ssldirs
-
-    # Done, copy the resulting folder to the build one
-    mkdir -p "/build/target/openssl/$arch"
-    cp -r /musl/include "/build/target/openssl/$arch"
-    cp -r /musl/lib "/build/target/openssl/$arch"
-
-else
-    echo "Unknown target '$target'"
-    exit 1
-
+# Prepare the release flag or not
+rls_flag=""
+rls_dir="debug"
+if [[ "$development" -ne 1 ]]; then
+    rls_flag="--release"
+    rls_dir="release"
 fi
+
+# Compile with cargo, setting the appropriate workspace folder
+echo " > cargo build \\"
+echo "       $rls_flag \\"
+echo "       --target-dir ./target/containers \\"
+echo "       --package $target"
+cargo build \
+    $rls_flag \
+    --target-dir ./target/containers \
+    --package "$target" \
+    || exit $?
+
+# Done
+echo "Compiled $target ($arch) to '/build/target/containers/$arch-unknown-linux-musl/$rls_dir/$target (unless it has a custom binary name)"

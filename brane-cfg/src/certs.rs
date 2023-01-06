@@ -4,7 +4,7 @@
 //  Created:
 //    02 Nov 2022, 11:47:55
 //  Last edited:
-//    14 Nov 2022, 09:41:29
+//    29 Nov 2022, 11:43:59
 //  Auto updated?
 //    Yes
 // 
@@ -19,7 +19,7 @@ use std::path::Path;
 
 use log::debug;
 use rustls::{Certificate, PrivateKey, RootCertStore};
-use rustls_pemfile::{certs, rsa_private_keys};
+use rustls_pemfile::{certs, rsa_private_keys, Item};
 
 pub use crate::errors::CertsError as Error;
 
@@ -89,6 +89,60 @@ pub fn load_key(keyfile: impl AsRef<Path>) -> Result<Vec<PrivateKey>, Error> {
 
 
 
+/// Loads the an identity file (=certs + key) from the given single file.
+/// 
+/// # Arguments
+/// - `file`: Path to the certificate/key file to load.
+/// 
+/// # Returns
+/// A new pair of certificates and the key.
+/// 
+/// # Errors
+/// This function errors if we failed to read the files.
+pub fn load_identity(file: impl AsRef<Path>) -> Result<(Vec<Certificate>, PrivateKey), Error> {
+    let file: &Path = file.as_ref();
+
+    // Open the file
+    let handle: fs::File = match fs::File::open(file) {
+        Ok(handle) => handle,
+        Err(err)   => { return Err(Error::FileOpenError{ what: "identity", path: file.into(), err }); },
+    };
+    let mut reader: io::BufReader<fs::File> = io::BufReader::new(handle);
+
+    // Iterate over the thing to read it
+    let mut certs : Vec<Certificate> = vec![];
+    let mut keys  : Vec<PrivateKey>  = vec![];
+    while let Some(item) = rustls_pemfile::read_one(&mut reader).transpose() {
+        // Unwrap the item
+        let item: Item = match item {
+            Ok(item) => item,
+            Err(err) => { return Err(Error::FileReadError{ what: "identity", path: file.into(), err }); },
+        };
+
+        // Match the item
+        match item {
+            Item::X509Certificate(cert) => certs.push(Certificate(cert)),
+
+            Item::ECKey(key)    |
+            Item::PKCS8Key(key) |
+            Item::RSAKey(key)   => keys.push(PrivateKey(key)),
+
+            _ => { return Err(Error::UnknownItemError{ what: "identity", path: file.into() }); },
+        }
+    }
+
+    // We only continue with the first key
+    let key: PrivateKey = if !keys.is_empty() {
+        keys.swap_remove(0)
+    } else {
+        return Err(Error::EmptyKeyFile{ path: file.into() });
+    };
+
+    // Done, return
+    debug!("Loaded client identity file '{}' with {} certificate(s) and {} key(s)", file.display(), certs.len(), 1);
+    Ok((certs, key))
+}
+
 /// Loads the server certificate / key pair from disk.
 /// 
 /// # Arguments
@@ -154,7 +208,7 @@ pub fn load_certstore(storefile: impl AsRef<Path>) -> Result<RootCertStore, Erro
     // Read the certificates in the file to the store.
     let mut store: RootCertStore = RootCertStore::empty();
     let (added, ignored): (usize, usize) = store.add_parsable_certificates(&certs);
-    debug!("Created client trust store with {} certificates (ignored {})", added, ignored);
+    debug!("Created client trust store from '{}' with {} certificates (ignored {})", storefile.display(), added, ignored);
 
     // Done, for now
     Ok(store)

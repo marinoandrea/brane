@@ -4,7 +4,7 @@
 //  Created:
 //    26 Sep 2022, 15:13:34
 //  Last edited:
-//    09 Nov 2022, 12:18:12
+//    06 Dec 2022, 11:25:46
 //  Auto updated?
 //    Yes
 // 
@@ -141,18 +141,29 @@ impl warp::reject::Reject for DataError {}
 /// Errors that relate to checker authorization.
 #[derive(Debug)]
 pub enum AuthorizeError {
+    /// The client did not provide us with a certificate.
+    ClientNoCert,
     /// We failed to parse the client's certificate as a certificate.
     ClientCertParseError{ err: x509_parser::nom::Err<x509_parser::prelude::X509Error> },
     /// The incoming certificate has no 'CN' field.
     ClientCertNoCN{ subject: String },
+
+    /// Failed to load the policy file.
+    PolicyFileError{ err: brane_cfg::policies::Error },
+    /// No policy matched this user/data pair.
+    NoUserPolicy{ user: String, data: String },
 }
 
 impl Display for AuthorizeError {
     fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
         use AuthorizeError::*;
         match self {
+            ClientNoCert                => write!(f, "No certificate provided"),
             ClientCertParseError{ err } => write!(f, "Failed to parse incoming client certificate: {}", err),
             ClientCertNoCN{ subject }   => write!(f, "Incoming client certificate does not have a CN field specified in subject '{}'", subject),
+
+            PolicyFileError{ err }     => write!(f, "Failed to load policy file: {}", err),
+            NoUserPolicy{ user, data } => write!(f, "No matching policy rule found for user '{}' / data '{}' (did you forget a final AllowAll/DenyAll?)", user, data),
         }
     }
 }

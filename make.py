@@ -5,7 +5,7 @@
 # Created:
 #   09 Jun 2022, 12:20:28
 # Last edited:
-#   14 Nov 2022, 13:31:42
+#   12 Dec 2022, 15:53:49
 # Auto updated?
 #   Yes
 #
@@ -18,35 +18,30 @@ from __future__ import annotations
 
 import abc
 import argparse
-from ast import arg
-from cmath import e
-from functools import cache
 import hashlib
 import http
 import json
-from multiprocessing.sharedctypes import Value
 import os
-from pydoc import resolve
-from sre_constants import SRE_FLAG_UNICODE
-import requests
+# import requests
 import subprocess
 import sys
 import tarfile
 import time
 import typing
+import urllib.request
 
 
 ##### CONSTANTS #####
 # The version of Brane for which this make script is made
 # Only relevant when downloading files
-VERSION = "0.6.3"
+VERSION = "1.0.0"
 
 # List of services that live in the control part of an instance
-CENTRAL_SERVICES = [ "api", "drv", "plr" ]
+CENTRAL_SERVICES = [ "prx", "api", "drv", "plr" ]
 # List of auxillary services in the control part of an instance
-AUX_CENTRAL_SERVICES = [ "xenon" ]
+AUX_CENTRAL_SERVICES = [ "scylla", "kafka", "zookeeper", "xenon" ]
 # List of services that live in a worker node in an instance
-WORKER_SERVICES = [ "job", "reg" ]
+WORKER_SERVICES = [ "prx", "job", "reg" ]
 # List of auxillary services in a worker node in an instance
 AUX_WORKER_SERVICES = []
 
@@ -300,7 +295,7 @@ def cache_outdated(args: argparse.Namespace, file: str, is_src: bool) -> bool:
         # Compute the hash of the file
         try:
             with open(file, "rb") as h:
-                src_hash = hashlib.sha256()
+                src_hash = hashlib.md5()
                 while True:
                     data = h.read(65536)
                     if not data: break
@@ -351,7 +346,7 @@ def update_cache(args: argparse.Namespace, file: str, is_src: bool):
         # Attempt to compute the hash
         try:
             with open(file, "rb") as h:
-                src_hash = hashlib.sha256()
+                src_hash = hashlib.md5()
                 while True:
                     data = h.read(65536)
                     if not data: break
@@ -2786,6 +2781,7 @@ class DownloadTarget(Target):
             We will probably do something more clever in the future, though.
         """
 
+        pdebug(f"Target '{self.name}' is marked as outdated because it relies on a to-be-downloaded asset")
         return True
 
     def _cmds(self, args: argparse.Namespace) -> list[Command]:
@@ -2800,34 +2796,37 @@ class DownloadTarget(Target):
         addr    = resolve_args(self._addr, args)
         outfile = resolve_args(self._dsts[0], args)
         def get_file() -> int:
-            s = requests.Session()
+            res = urllib.request.urlopen(addr)
 
             # Run the request
             try:
                 with open(outfile, "wb") as f:
-                    with s.get(addr, allow_redirects=True, stream=True) as r:
-                        # Make sure it succeeded
-                        if r.status_code != 200:
-                            cancel(f"Failed to download file: server returned exit code {r.status_code} ({http.client.responses[r.status_code]})")
+                    # Make sure it succeeded
+                    if res.status != 200:
+                        cancel(f"Failed to download file: server returned exit code {res.status} ({http.client.responses[res.status]}): {res.reason}")
 
-                        # Iterate over the result
-                        print(f"   (File size: {to_bytes(int(r.headers['Content-length']))})")
-                        prgs = ProgressBar(stop=int(r.headers['Content-length']), prefix=" " * 13)
+                    # Iterate over the result
+                    print(f"   (File size: {to_bytes(int(res.headers['Content-length']))})")
+                    prgs = ProgressBar(stop=int(res.headers['Content-length']), prefix=" " * 13)
+                    chunk_start = time.time()
+                    chunk = res.read(65535)
+                    while(len(chunk) > 0):
+                        # Write the chunk (timed)
+                        chunk_time = time.time() - chunk_start
+                        f.write(chunk)
                         chunk_start = time.time()
-                        for chunk in r.iter_content(chunk_size=65535):
-                            # Write the chunk (timed)
-                            chunk_time = time.time() - chunk_start
-                            f.write(chunk)
-                            chunk_start = time.time()
 
-                            # Update the progressbar
-                            prgs.update_prefix(f"   {to_bytes(int(len(chunk) * (1 / chunk_time))).rjust(10)}/s ")
-                            prgs.update(len(chunk))
-                        prgs.stop()
+                        # Update the progressbar
+                        prgs.update_prefix(f"   {to_bytes(int(len(chunk) * (1 / chunk_time))).rjust(10)}/s ")
+                        prgs.update(len(chunk))
 
-            # Catch request Errors
-            except requests.exceptions.RequestException as e:
-                cancel(f"Failed to download file: {e}", code=e.errno)
+                        # Fetch the next chunk
+                        chunk = res.read(65535)
+                    prgs.stop()
+
+            # # Catch request Errors
+            # except urllib.request.exceptions.RequestException as e:
+            #     cancel(f"Failed to download file: {e}", code=e.errno)
 
             # Catch IO Errors
             except IOError as e:
@@ -2918,6 +2917,50 @@ class ImageTarget(Target):
         # Return the commands to run
         return [ mkdir, build ]
 
+class ImagePullTarget(Target):
+    """
+        Defines a build target that saves an image from a remote repository to a local .tar file.
+    """
+
+    _registry : str
+
+
+    def __init__(self, name: str, output: str, registry: str, deps: list[str] = [], description: str = "") -> None:
+        """
+            Constructor for the DownloadTarget class.
+
+            Arguments:
+            - `name`: The name of the target. Only used within this script to reference it later.
+            - `output`: The location of the downloaded file.
+            - `registry`: The Docker `registry/image:tag` identifier that describes the container to download.
+            - `deps`: A list of dependencies for the Target. If any of these strong dependencies needs to be recompiled _any_ incurred changes, then this Target will be rebuild as well.
+            - `description`: If a non-empty string, then it's a description of the target s.t. it shows up in the list of all Targets.
+        """
+
+        # Set the toplevel stuff
+        super().__init__(name, [], {}, [ output ], deps, description)
+
+        # Store the address and the getter (the output is the only destination file for this Target)
+        self._registry = registry
+
+
+
+    def _cmds(self, args: argparse.Namespace) -> list[Command]:
+        """
+            Returns the commands to run to build the target given the given
+            architecture and release mode.
+
+            Will raise errors if it somehow fails to do so.
+        """
+
+        # Generate the three commands
+        mkdir = ShellCommand("mkdir", "-p", f"{os.path.dirname(self._dsts[0])}")
+        pull  = ShellCommand("docker", "pull", f"{self._registry}")
+        save  = ShellCommand("docker", "save", "--output", f"{self._dsts[0]}", f"{self._registry}")
+
+        # Return them
+        return [ mkdir, pull, save ]
+
 class InContainerTarget(Target):
     """
         Target that builds something in a container (e.g., OpenSSL).
@@ -2927,12 +2970,13 @@ class InContainerTarget(Target):
     _attach_stdin  : bool
     _attach_stdout : bool
     _attach_stderr : bool
+    _keep_alive    : bool
     _volumes       : list[tuple[str, str]]
     _context       : str
     _command       : list[str]
 
 
-    def __init__(self, name: str, image: str, attach_stdin: bool = True, attach_stdout: bool = True, attach_stderr: bool = True, volumes: list[tuple[str, str]] = [], context: str = ".", command: list[str] = [], srcs: list[str] = [], srcs_deps: dict[str, list[str] | None] = {}, dsts: list[str] = [], deps: list[str] = [], description: str = "") -> None:
+    def __init__(self, name: str, image: str, attach_stdin: bool = True, attach_stdout: bool = True, attach_stderr: bool = True, keep_alive: bool = False, volumes: list[tuple[str, str]] = [], context: str = ".", command: list[str] = [], srcs: list[str] = [], srcs_deps: dict[str, list[str] | None] = {}, dsts: list[str] = [], deps: list[str] = [], description: str = "") -> None:
         """
             Constructor for the ImageTarget.
 
@@ -2942,6 +2986,7 @@ class InContainerTarget(Target):
             - `attach_stdin`: Whether or not to attach stdin to the container's stdin.
             - `attach_stdout`: Whether or not to attach stdout to the container's stdout.
             - `attach_stderr`: Whether or not to attach stderr to the container's stderr.
+            - `keep_alive`: If given, attempts to use the container as a running server instead (favouring repeated builds).
             - `volumes`: A list of volumes to attach to the container (using '-v', so note that the source path (the first argument) must be absolute. To help, you may use '$CWD'.).
             - `context`: The build context for the docker command.
             - `command`: A command to execute in the container (i.e., what will be put after its ENTRYPOINT if relevant).
@@ -2960,6 +3005,7 @@ class InContainerTarget(Target):
         self._attach_stdin  = attach_stdin
         self._attach_stdout = attach_stdout
         self._attach_stderr = attach_stderr
+        self._keep_alive    = keep_alive
         self._volumes       = volumes
         self._context       = context
         self._command       = command
@@ -2989,34 +3035,68 @@ class InContainerTarget(Target):
 
 
         # Prepare the command
-        cmd = ShellCommand("docker", "run")
-        if self._attach_stdin: cmd.add("--attach", "STDIN")
-        if self._attach_stdout: cmd.add("--attach", "STDOUT")
-        if self._attach_stderr: cmd.add("--attach", "STDERR")
-        for (src, dst) in self._volumes:
-            # Resolve the src and dst
-            src = resolve_args(src, args)
-            dst = resolve_args(dst, args)
-            # Add
-            cmd.add("-v", f"{src}:{dst}")
-        # Add the image
-        cmd.add(self._image)
-        # Add any commands
-        for c in self._command:
-            # Do standard replacements in the command
-            c = resolve_args(c, args)
-            cmd.add(c)
-        cmds = [ cmd ]
+        if self._keep_alive:
+            # Build the start command
+            c = f"[[ $(docker ps -f \"name={self._image}\" --format '{{{{.Names}}}}') == {self._image} ]] || docker run --name {self._image} -d --rm --entrypoint sleep"
+            for (src, dst) in self._volumes:
+                # Resolve the src and dst
+                src = resolve_args(src, args)
+                dst = resolve_args(dst, args)
+                # Add
+                c += f" -v {src}:{dst}"
+            c += f" {self._image} infinity"
 
-        # If any volumes, add the command that will restore the permissions
-        for (src, _) in self._volumes:
-            # Possibly replace the src
-            src = resolve_args(src, args)
-            # Add the command
-            cmds.append(ShellCommand("sudo", "chown", "-R", f"{uid}:{gid}", src, description=f"Restoring user permissions to '{src}' ($CMD)..."))
+            # Start the container in the background if it didn't already
+            start = ShellCommand("bash", "-c", c)
 
-        # Done, return it
-        return typing.cast(list[Command], cmds)
+            # Now run the actual command within the container
+            run = ShellCommand("docker", "exec", "-it", self._image, "/build.sh")
+            for c in self._command:
+                # Do standard replacements in the command
+                c = resolve_args(c, args)
+                run.add(c)
+            cmds = [ start, run ]
+
+            # If any volumes, add the command that will restore the permissions
+            for (src, _) in self._volumes:
+                # Possibly replace the src
+                src = resolve_args(src, args)
+                # Add the command
+                cmds.append(ShellCommand("sudo", "chown", "-R", f"{uid}:{gid}", src, description=f"Restoring user permissions to '{src}' ($CMD)..."))
+
+            # Return the commands
+            return typing.cast(list[Command], cmds)
+
+        else:
+            # Do a fire-and-then-remove run of the container
+            cmd = ShellCommand("docker", "run", "--name", self._image)
+            if self._attach_stdin: cmd.add("--attach", "STDIN")
+            if self._attach_stdout: cmd.add("--attach", "STDOUT")
+            if self._attach_stderr: cmd.add("--attach", "STDERR")
+            for (src, dst) in self._volumes:
+                # Resolve the src and dst
+                src = resolve_args(src, args)
+                dst = resolve_args(dst, args)
+                # Add
+                cmd.add("-v", f"{src}:{dst}")
+            # Add the image
+            cmd.add(self._image)
+            # Add any commands
+            for c in self._command:
+                # Do standard replacements in the command
+                c = resolve_args(c, args)
+                cmd.add(c)
+            cmds = [ cmd ]
+
+            # If any volumes, add the command that will restore the permissions
+            for (src, _) in self._volumes:
+                # Possibly replace the src
+                src = resolve_args(src, args)
+                # Add the command
+                cmds.append(ShellCommand("sudo", "chown", "-R", f"{uid}:{gid}", src, description=f"Restoring user permissions to '{src}' ($CMD)..."))
+
+            # Done, return it
+            return typing.cast(list[Command], cmds)
 
 
 
@@ -3162,12 +3242,16 @@ targets = {
 
     "build-image" : ImageTarget("build-image",
         "./contrib/images/Dockerfile.build", "./target/debug/build.tar",
-        description="Builds the image in which some of the Brane components are build."
+        description="Builds the image that can be used to build Brane targets in-container.",
+    ),
+    "ssl-build-image" : ImageTarget("ssl-build-image",
+        "./contrib/images/Dockerfile.ssl", "./target/debug/ssl-build.tar",
+        description="Builds the image in which we can build OpenSSL."
     ),
     "openssl" : InContainerTarget("openssl",
-        "brane-build", volumes=[("$CWD", "/build")], command=["openssl", "--arch", "$ARCH"],
+        "brane-ssl-build", volumes=[("$CWD", "/build")], command=["--arch", "$ARCH"],
         dsts=OPENSSL_FILES,
-        deps=["install-build-image"],
+        deps=["install-ssl-build-image"],
         description="Builds OpenSSL in a container to compile against when building the instance in development mode."
     ),
 
@@ -3183,6 +3267,38 @@ targets = {
             )
         },
         description = "Builds the Brane Command-Line Interface (Brane CLI). You may use '--precompiled' to download it from the internet instead."
+    ),
+    "ctl" : EitherTarget("ctl",
+        "down", {
+            True  : DownloadTarget("ctl-download",
+                "./target/$RELEASE/brane", "https://github.com/epi-project/brane/releases/download/v$VERSION/branectl-$OS-$ARCH"
+            ),
+            False : CrateTarget("ctl-compiled",
+                "brane-ctl", target="$ARCH-unknown-linux-musl", give_target_on_unspecified=False,
+            )
+        },
+        description = "Builds the Brane Command-Line Interface (Brane CLI). You may use '--precompiled' to download it from the internet instead."
+    ),
+    "cc" : EitherTarget("cc",
+        "con", {
+            True  : InContainerTarget("cc-con",
+                "brane-build", volumes=[ ("$CWD", "/build") ], command=["brane-cc", "--arch", "$ARCH"],
+                keep_alive=True,
+                dsts=["./target/containers/x86_64-unknown-linux-musl/release/branec"],
+                deps=["install-build-image"],
+            ),
+            False : EitherTarget("cc-not-con",
+                "down", {
+                    True  : DownloadTarget("cc-download",
+                        "./target/$RELEASE/branec", "https://github.com/epi-project/brane/releases/download/v$VERSION/branec-$OS-$ARCH",
+                    ),
+                    False : CrateTarget("cc-compiled",
+                        "brane-cc", target="$ARCH-unknown-linux-musl", give_target_on_unspecified=False,
+                    ),
+                },
+            ),
+        },
+        description = "Builds the Brane Command-Line Compiler (Brane CC). You may use '--precompiled' to download it from the internet instead, or '--containerized' to build it in a container."
     ),
     "branelet" : CrateTarget("branelet",
         "brane-let", target="$ARCH-unknown-linux-musl", give_target_on_unspecified=True,
@@ -3238,10 +3354,25 @@ targets = {
         dep="build-image",
         description="Installs the build image by loading it into the local Docker engine"
     ),
+    "install-ssl-build-image" : InstallImageTarget("install-ssl-build-image",
+        "./target/debug/ssl-build.tar", "brane-ssl-build",
+        dep="ssl-build-image",
+        description="Installs the OpenSSL build image by loading it into the local Docker engine"
+    ),
     "install-cli" : InstallTarget("install-cli",
         "./target/$RELEASE/brane", "/usr/local/bin/brane", need_sudo=True,
         dep="cli",
         description="Installs the CLI executable to the '/usr/local/bin' directory."
+    ),
+    "install-ctl" : InstallTarget("install-ctl",
+        "./target/$RELEASE/branectl", "/usr/local/bin/branectl", need_sudo=True,
+        dep="ctl",
+        description="Installs the CTL executable to the '/usr/local/bin' directory."
+    ),
+    "install-cc" : InstallTarget("install-cc",
+        "./target/$RELEASE/branec", "/usr/local/bin/branec", need_sudo=True,
+        dep="cc",
+        description="Installs the compiler executable to the '/usr/local/bin' directory."
     ),
     "install-instance" : EitherTarget("install-instance",
         "down", {
@@ -3265,66 +3396,8 @@ targets = {
         },
         description="Installs a worker node of a Brane instance by loading the compiled or downloaded images into the local Docker engine."
     ),
-
-
-
-    "ensure-docker-network": ShellTarget("ensure-docker-network",
-        [
-            ShellCommand("bash", "-c", "if [[ ! -n \"$(docker network ls -f name=brane | grep brane)\" ]]; then docker network create brane; else echo \"Docker network 'brane' already exists\"; fi", description="Ensuring Docker network 'brane' exists..."),
-        ],
-        description="Ensures that a 'brane' network exists.",
-    ),
-    "ensure-instance-configuration": ShellTarget("ensure-instance-configuration",
-        [
-            # Ensure the infra.yml exists, and error if it doesn't
-            ShellCommand("bash", "-c", "if [[ -f ./config/infra.yml ]]; then echo \"'./config/infra.yml' exists\"; else echo \"Missing './config/infra.yml'; provide one before running the Brane instance\" >&2; exit 1; fi", description="Ensuring infra.yml exists..."),
-            # Ensure the secrets.yml exists, and generate an empty one if it doesn't
-            ShellCommand("bash", "-c", "if [[ -f ./config/secrets.yml ]]; then echo \"'./config/secrets.yml' exists\"; else touch ./config/secrets.yml; echo \"Generated empty './config/secrets.yml'\"; fi", description="Ensuring secrets.yml exists..."),
-        ],
-        description="Ensures that the necessary configuration files exist for the central part of an instance.",
-    ),
-    "ensure-worker-configuration": ShellTarget("ensure-worker-configuration",
-        [
-            # Ensure the infra.yml exists, and error if it doesn't
-            ShellCommand("bash", "-c", "if [[ -f ./config/store.yml ]]; then echo \"'./config/store.yml' exists\"; else touch ./config/store.yml; echo \"Generated empty './config/store.yml'\"; fi", description="Ensuring store.yml exists..."),
-        ],
-        description="Ensures that the necessary configuration files exist for a worker node.",
-    ),
-
-
-
-    "start-instance": ShellTarget("start-instance",
-        [
-            ShellCommand("bash", "-c", "COMPOSE_IGNORE_ORPHANS=1 docker-compose -p brane-central -f docker-compose-central.yml up -d"),
-        ],
-        deps=[ "install-instance", "ensure-docker-network", "ensure-instance-configuration" ],
-        description="Starts the instance by running the compose file. Use 'stop-instance' to stop it again.",
-    ),
-    "stop-instance": ShellTarget("stop-instance",
-        [
-            ShellCommand("bash", "-c", "COMPOSE_IGNORE_ORPHANS=1 docker-compose -p brane-central -f docker-compose-central.yml down"),
-        ],
-        deps=[],
-        description="Stops the instance by running the compose file. Does nothing if 'start-instance' was not run.",
-    ),
-
-
-
-    "start-worker-instance": ShellTarget("start-worker-instance",
-        [
-            ShellCommand("bash", "-c", "COMPOSE_IGNORE_ORPHANS=1 docker-compose -p brane-worker -f docker-compose-worker.yml up -d"),
-        ],
-        deps=[ "install-worker-instance", "ensure-docker-network", "ensure-worker-configuration" ],
-        description="Starts the part of a Brane instance that runs on a local domain (i.e., a worker node). Use 'stop-worker-instance' to stop it again.",
-    ),
-    "stop-worker-instance": ShellTarget("stop-worker-instance",
-        [
-            ShellCommand("bash", "-c", "COMPOSE_IGNORE_ORPHANS=1 docker-compose -p brane-worker -f docker-compose-worker.yml down"),
-        ],
-        deps=[],
-        description="Stops the worker node by running the compose file. Does nothing if 'start-worker-instance' was not run.",
-    ),
 }
+
 # Generate some really repetitive entries
 for svc in CENTRAL_SERVICES + WORKER_SERVICES:
     # Generate the service binary targets
@@ -3367,22 +3440,68 @@ for svc in CENTRAL_SERVICES + WORKER_SERVICES:
     )
 
 for svc in AUX_CENTRAL_SERVICES + AUX_WORKER_SERVICES:
-    # Resolve the svc to a Dockerfile name
-    if svc == "format": dockerfile = "Dockerfile.juicefs"
-    elif svc == "xenon": dockerfile = "Dockerfile.xenon"
-    else: raise ValueError(f"Unknown auxillary service '{svc}'")
+    # We might do different things
+    if svc == "scylla":
+        # We generate the image tar using an image pull target
+        targets[f"{svc}-image"] = ImagePullTarget(f"{svc}-image",
+            f"./target/release/aux-{svc}.tar",
+            "scylladb/scylla:4.6.3",
+            description=f"Saves the container image for the aux-{svc} auxillary service to a .tar file."
+        )
 
-    # Generate the service image build target
-    targets[f"{svc}-image"] = ImageTarget(f"{svc}-image",
-        f"./contrib/images/{dockerfile}", f"./target/release/brane-{svc}.tar", build_args={ "JUICEFS_ARCH": "$JUICEFS_ARCH" },
-        description=f"Builds the container image for the brane-{svc} auxillary service to a .tar file."
-    )
-    # Generate the install targets for the image
-    targets[f"install-{svc}-image"] = InstallImageTarget(f"install-{svc}-image",
-        f"./target/release/brane-{svc}.tar", f"brane-{svc}",
-        dep=f"{svc}-image",
-        description=f"Installs the brane-{svc} image by loading it into the local Docker engine."
-    )
+        # Then generate the install target
+        targets[f"install-{svc}-image"] = InstallImageTarget(f"install-{svc}-image",
+            f"./target/release/aux-{svc}.tar", f"aux-{svc}",
+            dep=f"{svc}-image",
+            description=f"Installs the aux-{svc} image by loading it into the local Docker engine."
+        )
+
+    elif svc == "kafka":
+        # We generate the image tar using an image pull target
+        targets[f"{svc}-image"] = ImagePullTarget(f"{svc}-image",
+            f"./target/release/aux-{svc}.tar",
+            "ubuntu/kafka:3.1-22.04_beta",
+            description=f"Saves the container image for the aux-{svc} auxillary service to a .tar file."
+        )
+
+        # Then generate the install target
+        targets[f"install-{svc}-image"] = InstallImageTarget(f"install-{svc}-image",
+            f"./target/release/aux-{svc}.tar", f"aux-{svc}",
+            dep=f"{svc}-image",
+            description=f"Installs the aux-{svc} image by loading it into the local Docker engine."
+        )
+
+    elif svc == "zookeeper":
+        # We generate the image tar using an image pull target
+        targets[f"{svc}-image"] = ImagePullTarget(f"{svc}-image",
+            f"./target/release/aux-{svc}.tar",
+            "ubuntu/zookeeper:3.1-22.04_beta",
+            description=f"Saves the container image for the aux-{svc} auxillary service to a .tar file."
+        )
+
+        # Then generate the install target
+        targets[f"install-{svc}-image"] = InstallImageTarget(f"install-{svc}-image",
+            f"./target/release/aux-{svc}.tar", f"aux-{svc}",
+            dep=f"{svc}-image",
+            description=f"Installs the aux-{svc} image by loading it into the local Docker engine."
+        )
+
+    elif svc == "xenon":
+        # Generate the service image build target
+        targets[f"{svc}-image"] = ImageTarget(f"{svc}-image",
+            f"./contrib/images/Dockerfile.xenon", f"./target/release/aux-{svc}.tar", build_args={ "JUICEFS_ARCH": "$JUICEFS_ARCH" },
+            description=f"Builds the container image for the aux-{svc} auxillary service to a .tar file."
+        )
+
+        # Generate the install targets for the image
+        targets[f"install-{svc}-image"] = InstallImageTarget(f"install-{svc}-image",
+            f"./target/release/aux-{svc}.tar", f"aux-{svc}",
+            dep=f"{svc}-image",
+            description=f"Installs the aux-{svc} image by loading it into the local Docker engine."
+        )
+
+    else:
+        raise ValueError(f"Unknown auxillary service '{svc}'")
 
 
 
@@ -3692,6 +3811,7 @@ if __name__ == "__main__":
     parser.add_argument("target", nargs="*", help="The target to build. Use '--targets' to see a complete list.")
     parser.add_argument("--dev", "--development", action="store_true", help="If given, builds the binaries and images in development mode. This adds debug symbols to binaries, enables extra debug prints and (in the case of the instance) enables an optimized, out-of-image building procedure. Will result in _much_ larger images.")
     parser.add_argument("--down", "--download", action="store_true", help="If given, will download (some of) the binaries instead of compiling them. Specifically, downloads a CLI binary and relevant instance images. Ignored for other targets/binaries.")
+    parser.add_argument("--con", "--containerized", action="store_true", help=f"If given, will compile (some of) the binaries in a container instead of cross-compiling them.")
     parser.add_argument("-f", "--force", action="store_true", help=f"If given, forces recompilation of all assets (regardless of whether they have been build before or not). Note that this does not clear any Cargo or Docker cache, so they might still consider your source to be cached (run `{sys.argv[0] if len(sys.argv) >= 1 else 'make.py'} clean` to clear those caches).")
     parser.add_argument("-d", "--dry-run", action="store_true", help=f"If given, skips the effects of compiling the assets, only simulating what would be done (implies '--debug').")
 

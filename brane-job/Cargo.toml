@@ -1,20 +1,37 @@
 [package]
 name = "brane-job"
-version = "0.6.3"
-authors = ["Onno Valkering", "Tim Müller"]
+version = { workspace = true }
+authors = { workspace = true }
 edition = "2018"
 
 [dependencies]
-clap = { version = "3.1.12", features = ["derive", "env"] }
-dotenv = "0.15"
-env_logger = "0.9"
+base64 = "0.13"
+bollard = "0.13"
+chrono = "0.4"
+clap = { version = "4.0.24", features = ["derive","env"] }
+dotenvy = "0.15"
+env_logger = "0.10"
+futures-util = "0.3"
+hyper = "0.14"
 k8s-openapi = { version = "0.14", default-features = false, features = ["v1_23"] }
 log = "0.4"
+reqwest = { version = "0.11", features = ["rustls-tls-manual-roots","json","stream","multipart"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_json_any_key = "2.0.0"
+serde_yaml = "0.9"
 tokio = { version = "1", features = [] }
-tonic = "0.5"
+tokio-stream = "0.1"
+tonic = "0.8"
 xenon-rs = "0.4"
 
+brane-ast = { path = "../brane-ast" }
+brane-cfg = { path = "../brane-cfg" }
+brane-exe = { path = "../brane-exe" }
+brane-prx = { path = "../brane-prx" }
+brane-shr = { path = "../brane-shr" }
 brane-tsk = { path = "../brane-tsk" }
+specifications = { path = "../specifications" }
 
 [dev-dependencies]
 dashmap = "4.0"

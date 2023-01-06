@@ -4,7 +4,7 @@
 //  Created:
 //    17 Oct 2022, 15:16:04
 //  Last edited:
-//    03 Nov 2022, 20:34:48
+//    28 Nov 2022, 17:15:19
 //  Auto updated?
 //    Yes
 // 
@@ -17,15 +17,17 @@ use std::sync::Arc;
 
 use scylla::Session;
 
-use brane_cfg::InfraPath;
+use brane_prx::client::ProxyClient;
 
 
 /***** LIBRARY *****/
 /// Defines the context of all the path calls.
 #[derive(Clone)]
 pub struct Context {
-    pub certs    : PathBuf,
-    pub registry : String,
-    pub scylla   : Arc<Session>,
-    pub infra    : InfraPath,
+    /// Points to the `node.yml` file we use in warp functions.
+    pub node_config_path : PathBuf,
+    /// Points to the Scylla database where we store package information.
+    pub scylla           : Arc<Session>,
+    /// The proxy client through which we send our requests.
+    pub proxy            : Arc<ProxyClient>,
 }

@@ -10,9 +10,18 @@ members = [
     "brane-reg",
     "brane-let",
 
+    # These crates implement services that occur on any type of node
+    "brane-prx",
+
+    # These crates directly relate to the CTL tool
+    "brane-ctl",
+
     # These crates directly relate to the CLI tool
     "brane-cli",
     "brane-oas",
+
+    # These crates directly relate to the `branec` tool
+    "brane-cc",
 
     # These crates provide the full BraneScript/Bakery/... stack
     "brane-tsk",
@@ -28,3 +37,11 @@ members = [
     # TODO
     "brane-log",
 ]
+
+
+
+[workspace.package]
+version = "1.0.0"
+authors = [ "Onno Valkering", "Tim Müller" ]
+description = "The Brane Framework is a workflow execution system that is capable of dealing with sensitive dataset. Created for the [EPI project](https://enablingpersonalizedinterventions.nl)."
+documentation = "https://wiki.enablingpersonalizedinterventions.nl"

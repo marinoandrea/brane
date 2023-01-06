@@ -4,7 +4,7 @@
 //  Created:
 //    18 Aug 2022, 15:24:54
 //  Last edited:
-//    14 Nov 2022, 11:47:56
+//    05 Jan 2023, 13:13:47
 //  Auto updated?
 //    Yes
 // 
@@ -81,7 +81,7 @@ pub mod tests {
             };
 
             // Now print the symbol tables for prettyness
-            symbol_tables::do_traversal(program).unwrap();
+            symbol_tables::do_traversal(program, std::io::stdout()).unwrap();
             println!("{}\n\n", (0..80).map(|_| '-').collect::<String>());
         });
     }
@@ -246,7 +246,7 @@ fn pass_stmt(state: &CompileState, package_index: &PackageIndex, data_index: &Da
                 let ret_type: DataType = DataType::from(&f.return_type);
 
                 // Wrap it in a function entry and add it to the list
-                match st.add_func(FunctionEntry::from_import(name, FunctionSignature::new(arg_types, ret_type), &info.name, info.version.clone(), arg_names, TextRange::none())) {
+                match st.add_func(FunctionEntry::from_import(name, FunctionSignature::new(arg_types, ret_type), &info.name, info.version.clone(), arg_names, f.requirements.clone().unwrap_or_default(), TextRange::none())) {
                     Ok(entry) => { funcs.push(entry); },
                     Err(err)  => {
                         errors.push(Error::FunctionImportError{ package_name: info.name.clone(), name: name.into(), err, range: range.clone() });
@@ -813,6 +813,9 @@ fn pass_expr(state: &CompileState, data_index: &DataIndex, expr: &mut Expr, symb
 fn pass_literal(state: &CompileState, literal: &mut Literal) {
     use Literal::*;
     match literal {
+        Null{ ref mut range, .. } => {
+            offset_range!(range, state.offset);
+        },
         Boolean{ ref mut range, .. } => {
             offset_range!(range, state.offset);
         },

@@ -1,14 +1,16 @@
 [package]
 name = "brane-exe"
-version = "0.6.3"
+version = { workspace = true }
 edition = "2021"
 authors = [ "Tim Müller" ]
 
 [dependencies]
+async-recursion = "1.0.0"
 async-trait = "0.1"
 base64 = "0.13"
-bollard = "0.11"
-console = "0.14"
+# bollard = "0.11"
+console = "0.15"
+enum-debug = { git = "https://github.com/Lut99/enum-debug", features = ["derive"] }
 futures = "0.3.24"
 lazy_static = "1.4.0"
 log = "0.4"

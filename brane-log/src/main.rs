@@ -2,9 +2,8 @@ use anyhow::Result;
 use brane_log::ingestion;
 use brane_log::schema::{Event, Query, Subscription};
 use brane_log::{Context, Schema};
-// use clap::Parser;
-use structopt::StructOpt;
-use dotenv::dotenv;
+use clap::Parser;
+use dotenvy::dotenv;
 use futures::FutureExt;
 use juniper::{self, EmptyMutation};
 use juniper_graphql_ws::ConnectionConfig;
@@ -18,56 +17,33 @@ use tokio::sync::watch;
 use warp::ws::Ws;
 use warp::Filter;
 
-// #[derive(Parser)]
-// #[clap(version = env!("CARGO_PKG_VERSION"))]
-// struct Opts {
-//     #[clap(short, long, default_value = "127.0.0.1:8081", env = "ADDRESS")]
-//     /// Service address
-//     address: String,
-//     /// Scylla endpoint
-//     #[clap(short, long, default_value = "127.0.0.1", env = "SCYLLA")]
-//     scylla: String,
-//     /// Kafka brokers
-//     #[clap(short, long, default_value = "127.0.0.1:9092", env = "BROKERS")]
-//     brokers: String,
-//     /// Print debug info
-//     #[clap(short, long, env = "DEBUG", takes_value = false)]
-//     debug: bool,
-//     /// Topic to receive events from
-//     #[clap(short, long = "evt-topics", env = "EVENT_TOPIC", multiple_values = true)]
-//     event_topics: Vec<String>,
-//     /// Consumer group id
-//     #[clap(short, long, default_value = "brane-log", env = "GROUP_ID")]
-//     group_id: String,
-// }
-
-#[derive(StructOpt)]
+#[derive(Parser)]
+#[clap(version = env!("CARGO_PKG_VERSION"))]
 struct Opts {
-    #[structopt(short, long, default_value = "127.0.0.1:8081", env = "ADDRESS")]
+    #[clap(short, long, default_value = "127.0.0.1:8081", env = "ADDRESS")]
     /// Service address
     address: String,
     /// Scylla endpoint
-    #[structopt(short, long, default_value = "127.0.0.1", env = "SCYLLA")]
+    #[clap(short, long, default_value = "127.0.0.1", env = "SCYLLA")]
     scylla: String,
     /// Kafka brokers
-    #[structopt(short, long, default_value = "127.0.0.1:9092", env = "BROKERS")]
+    #[clap(short, long, default_value = "127.0.0.1:9092", env = "BROKERS")]
     brokers: String,
     /// Print debug info
-    #[structopt(short, long, env = "DEBUG", takes_value = false)]
+    #[clap(short, long, action, env = "DEBUG")]
     debug: bool,
     /// Topic to receive events from
-    #[structopt(short, long = "evt-topics", env = "EVENT_TOPIC", multiple = true)]
+    #[clap(short, long = "evt-topics", env = "EVENT_TOPIC")]
     event_topics: Vec<String>,
     /// Consumer group id
-    #[structopt(short, long, default_value = "brane-log", env = "GROUP_ID")]
+    #[clap(short, long, default_value = "brane-log", env = "GROUP_ID")]
     group_id: String,
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     dotenv().ok();
-    // let opts = Opts::parse();
-    let opts = Opts::from_args();
+    let opts = Opts::parse();
 
     // Configure logger.
     let mut logger = env_logger::builder();

@@ -4,14 +4,14 @@
 //  Created:
 //    24 Oct 2022, 15:26:59
 //  Last edited:
-//    14 Nov 2022, 11:01:20
+//    28 Nov 2022, 16:25:20
 //  Auto updated?
 //    Yes
 // 
 //  Description:
 //!   The `brane-tsk` library picks up where `brane-exe` left off, and
-//!   implements various functions that can be used to manage tasks for
-//!   various scenario's using within the Brane framework.
+//!   provides various tools and base code for VMs building on top of it to
+//!   start executing workflows.
 // 
 
 // Declare modules
@@ -19,9 +19,8 @@ pub mod errors;
 pub mod spec;
 pub mod tools;
 pub mod docker;
+pub mod local;
 pub mod api;
-pub mod offline;
-pub mod instance;
 
 // The grpc module is a bit special
 #[allow(clippy::all)]

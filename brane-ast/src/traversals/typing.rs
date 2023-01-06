@@ -4,7 +4,7 @@
 //  Created:
 //    19 Aug 2022, 16:34:16
 //  Last edited:
-//    14 Nov 2022, 11:48:44
+//    23 Dec 2022, 16:35:38
 //  Auto updated?
 //    Yes
 // 
@@ -77,7 +77,7 @@ mod tests {
             };
 
             // Now print the symbol tables for prettyness
-            symbol_tables::do_traversal(program).unwrap();
+            symbol_tables::do_traversal(program, std::io::stdout()).unwrap();
             println!("{}\n\n", (0..80).map(|_| '-').collect::<String>());
         });
     }
@@ -490,8 +490,14 @@ fn pass_stmt(stmt: &mut Stmt, symbol_table: &Rc<RefCell<SymbolTable>>, warnings:
                 entry.data_type.clone()
             };
 
-            // Force a cast to this variable's type on the expression
-            *value = force_cast(value.clone(), data_type, symbol_table, errors);
+            // If the data type is Null or Any, then we might override the value instead of casting
+            if data_type == DataType::Null || data_type == DataType::Any {
+                let expr_type: DataType = pass_expr(value, symbol_table, errors);
+                st_entry.as_ref().unwrap().borrow_mut().data_type = expr_type;
+            } else {
+                // Force a cast to this variable's type on the expression
+                *value = force_cast(value.clone(), data_type, symbol_table, errors);
+            }
 
             // An Assigns never returns
             None
@@ -867,7 +873,7 @@ pub fn do_traversal(root: Program, warnings: &mut Vec<AstWarning>) -> Result<Pro
     let mut root = root;
     let mut warns: Vec<Warning> = vec![];
 
-    // Iterate over all statements to build their symbol tables (if relevant)
+    // Iterate over all statements to deduce type information (if relevant)
     let mut errors: Vec<Error> = vec![];
     for s in root.block.stmts.iter_mut() {
         if let Some((ret_type, ret_range)) = pass_stmt(s, &root.block.table, &mut warns, &mut errors) {

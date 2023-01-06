@@ -130,6 +130,9 @@ pub enum Token<'a> {
     /// %
     Percentage(Span<'a>),
 
+    /// Null literal
+    Null(Span<'a>),
+
     /// Boolean literal
     Boolean(Span<'a>),
 
@@ -201,7 +204,7 @@ impl<'a> Token<'a> {
             | Parallel(span) | RightBrace(span) | RightBracket(span) | RightParen(span) | Semicolon(span)
             | Assign(span) | Equal(span) | Greater(span) | GreaterOrEqual(span) | Less(span) | LessOrEqual(span)
             | Minus(span) | Not(span) | NotEqual(span) | Plus(span) | Slash(span) | Star(span) | Percentage(span)
-            | Boolean(span) | Integer(span) | Real(span) | SemVer(span) | String(span) | Ident(span)
+            | Null(span) | Boolean(span) | Integer(span) | Real(span) | SemVer(span) | String(span) | Ident(span)
             | New(span) => span,
             // None should have been filtered out already.
             None => unreachable!(),

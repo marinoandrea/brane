@@ -4,7 +4,7 @@
 //  Created:
 //    09 Sep 2022, 13:23:41
 //  Last edited:
-//    14 Nov 2022, 10:49:24
+//    06 Jan 2023, 11:30:02
 //  Auto updated?
 //    Yes
 // 
@@ -17,6 +17,8 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
+use async_recursion::async_recursion;
+use enum_debug::EnumDebug as _;
 use futures::future::{BoxFuture, FutureExt};
 use log::debug;
 use tokio::spawn;
@@ -26,7 +28,6 @@ use brane_ast::{DataType, MergeStrategy, Workflow};
 use brane_ast::spec::{BuiltinClasses, BuiltinFunctions};
 use brane_ast::locations::Location;
 use brane_ast::ast::{ClassDef, DataName, Edge, EdgeInstr, FunctionDef, TaskDef};
-use brane_shr::debug::EnumDebug;
 use specifications::data::{AccessKind, AvailabilityKind};
 
 use crate::dbg_node;
@@ -100,7 +101,7 @@ mod tests {
                 let workflow: Workflow = DummyPlanner::plan(workflow);
 
                 // Now print the file for prettyness
-                let workflow: Workflow = ast::do_traversal(workflow).unwrap();
+                let workflow: Workflow = ast::do_traversal(workflow, std::io::stdout()).unwrap();
                 println!("{}", (0..40).map(|_| "- ").collect::<String>());
 
                 // Run the program
@@ -145,6 +146,64 @@ enum EdgeResult {
 
 
 /***** HELPER FUNCTIONS *****/
+/// Preprocesses any datasets / intermediate results in the given value.
+/// 
+/// # Arguments
+/// 
+/// # Returns
+/// Nothing, but does add any preprocessed datasets to `data`.
+/// 
+/// # Errors
+/// This function may error if the given `input` does not contain any of the data in the value _or_ if the referenced input is not yet planned.
+#[async_recursion]
+#[allow(clippy::too_many_arguments)]
+async fn preprocess_value<P: VmPlugin>(global: &Arc<RwLock<P::GlobalState>>, local: &P::LocalState, pc: (usize, usize), task: &TaskDef, at: &Location, value: &FullValue, input: &HashMap<DataName, Option<AvailabilityKind>>, data: &mut HashMap<DataName, JoinHandle<Result<AccessKind, P::PreprocessError>>>) -> Result<(), Error> {
+    // If it's a data or intermediate result, get it; skip it otherwise
+    let name: DataName = match value {
+        // The data and intermediate result, of course
+        FullValue::Data(name)               => DataName::Data(name.into()),
+        FullValue::IntermediateResult(name) => DataName::IntermediateResult(name.into()),
+
+        // Also handle any nested stuff
+        FullValue::Array(values)      => { for v in values { preprocess_value::<P>(global, local, pc, task, at, v, input, data).await?; } return Ok(()); },
+        FullValue::Instance(_, props) => { for v in props.values() { preprocess_value::<P>(global, local, pc, task, at, v, input, data).await?; } return Ok(()); },
+
+        // The rest is irrelevant
+        _ => { return Ok(()); },
+    };
+
+    // Fetch it from the input
+    let avail: AvailabilityKind = match input.get(&name) {
+        Some(avail) => match avail {
+            Some(avail) => avail.clone(),
+            None        => { return Err(Error::UnplannedInput{ edge: pc.1, task: task.name().into(), name }); },
+        },
+        None => { return Err(Error::UnknownInput{ edge: pc.1, task: task.name().into(), name }); },
+    };
+
+    // If it is unavailable, download it and make it available
+    let access: JoinHandle<_> = match avail {
+        AvailabilityKind::Available { how }   => {
+            debug!("{} '{}' is locally available", name.variant(), name.name());
+            tokio::spawn(async move { Ok(how) })
+        },
+        AvailabilityKind::Unavailable { how } => {
+            debug!("{} '{}' is remotely available", name.variant(), name.name());
+
+            // Call the external transfer function
+            // match P::preprocess(global, local, at, &name, how).await {
+            //     Ok(access) => access,
+            //     Err(err)   => { return Err(Error::Custom{ edge: pc.1, err: Box::new(err) }); }
+            // }
+            tokio::spawn(P::preprocess(global.clone(), local.clone(), at.clone(), name.clone(), how))
+        },
+    };
+
+    // Insert it into the map, done
+    data.insert(name, access);
+    Ok(())
+}
+
 /// Runs a single instruction, modifying the given stack and variable register.
 /// 
 /// # Arguments
@@ -751,6 +810,11 @@ fn exec_instr(edge: usize, idx: usize, instr: &EdgeInstr, stack: &mut Stack, fst
             1
         },
 
+        Null{} => {
+            // Push a null
+            stack.push(Value::Null).to_instr(edge, idx)?;
+            1
+        },
         Boolean{ value } => {
             // Push a boolean with the given value
             stack.push(Value::Boolean { value: *value }).to_instr(edge, idx)?;
@@ -946,7 +1010,7 @@ impl<G: CustomGlobalState, L: CustomLocalState> Thread<G, L> {
 
                 // Match the thing to do
                 match task {
-                    TaskDef::Compute { package, version, function, args_names } => {
+                    TaskDef::Compute { package, version, function, args_names, requirements } => {
                         debug!("Calling compute task '{}' ('{}' v{})", task.name(), package, version);
 
                         // Collect the arguments from the stack (remember, reverse order)
@@ -974,31 +1038,23 @@ impl<G: CustomGlobalState, L: CustomLocalState> Thread<G, L> {
                             None     => { return EdgeResult::Err(Error::UnresolvedLocation{ edge: pc.1, name: function.name.clone() }); }
                         };
 
-                        // Next, fetch all the datasets required by calling the external transfer function
+                        // Next, fetch all the datasets required by calling the external transfer function;
                         // The map created maps data names to ways of accessing them locally that may be passed to the container itself.
-                        let mut data: HashMap<DataName, AccessKind> = HashMap::new();
-                        for (name, avail) in input {
-                            let avail: &AvailabilityKind = avail.as_ref().unwrap_or_else(|| panic!("Encountered an unset AvailabilityKind for input '{}'", name));
-
-                            // If it is unavailable, download it and make it available
-                            let access: AccessKind = match avail {
-                                AvailabilityKind::Available { how }   => {
-                                    debug!("{} '{}' is locally available", name.variant(), name.name());
-                                    how.clone()
+                        let mut handles: HashMap<DataName, JoinHandle<Result<AccessKind, P::PreprocessError>>> = HashMap::new();
+                        for value in args.values() {
+                            // Preprocess the given value
+                            if let Err(err) = preprocess_value::<P>(&self.global, &self.local, pc, task, at, value, input, &mut handles).await { return EdgeResult::Err(err); };
+                        }
+                        // Join the handles
+                        let mut data: HashMap<DataName, AccessKind> = HashMap::with_capacity(handles.len());
+                        for (name, handle) in handles {
+                            match handle.await {
+                                Ok(res)  => match res {
+                                    Ok(access) => { data.insert(name, access); },
+                                    Err(err)   => { return EdgeResult::Err(Error::Custom{ edge: pc.1, err: Box::new(err) }); },
                                 },
-                                AvailabilityKind::Unavailable { how } => {
-                                    debug!("{} '{}' is remotely available", name.variant(), name.name());
-
-                                    // Call the external transfer function
-                                    match P::preprocess(&self.global, &self.local, at, name, how).await {
-                                        Ok(access) => access,
-                                        Err(err)   => { return EdgeResult::Err(Error::Custom{ edge: pc.1, err: Box::new(err) }); }
-                                    }
-                                },
-                            };
-
-                            // Insert it into the map
-                            data.insert(name.clone(), access);
+                                Err(err) => { return EdgeResult::Err(Error::Custom{ edge: pc.1, err: Box::new(err) }); },
+                            }
                         }
 
                         // Prepare the TaskInfo for the call
@@ -1006,6 +1062,7 @@ impl<G: CustomGlobalState, L: CustomLocalState> Thread<G, L> {
                             name            : &function.name,
                             package_name    : package,
                             package_version : version,
+                            requirements,
 
                             args,
                             location : at,
@@ -1020,7 +1077,7 @@ impl<G: CustomGlobalState, L: CustomLocalState> Thread<G, L> {
                         };
 
                         // If the function returns an intermediate result but returned nothing, that's fine; we inject the result here
-                        if function.ret == DataType::IntermediateResult && (res.is_none() || res.as_ref().unwrap() == &Value::Void) {
+                        if function.ret == DataType::IntermediateResult && (res.is_none() || res.as_ref().unwrap() == &Value::Null || res.as_ref().unwrap() == &Value::Void) {
                             // Make the intermediate result available for next steps by possible pushing it to the next registry
                             let name: &str = result.as_ref().unwrap();
                             if let Err(err) = P::publicize(&self.global, &self.local, at, name, &PathBuf::from(name)).await {

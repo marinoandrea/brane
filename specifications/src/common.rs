@@ -1,5 +1,5 @@
 use std::cmp::{Ordering, PartialEq, PartialOrd};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::{self, Display, Formatter};
 use std::string::ToString;
 
@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JValue};
 use serde_with::skip_serializing_none;
 
-use crate::package::PackageKind;
+use crate::package::{PackageKind, Capability};
 use crate::version::Version;
 
 
@@ -65,6 +65,7 @@ pub struct Function {
     pub parameters: Vec<Parameter>,
     pub pattern: Option<CallPattern>,
     pub return_type: String,
+    pub requirements: Option<HashSet<Capability>>,
 }
 
 impl Function {
@@ -75,11 +76,13 @@ impl Function {
         parameters: Vec<Parameter>,
         pattern: Option<CallPattern>,
         return_type: String,
+        requirements: Option<HashSet<Capability>>,
     ) -> Self {
         Function {
             parameters,
             pattern,
             return_type,
+            requirements,
         }
     }
 }

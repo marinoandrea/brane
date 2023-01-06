@@ -4,7 +4,7 @@
 //  Created:
 //    17 Oct 2022, 17:27:16
 //  Last edited:
-//    09 Nov 2022, 12:24:14
+//    28 Nov 2022, 16:26:45
 //  Auto updated?
 //    Yes
 // 
@@ -29,11 +29,11 @@
 use std::path::PathBuf;
 
 use clap::Parser;
-use dotenv::dotenv;
-use log::LevelFilter;
-use log::error;
-use brane_cfg::InfraPath;
-use brane_tsk::instance::InstancePlanner;
+use dotenvy::dotenv;
+use log::{debug, error, info, LevelFilter};
+use brane_cfg::node::NodeConfig;
+
+use brane_plr::planner::planner_server;
 
 
 /***** ARGUMENTS *****/
@@ -41,31 +41,14 @@ use brane_tsk::instance::InstancePlanner;
 #[clap(version = env!("CARGO_PKG_VERSION"))]
 struct Opts {
     /// Print debug info
-    #[clap(short, long, env = "DEBUG", takes_value = false)]
-    debug : bool,
-
-    /// Kafka brokers
-    #[clap(short, long, default_value = "localhost:9092", help = "A list of Kafka brokers to connect to.", env = "BROKERS")]
-    brokers       : String,
-    /// Topic to receive planning commands on
-    #[clap(short, long = "cmd-topic", default_value = "plr-cmd", help = "The Kafka topic on which we receive commands for the planner.", env = "COMMAND_TOPIC")]
-    command_topic : String,
-    /// Topic to send planning results to.
-    #[clap(short, long = "res-topic", default_value = "plr-res", help = "The Kafka topic on which we send planning results.", env = "RESULT_TOPIC")]
-    result_topic  : String,
-    /// Consumer group id
+    #[clap(short, long, action, help = "If given, prints additional logging information.", env = "DEBUG")]
+    debug    : bool,
     #[clap(short, long, default_value = "brane-drv", help = "The group ID of this service's consumer")]
-    group_id      : String,
+    group_id : String,
 
-    /// The location of the `brane-api` service.,
-    #[clap(short, long, default_value = "http://127.0.0.1:50051", help = "The address of this instance's `brane-api` service that we use to query information about datasets and where they live.", env = "API_ADDRESS")]
-    api_address : String,
-    /// Infra metadata store
-    #[clap(short, long, default_value = "/config/infra.yml", help = "Infrastructure metadata store", env = "INFRA")]
-    infra       : PathBuf,
-    /// Secrets metadata store
-    #[clap(short, long, default_value = "/config/secrets.yml", help = "Secrets file for the infrastructure metadata store", env = "SECRETS")]
-    secrets     : PathBuf,
+    /// Node environment metadata store.
+    #[clap(short, long, default_value = "/node.yml", help = "The path to the node environment configuration. This defines things such as where local services may be found or where to store files, as wel as this service's service address.", env = "NODE_CONFIG_PATH")]
+    node_config_path : PathBuf,
 }
 
 
@@ -87,13 +70,24 @@ async fn main() {
     } else {
         logger.filter_level(LevelFilter::Info).init();
     }
+    info!("Initializing brane-plr v{}...", env!("CARGO_PKG_VERSION"));
 
-    // Collect the infra & secret into the InfraPath struct
-    let infra: InfraPath = InfraPath::new(opts.infra, opts.secrets);
+    // Load the config, making sure it's a central config
+    debug!("Loading node.yml file '{}'...", opts.node_config_path.display());
+    let node_config: NodeConfig = match NodeConfig::from_path(&opts.node_config_path) {
+        Ok(config) => config,
+        Err(err)   => {
+            error!("Failed to load NodeConfig file: {}", err);
+            std::process::exit(1);
+        },
+    };
+    if !node_config.node.is_central() { error!("Given NodeConfig file '{}' does not have properties for a central node.", opts.node_config_path.display()); std::process::exit(1); }
 
-    // We simply start a new planner
-    if let Err(err) = InstancePlanner::planner_server(opts.brokers, opts.group_id, opts.command_topic, opts.result_topic, opts.api_address, infra).await {
+    // We simply start a new planner, which takes over this function
+    if let Err(err) = planner_server(opts.node_config_path, node_config, opts.group_id).await {
         error!("Failed to run InstancePlanner server: {}", err);
         std::process::exit(1);
     }
+
+    // We're done if the stream is done
 }

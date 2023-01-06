@@ -4,7 +4,7 @@
 //  Created:
 //    23 Aug 2022, 18:04:09
 //  Last edited:
-//    14 Nov 2022, 10:20:49
+//    05 Jan 2023, 13:12:50
 //  Auto updated?
 //    Yes
 // 
@@ -14,11 +14,12 @@
 // 
 
 use std::cell::{Ref, RefCell};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::mem;
 use std::rc::Rc;
 
+use specifications::package::Capability;
 use specifications::version::Version;
 
 pub use crate::errors::SymbolTableError as Error;
@@ -113,7 +114,9 @@ pub struct FunctionEntry {
     pub class_name      : Option<String>,
 
     /// If this function is external (i.e., `package_name` is not None), then this list represents the name of each of the arguments. It will thus always be as long as the number of arguments in that case (and empty otherwise).
-    pub arg_names : Vec<String>,
+    pub arg_names    : Vec<String>,
+    /// Any requirements the function has in terms of hardware support. Only ever not-None if an external function.
+    pub requirements : Option<HashSet<Capability>>,
 
     /// The index in the workflow buffer of this function.
     pub index : usize,
@@ -148,7 +151,8 @@ impl FunctionEntry {
             package_version : None,
             class_name      : None,
 
-            arg_names : vec![],
+            arg_names    : vec![],
+            requirements : None,
 
             index : usize::MAX,
 
@@ -178,7 +182,8 @@ impl FunctionEntry {
             package_version : None,
             class_name      : None,
 
-            arg_names : vec![],
+            arg_names    : vec![],
+            requirements : None,
 
             index : usize::MAX,
 
@@ -198,12 +203,13 @@ impl FunctionEntry {
     /// - `package`: The name of the package to which this function belongs.
     /// - `package_version`: The version of the package to which this function belongs.
     /// - `arg_names`: The names of the arguments (corresponds index-wise to the `signature::arg` list).
+    /// - `requirements`: The list of hardware requirements (as Capabilities) as defined in the function's package file.
     /// - `range`: The TextRange that points to the definition itself (i.e., the import statement).
     /// 
     /// # Returns
     /// A new FunctionEntry that has the given package set, and not yet any type information populated.
     #[inline]
-    pub fn from_import<S1: Into<String>, S2: Into<String>>(name: S1, signature: FunctionSignature, package: S2, package_version: Version, arg_names: Vec<String>, range: TextRange) -> Self {
+    pub fn from_import<S1: Into<String>, S2: Into<String>>(name: S1, signature: FunctionSignature, package: S2, package_version: Version, arg_names: Vec<String>, requirements: HashSet<Capability>, range: TextRange) -> Self {
         Self {
             name   : name.into(),
             signature,
@@ -214,6 +220,7 @@ impl FunctionEntry {
             class_name      : None,
 
             arg_names,
+            requirements : Some(requirements),
 
             index : usize::MAX,
 
@@ -245,7 +252,8 @@ impl FunctionEntry {
             package_version : None,
             class_name      : Some(class.into()),
 
-            arg_names : vec![],
+            arg_names    : vec![],
+            requirements : None,
 
             index : usize::MAX,
 

@@ -4,7 +4,7 @@
 //  Created:
 //    19 Aug 2022, 12:43:19
 //  Last edited:
-//    15 Sep 2022, 14:15:59
+//    23 Dec 2022, 16:18:25
 //  Auto updated?
 //    Yes
 // 
@@ -14,6 +14,7 @@
 // 
 
 use std::cell::{Ref, RefCell};
+use std::io::Write;
 use std::rc::Rc;
 
 use brane_dsl::SymbolTable;
@@ -47,147 +48,154 @@ const INDENT_SIZE: usize = 4;
 /// Prints a Stmt node.
 /// 
 /// # Arguments
+/// - `writer`: The `Write`r to write to.
 /// - `stmt`: The Stmt to traverse.
 /// - `indent`: The current base indent of all new lines to write.
 /// 
 /// # Returns
 /// Nothing, but does print it.
-fn pass_stmt(stmt: &Stmt, indent: usize) {
+fn pass_stmt(writer: &mut impl Write, stmt: &Stmt, indent: usize) -> std::io::Result<()> {
     // Match on the statement itself
     use Stmt::*;
     match stmt {
         Block{ block } => {
             // Simply print this one's symbol table
-            print!("{}__nested_block: ", indent!(indent));
-            pass_block(block, indent);
-            println!();
+            write!(writer, "{}__nested_block: ", indent!(indent))?;
+            pass_block(writer, block, indent)?;
+            writeln!(writer)?;
         },
 
         FuncDef{ ident, code, .. } => {
             // Print the code block's symbol table
-            print!("{}Function '{}': ", indent!(indent), ident.value);
-            pass_block(code, indent);
-            println!();
+            write!(writer, "{}Function '{}': ", indent!(indent), ident.value)?;
+            pass_block(writer, code, indent)?;
+            writeln!(writer)?;
         },
         ClassDef{ methods, .. } => {
             // Recurse into the methods
             for m in methods.iter() {
-                pass_stmt(m, indent);
+                pass_stmt(writer, m, indent)?;
             }
         },
     
         If{ consequent, alternative, .. } => {
             // Print the symbol tables of the consequent and (optionally) the alternative
-            print!("{}If ", indent!(indent));
-            pass_block(consequent, indent);
+            write!(writer, "{}If ", indent!(indent))?;
+            pass_block(writer, consequent, indent)?;
             if let Some(alternative) = alternative {
-                print!(" Else ");
-                pass_block(alternative, indent);
+                write!(writer, " Else ")?;
+                pass_block(writer, alternative, indent)?;
             }
-            println!();
+            writeln!(writer)?;
         },
         For{ consequent, .. } => {
             // Print the symbol table of the consequent
-            print!("{}For ", indent!(indent));
-            pass_block(consequent, indent);
-            println!();
+            write!(writer, "{}For ", indent!(indent))?;
+            pass_block(writer, consequent, indent)?;
+            writeln!(writer)?;
         },
         While{ consequent, .. } => {
             // Print the block
-            print!("{}While ", indent!(indent));
-            pass_block(consequent, indent);
-            println!();
+            write!(writer, "{}While ", indent!(indent))?;
+            pass_block(writer, consequent, indent)?;
+            writeln!(writer)?;
         },
         On{ block, .. } => {
             // Print the block
-            print!("{}On ", indent!(indent));
-            pass_block(block, indent);
-            println!();
+            write!(writer, "{}On ", indent!(indent))?;
+            pass_block(writer, block, indent)?;
+            writeln!(writer)?;
         },
         Parallel{ blocks, .. } => {
             // Print the blocks
-            println!("{}Parallel [", indent!(indent));
+            writeln!(writer, "{}Parallel [", indent!(indent))?;
             for b in blocks {
-                pass_stmt(b, indent + 3);
+                pass_stmt(writer, b, indent + 3)?;
             }
-            println!("{}]", indent!(indent));
+            writeln!(writer, "{}]", indent!(indent))?;
         },
 
         // We don't care about the rest
         _ => {}
     }
+
+    // Done
+    Ok(())
 }
 
 /// Prints a Block node.
 /// 
 /// # Arguments
+/// - `writer`: The `Write`r to write to.
 /// - `block`: The Block to traverse.
 /// - `indent`: The current base indent of all new lines to write.
 /// 
 /// # Returns
 /// Nothing, but does print it.
-fn pass_block(block: &Block, indent: usize) {
+fn pass_block(writer: &mut impl Write, block: &Block, indent: usize) -> std::io::Result<()> {
     // Print the current symbol table
-    println!("[");
-    pass_symbol_table(&block.table, indent + INDENT_SIZE);
+    writeln!(writer, "[")?;
+    pass_symbol_table(writer, &block.table, indent + INDENT_SIZE)?;
 
     // Now we print the following symbol tables with additional indentation
     let st: Ref<SymbolTable> = block.table.borrow();
-    if !block.stmts.is_empty() && (st.has_functions() || st.has_classes() || st.has_variables()) { println!(); }
+    if !block.stmts.is_empty() && (st.has_functions() || st.has_classes() || st.has_variables()) { writeln!(writer)?; }
     for stmt in block.stmts.iter() {
-        pass_stmt(stmt, indent + INDENT_SIZE);
+        pass_stmt(writer, stmt, indent + INDENT_SIZE)?;
     }
 
     // Done
-    print!("{}]", indent!(indent));
+    write!(writer, "{}]", indent!(indent))
 }
 
 /// Prints a SymbolTable.
 /// 
 /// # Arguments
+/// - `writer`: The `Write`r to write to.
 /// - `symbol_table`: The SymbolTable to traverse.
 /// - `indent`: The current base indent of all new lines to write.
 /// 
 /// # Returns
 /// Nothing, but does print it.
-fn pass_symbol_table(symbol_table: &Rc<RefCell<SymbolTable>>, indent: usize) {
+fn pass_symbol_table(writer: &mut impl Write, symbol_table: &Rc<RefCell<SymbolTable>>, indent: usize) -> std::io::Result<()> {
     // Borrow the table
     let st: Ref<SymbolTable> = symbol_table.borrow();
 
     // First, print all of its functions
     for (name, f) in st.functions() {
         let f: Ref<FunctionEntry> = f.borrow();
-        println!("{}{}func {}{}{}",
+        writeln!(writer, "{}{}func {}{}{}",
             indent!(indent),
             if f.index != usize::MAX { format!("{}) ", f.index) } else { String::new() },
             if let Some(pkg) = &f.package_name { format!("{}::", pkg) } else { String::new() },
             name,
             f.signature
-        );
+        )?;
     }
     // Next, print all of its classes
     for (_, c) in st.classes() {
         let c: Ref<ClassEntry> = c.borrow();
 
         // Print the class signature header
-        println!("{}{}class {}{} {{",
+        writeln!(writer, "{}{}class {}{} {{",
             indent!(indent),
             if c.index != usize::MAX { format!("{}) ", c.index) } else { String::new() },
             if let Some(pkg) = &c.package_name { format!("{}::", pkg) } else { String::new() },
             c.signature
-        );
+        )?;
         // Print the associated symbol table
-        pass_symbol_table(&c.symbol_table, indent + INDENT_SIZE);
+        pass_symbol_table(writer, &c.symbol_table, indent + INDENT_SIZE)?;
         // Print the closing thing done
-        println!("{}}}", indent!(indent));
+        writeln!(writer, "{}}}", indent!(indent))?;
     }
     // Finally, print the variables
     for (name, v) in st.variables() {
         let v: Ref<VarEntry> = v.borrow();
-        println!("{}{}var {} : {},", indent!(indent), if v.index != usize::MAX { format!("{}) ", v.index) } else { String::new() }, name, v.data_type);
+        writeln!(writer, "{}{}var {} : {},", indent!(indent), if v.index != usize::MAX { format!("{}) ", v.index) } else { String::new() }, name, v.data_type)?;
     }
 
     // Done
+    Ok(())
 }
 
 
@@ -199,17 +207,20 @@ fn pass_symbol_table(symbol_table: &Rc<RefCell<SymbolTable>>, indent: usize) {
 /// 
 /// # Arguments
 /// - `root`: The root node of the tree on which this compiler pass will be done.
+/// - `writer`: The `Write`r to write to.
 /// 
 /// # Returns
 /// The same root node as went in (since this compiler pass performs no transformations on the tree).
 /// 
 /// # Errors
 /// This pass generally doesn't error, but is here for convention purposes.
-pub fn do_traversal(root: Program) -> Result<Program, Vec<Error>> {
+pub fn do_traversal(root: Program, writer: impl Write) -> Result<Program, Vec<Error>> {
+    let mut writer = writer;
+
     // Iterate over all statements and run the appropriate match
-    print!("__root ");
-    pass_block(&root.block, 0);
-    println!();
+    if let Err(err) = write!(&mut writer, "__root ")          { return Err(vec![ Error::WriteError { err } ]); };
+    if let Err(err) = pass_block(&mut writer, &root.block, 0) { return Err(vec![ Error::WriteError { err } ]); };
+    if let Err(err) = writeln!(&mut writer)                   { return Err(vec![ Error::WriteError { err } ]); };
 
     // Done
     Ok(root)

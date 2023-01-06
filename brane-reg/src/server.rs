@@ -4,7 +4,7 @@
 //  Created:
 //    01 Nov 2022, 11:15:17
 //  Last edited:
-//    08 Nov 2022, 11:23:49
+//    30 Nov 2022, 11:39:05
 //  Auto updated?
 //    Yes
 // 
@@ -14,7 +14,7 @@
 //!   certificates used.
 //! 
 //!   Most of the logic in this module is taken from:
-//!   https://gist.github.com/darwindarak/9b18e49d0d5b384dd332d2c8d9e785fe
+//!   <https://gist.github.com/darwindarak/9b18e49d0d5b384dd332d2c8d9e785fe>
 // 
 
 use std::net::SocketAddr;
@@ -128,9 +128,7 @@ where
             let service = service::service_fn(move |mut req| {
                 // Inject the certificate, if any
                 // Note: sadly, we clone client_cert twice, but we have little choice...
-                if let Some(cert) = client_cert.clone() {
-                    req.extensions_mut().insert(cert);
-                }
+                req.extensions_mut().insert(client_cert.clone());
 
                 // Now we call the service
                 svc.call(req)

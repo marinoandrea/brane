@@ -13,7 +13,7 @@ use specifications::arch::Arch;
 use specifications::package::{PackageKind, PackageInfo};
 use specifications::version::Version;
 
-use crate::build_common::{BRANELET_URL, build_docker_image, clean_directory, lock_directory, unlock_directory};
+use crate::build_common::{BRANELET_URL, build_docker_image, clean_directory, LockHandle};
 use crate::errors::BuildError;
 use crate::utils::ensure_package_dir;
 
@@ -52,12 +52,13 @@ pub async fn handle(
     };
 
     // Lock the directory, build, unlock the directory
-    lock_directory(&package_dir)?;
-    let res = build(arch, document, package_info, &package_dir, branelet_path, keep_files).await;
-    unlock_directory(&package_dir);
+    {
+        let _lock = LockHandle::lock(&package_info.name, package_dir.join(".lock"))?;
+        build(arch, document, package_info, &package_dir, branelet_path, keep_files).await?;
+    };
 
-    // Return the result of the build process
-    res
+    // Done
+    Ok(())
 }
 
 /// **Edited: now returning BuildErrors.**
@@ -148,8 +149,9 @@ async fn build(
 
             // Resolve the digest of the package info
             let mut package_info = package_info;
-            if let Err(err) = package_info.resolve_digest(package_dir.join("image.tar")) {
-                return Err(BuildError::DigestError{ err });
+            match brane_tsk::docker::get_digest(package_dir.join("image.tar")).await {
+                Ok(digest) => { package_info.digest = Some(digest); },
+                Err(err)   => { return Err(BuildError::DigestError{ err }); }
             }
 
             // Write it to package directory

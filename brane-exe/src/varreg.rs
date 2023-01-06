@@ -4,7 +4,7 @@
 //  Created:
 //    09 Sep 2022, 16:35:48
 //  Last edited:
-//    14 Nov 2022, 10:41:18
+//    19 Dec 2022, 11:02:05
 //  Auto updated?
 //    Yes
 // 
@@ -60,7 +60,7 @@ impl VariableRegister {
     /// This function errors if the given variable was already declared.
     pub fn declare<S: Into<String>>(&mut self, id: usize, name: S, data_type: DataType) -> Result<(), Error> {
         let name: String = name.into();
-        match self.register.insert(id, (name.clone(), data_type.clone(), Value::Void)) {
+        match self.register.insert(id, (name.clone(), data_type.clone(), Value::Null)) {
             Some(old) => Err(Error::DuplicateDeclaration { id, old_name: old.0, old_type: old.1, new_name: name, new_type: data_type }),
             None      => Ok(()),
         }

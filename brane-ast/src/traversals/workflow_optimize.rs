@@ -4,7 +4,7 @@
 //  Created:
 //    19 Oct 2022, 11:19:39
 //  Last edited:
-//    14 Nov 2022, 10:33:28
+//    23 Dec 2022, 16:36:20
 //  Auto updated?
 //    Yes
 // 
@@ -69,7 +69,7 @@ mod tests {
             };
 
             // Now print the file for prettyness
-            ast_unresolved::do_traversal(&state, workflow).unwrap();
+            ast_unresolved::do_traversal(&state, workflow, std::io::stdout()).unwrap();
             println!("{}\n\n", (0..40).map(|_| "- ").collect::<String>());
 
             // Run up to this traversal
@@ -99,7 +99,7 @@ mod tests {
             };
 
             // Now print the file for prettyness
-            ast_unresolved::do_traversal(&state, workflow).unwrap();
+            ast_unresolved::do_traversal(&state, workflow, std::io::stdout()).unwrap();
             println!("{}\n\n", (0..80).map(|_| '-').collect::<String>());
         });
     }

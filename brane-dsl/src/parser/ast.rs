@@ -4,7 +4,7 @@
 //  Created:
 //    10 Aug 2022, 14:00:59
 //  Last edited:
-//    14 Nov 2022, 09:57:14
+//    19 Dec 2022, 10:02:11
 //  Auto updated?
 //    Yes
 // 
@@ -17,7 +17,7 @@ use std::fmt::{Debug, Display, Formatter, Result as FResult};
 use std::rc::Rc;
 use std::str::FromStr;
 
-use brane_shr::debug::EnumDebug;
+use enum_debug::EnumDebug;
 use specifications::version::{ParseError, Version};
 
 use crate::spec::{TextPos, TextRange};
@@ -129,7 +129,7 @@ impl Node for Block {
 
 
 /// Defines a single statement.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, EnumDebug)]
 pub enum Stmt {
     /// Defines a block statement (i.e., `{ ... }`).
     Block {
@@ -477,31 +477,6 @@ impl Default for Stmt {
     }
 }
 
-impl EnumDebug for Stmt {
-    fn fmt_name(&self, f: &mut Formatter<'_>) -> FResult {
-        use Stmt::*;
-        match self {
-            Block{ .. } => write!(f, "Block"),
-
-            Import{ .. }   => write!(f, "Import"),
-            FuncDef{ .. }  => write!(f, "FuncDef"),
-            ClassDef{ .. } => write!(f, "ClassDef"),
-            Return{ .. }   => write!(f, "Return"),
-
-            If{ .. }       => write!(f, "If"),
-            For{ .. }      => write!(f, "For"),
-            While{ .. }    => write!(f, "While"),
-            On{ .. }       => write!(f, "On"),
-            Parallel{ .. } => write!(f, "Parallel"),
-
-            LetAssign{ .. } => write!(f, "LetAssign"),
-            Assign{ .. }    => write!(f, "Assign"),
-            Expr{ .. }      => write!(f, "Expr"),
-
-            Empty{} => write!(f, "Empty"),
-        }
-    }
-}
 impl Node for Stmt {
     /// Returns the node's source range.
     #[inline]
@@ -579,7 +554,7 @@ impl Node for Property {
 
 
 /// Defines an expression.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, EnumDebug)]
 pub enum Expr {
     /// Casts between two functions types.
     Cast {
@@ -922,30 +897,6 @@ impl Expr {
     }
 }
 
-impl EnumDebug for Expr {
-    fn fmt_name(&self, f: &mut Formatter<'_>) -> FResult {
-        use Expr::*;
-        match self {
-            Cast{ .. } => write!(f, "Cast"),
-
-            Call{ .. }       => write!(f, "Call"),
-            Array{ .. }      => write!(f, "Array"),
-            ArrayIndex{ .. } => write!(f, "ArrayIndex"),
-            Pattern{ .. }    => write!(f, "Pattern"),
-
-            UnaOp{ .. } => write!(f, "UnaOp"),
-            BinOp{ .. } => write!(f, "BinOp"),
-            Proj{ .. }  => write!(f, "Proj"),
-
-            Instance{ .. }   => write!(f, "Instance"),
-            VarRef{ .. }     => write!(f, "VarRef"),
-            Identifier{ .. } => write!(f, "Identifier"),
-            Literal{ .. }    => write!(f, "Literal"),
-
-            Empty{} => write!(f, "Empty"),
-        }
-    }
-}
 impl Node for Expr {
     /// Returns the node's source range.
     #[inline]
@@ -976,7 +927,7 @@ impl Node for Expr {
 
 
 /// Defines a simple enum that is either a Data or an IntermediateResult.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, EnumDebug, Eq, Hash, PartialEq)]
 pub enum Data {
     /// It's a dataset (with the given name)
     Data(String),
@@ -984,20 +935,10 @@ pub enum Data {
     IntermediateResult(String),
 }
 
-impl EnumDebug for Data {
-    fn fmt_name(&self, f: &mut Formatter<'_>) -> FResult {
-        use self::Data::*;
-        match self {
-            Data(_)               => write!(f, "Data"),
-            IntermediateResult(_) => write!(f, "IntermediateResult"),
-        }
-    }
-}
-
 
 
 /// Defines a common enum for both operator types.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, EnumDebug)]
 pub enum Operator {
     /// Defines a unary operator.
     Unary(UnaOp),
@@ -1019,15 +960,6 @@ impl Operator {
     }
 }
 
-impl EnumDebug for Operator {
-    fn fmt_name(&self, f: &mut Formatter<'_>) -> FResult {
-        use Operator::*;
-        match self {
-            Unary(_)  => write!(f, "Unary"),
-            Binary(_) => write!(f, "Binary"),
-        }
-    }
-}
 impl Node for Operator {
     /// Returns the node's source range.
     #[inline]
@@ -1054,7 +986,7 @@ impl Display for Operator {
 
 
 /// Defines unary operators for this crate.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, EnumDebug)]
 pub enum UnaOp {
     /// The '[' operator (index)
     Idx{ range: TextRange },
@@ -1082,17 +1014,6 @@ impl UnaOp {
     }
 }
 
-impl EnumDebug for UnaOp {
-    fn fmt_name(&self, f: &mut Formatter<'_>) -> FResult {
-        use UnaOp::*;
-        match self {
-            Idx{ .. }  => write!(f, "Idx"),
-            Not{ .. }  => write!(f, "Not"),
-            Neg{ .. }  => write!(f, "Neg"),
-            Prio{ .. } => write!(f, "Prio"),
-        }
-    }
-}
 impl Node for UnaOp {
     /// Returns the node's source range.
     #[inline]
@@ -1123,7 +1044,7 @@ impl Display for UnaOp {
 
 
 /// Defines binary operators for this crate.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, EnumDebug)]
 pub enum BinOp {
     /// The `&&` operator (logical and)
     And{ range: TextRange },
@@ -1176,28 +1097,6 @@ impl BinOp {
     }
 }
 
-impl EnumDebug for BinOp {
-    fn fmt_name(&self, f: &mut Formatter<'_>) -> FResult {
-        use BinOp::*;
-        match self {
-            And{ .. } => write!(f, "And"),
-            Or{ .. }  => write!(f, "Or"),
-
-            Add{ .. } => write!(f, "Add"),
-            Sub{ .. } => write!(f, "Sub"),
-            Mul{ .. } => write!(f, "Mul"),
-            Div{ .. } => write!(f, "Div"),
-            Mod{ .. } => write!(f, "Mod"),
-
-            Eq{ .. } => write!(f, "Eq"),
-            Ne{ .. } => write!(f, "Ne"),
-            Lt{ .. } => write!(f, "Lt"),
-            Le{ .. } => write!(f, "Le"),
-            Gt{ .. } => write!(f, "Gt"),
-            Ge{ .. } => write!(f, "Ge"),
-        }
-    }
-}
 impl Node for BinOp {
     /// Returns the node's source range.
     #[inline]
@@ -1458,8 +1357,14 @@ impl Node for Identifier {
 
 
 /// Defines a literal constant.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, EnumDebug)]
 pub enum Literal {
+    /// Defines the null literal.
+    Null{
+        /// The range of the boolean in the source text.
+        range : TextRange,
+    },
+
     /// Defines a boolean literal.
     Boolean{
         /// The value of the Boolean.
@@ -1734,6 +1639,7 @@ impl Literal {
     pub fn data_type(&self) -> DataType {
         use Literal::*;
         match self {
+            Null{ .. }    => DataType::Null,
             Boolean{ .. } => DataType::Boolean,
             Integer{ .. } => DataType::Integer,
             Real{ .. }    => DataType::Real,
@@ -1744,25 +1650,13 @@ impl Literal {
     }
 }
 
-impl EnumDebug for Literal {
-    fn fmt_name(&self, f: &mut Formatter<'_>) -> FResult {
-        use Literal::*;
-        match self {
-            Boolean{ .. } => write!(f, "Boolean"),
-            Integer{ .. } => write!(f, "Integer"),
-            Real{ .. }    => write!(f, "Real"),
-            String{ .. }  => write!(f, "String"),
-            Semver{ .. }  => write!(f, "Semver"),
-            Void{ .. }    => write!(f, "Void"),
-        }
-    }
-}
 impl Node for Literal {
     /// Returns the node's source range.
     #[inline]
     fn range(&self) -> &TextRange {
         use Literal::*;
         match self {
+            Null{ range, .. }    => range,
             Boolean{ range, .. } => range,
             Integer{ range, .. } => range,
             Real{ range, .. }    => range,

@@ -4,7 +4,7 @@
 //  Created:
 //    15 Sep 2022, 08:26:20
 //  Last edited:
-//    14 Nov 2022, 11:49:17
+//    05 Jan 2023, 13:14:31
 //  Auto updated?
 //    Yes
 // 
@@ -81,7 +81,7 @@ mod tests {
             };
 
             // Now print the file for prettyness
-            symbol_tables::do_traversal(program).unwrap();
+            symbol_tables::do_traversal(program, std::io::stdout()).unwrap();
             println!("{}\n", (0..40).map(|_| "- ").collect::<String>());
             print_state(&state.table, 0);
             println!("{}\n\n", (0..80).map(|_| '-').collect::<String>());
@@ -233,9 +233,10 @@ fn move_task(task: &Rc<RefCell<FunctionEntry>>, table: &mut TableState) {
     let state: TaskState = {
         let entry: Ref<FunctionEntry> = task.borrow();
         TaskState {
-            name      : entry.name.clone(),
-            signature : entry.signature.clone(),
-            arg_names : entry.arg_names.clone(),
+            name         : entry.name.clone(),
+            signature    : entry.signature.clone(),
+            arg_names    : entry.arg_names.clone(),
+            requirements : entry.requirements.clone().unwrap(),
 
             package_name    : entry.package_name.clone().unwrap(),
             package_version : entry.package_version.clone().unwrap(),

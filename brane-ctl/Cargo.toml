@@ -1,0 +1,29 @@
+[package]
+name = "brane-ctl"
+version = { workspace = true }
+edition = "2021"
+authors = [ "Tim Müller" ]
+
+[[bin]]
+name = "branectl"
+path = "src/main.rs"
+
+[dependencies]
+bollard = "0.13"
+clap = { version = "4.0.24", features = ["derive","env"] }
+console = "0.15"
+dotenvy = "0.15"
+enum-debug = { git = "https://github.com/Lut99/enum-debug", features = ["derive"] }
+env_logger = "0.10"
+human-panic = "1.0"
+lazy_static = "1.4.0"
+log = "0.4"
+rand = "0.8.5"
+serde = { version = "1", features = ["derive"] }
+serde_yaml = "0.9"
+tokio = { version = "1", features = [] }
+
+brane-cfg = { path = "../brane-cfg" }
+brane-shr = { path = "../brane-shr" }
+brane-tsk = { path = "../brane-tsk" }
+specifications = { path = "../specifications" }

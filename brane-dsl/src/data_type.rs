@@ -4,7 +4,7 @@
 //  Created:
 //    23 Aug 2022, 20:34:33
 //  Last edited:
-//    14 Nov 2022, 09:59:58
+//    19 Dec 2022, 10:15:48
 //  Auto updated?
 //    Yes
 // 
@@ -111,6 +111,8 @@ pub enum DataType {
     Any,
     /// The 'Void' type basically means 'no type / value'.
     Void,
+    /// The 'Null' type basically means 'unitialized'.
+    Null,
 
     // Literals
     /// Boolean values (i.e., true or false, 1 or 0, yes or no, etc).
@@ -159,6 +161,7 @@ impl DataType {
             // Types that are always casteable in one way
             (Any, _)    => true,
             (_, Any)    => true,
+            (_, Null)   => true,
             (_, String) => true,
 
             // Trivial conversions
@@ -173,7 +176,7 @@ impl DataType {
                     n1 == n2
                 }
             },
-            (t1, t2)               => discriminant(t1) == discriminant(t2),
+            (t1, t2) => discriminant(t1) == discriminant(t2),
         }
     }
 
@@ -259,6 +262,7 @@ impl Display for DataType {
         match self {
             Any  => write!(f, "Any"),
             Void => write!(f, "Void"),
+            Null => write!(f, "Null"),
 
             Boolean => write!(f, "Boolean"),
             Integer => write!(f, "Integer"),

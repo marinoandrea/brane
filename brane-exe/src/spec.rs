@@ -4,7 +4,7 @@
 //  Created:
 //    26 Aug 2022, 18:26:40
 //  Last edited:
-//    14 Nov 2022, 10:47:19
+//    05 Jan 2023, 16:48:23
 //  Auto updated?
 //    Yes
 // 
@@ -13,7 +13,7 @@
 //!   this crate.
 // 
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::path::Path;
 use std::sync::{Arc, RwLock};
@@ -21,6 +21,7 @@ use std::sync::{Arc, RwLock};
 use brane_ast::locations::Location;
 use brane_ast::ast::{DataName, SymTable};
 use specifications::data::{AccessKind, PreprocessKind};
+use specifications::package::Capability;
 use specifications::version::Version;
 
 use crate::value::FullValue;
@@ -33,7 +34,7 @@ pub trait CustomGlobalState: 'static + Send + Sync {}
 impl CustomGlobalState for () {}
 
 /// Defines whatever is needed for the custom local part of a RunState.
-pub trait CustomLocalState: 'static + Send + Sync {
+pub trait CustomLocalState: 'static + Send + Sync + Clone {
     /// Constructs a new CustomLocalState from the given global state.
     /// 
     /// # Arguments
@@ -85,7 +86,7 @@ pub trait VmPlugin: 'static + Send + Sync {
     /// 
     /// # Errors
     /// This function may error whenever it likes.
-    async fn preprocess(global: &Arc<RwLock<Self::GlobalState>>, local: &Self::LocalState, loc: &Location, name: &DataName, preprocess: &PreprocessKind) -> Result<AccessKind, Self::PreprocessError>;
+    async fn preprocess(global: Arc<RwLock<Self::GlobalState>>, local: Self::LocalState, loc: Location, name: DataName, preprocess: PreprocessKind) -> Result<AccessKind, Self::PreprocessError>;
 
 
 
@@ -210,6 +211,8 @@ pub struct TaskInfo<'a> {
     pub package_name    : &'a str,
     /// The package version of the task to execute.
     pub package_version : &'a Version,
+    /// The requirements that the task has.
+    pub requirements    : &'a HashSet<Capability>,
 
     /// The arguments that are given for this Task. Note that data & intermediate results have to be resolved before passing this to the function.
     pub args     : HashMap<String, FullValue>,

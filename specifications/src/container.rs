@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::error::Error;
 use std::fmt::{Display, Formatter, Result as FResult};
 use std::fs::{self, File};
@@ -9,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
 
 use crate::common::{CallPattern, Parameter, Type};
-use crate::package::PackageKind;
+use crate::package::{Capability, PackageKind};
 use crate::version::Version;
 
 
@@ -240,6 +241,18 @@ impl VolumeBind {
 
 
 
+/// Serializes an Image to a way that Docker likes.
+#[derive(Debug)]
+pub struct ImageDockerFormatter<'a> {
+    /// The image to format
+    image : &'a Image,
+}
+impl<'a> Display for ImageDockerFormatter<'a> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
+        write!(f, "{}", if let Some(digest) = &self.image.digest { digest[7..].into() } else { format!("{}{}", self.image.name, if let Some(version) = &self.image.version { format!(":{}", version) } else { String::new() }) })
+    }
+}
+
 /// Specifies the name of an Image, possibly with digest.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -272,13 +285,20 @@ impl Image {
 
 
 
-    /// Returns the name-part of the Image.
+    /// Returns the name-part of the Image (i.e., the name + version).
     #[inline]
     pub fn name(&self) -> String { format!("{}{}", self.name, if let Some(version) = &self.version { format!(":{}", version) } else { String::new() }) }
 
     /// Returns the digest-part of the Image.
     #[inline]
     pub fn digest(&self) -> Option<&str> { self.digest.as_deref() }
+
+    /// Returns the Docker-compatible serialization of this Image.
+    /// 
+    /// # Returns
+    /// An ImageDockerFormatter which handles the formatting.
+    #[inline]
+    pub fn docker(&self) -> ImageDockerFormatter { ImageDockerFormatter{ image: self } }
 }
 
 impl Display for Image {
@@ -288,16 +308,22 @@ impl Display for Image {
     }
 }
 
-impl From<Image> for String {
+impl AsRef<Image> for Image {
     #[inline]
-    fn from(value: Image) -> Self {
-        format!("{}", value)
+    fn as_ref(&self) -> &Self {
+        self
     }
 }
-impl From<&Image> for String {
+impl From<&Image> for Image {
     #[inline]
     fn from(value: &Image) -> Self {
-        format!("{}", value)
+        value.clone()
+    }
+}
+impl From<&mut Image> for Image {
+    #[inline]
+    fn from(value: &mut Image) -> Self {
+        value.clone()
     }
 }
 
@@ -618,6 +644,7 @@ impl ContainerInfo {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Action {
+    pub requirements: Option<HashSet<Capability>>,
     pub command: Option<ActionCommand>,
     pub description: Option<String>,
     pub endpoint: Option<ActionEndpoint>,

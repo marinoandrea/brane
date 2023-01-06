@@ -4,7 +4,7 @@
 //  Created:
 //    16 Sep 2022, 08:22:47
 //  Last edited:
-//    14 Nov 2022, 10:10:44
+//    05 Jan 2023, 13:14:49
 //  Auto updated?
 //    Yes
 // 
@@ -24,6 +24,7 @@ use brane_dsl::{DataType, TextRange};
 use brane_dsl::data_type::{ClassSignature, FunctionSignature};
 use brane_dsl::symbol_table::{ClassEntry, FunctionEntry, SymbolTable, VarEntry};
 use brane_dsl::ast::Data;
+use specifications::package::Capability;
 use specifications::version::Version;
 
 use crate::spec::{BuiltinClasses, BuiltinFunctions};
@@ -707,7 +708,8 @@ impl From<&FunctionState> for FunctionEntry {
             package_version : None,
             class_name      : value.class_name.clone(),
 
-            arg_names : vec![],
+            arg_names    : vec![],
+            requirements : None,
 
             index : usize::MAX,
 
@@ -734,11 +736,13 @@ impl From<FunctionState> for FunctionDef {
 #[derive(Clone, Debug)]
 pub struct TaskState {
     /// The name of the function.
-    pub name      : String,
+    pub name         : String,
     /// The signature of the function.
-    pub signature : FunctionSignature,
+    pub signature    : FunctionSignature,
     /// The names of the arguments. They are mapped by virtue of having the same index as in `signature.args`.
-    pub arg_names : Vec<String>,
+    pub arg_names    : Vec<String>,
+    /// Any requirements for this function.
+    pub requirements : HashSet<Capability>,
 
     /// The name of the package where this Task is stored.
     pub package_name    : String,
@@ -761,7 +765,8 @@ impl From<&TaskState> for FunctionEntry {
             package_version : Some(value.package_version.clone()),
             class_name      : None,
 
-            arg_names : value.arg_names.clone(),
+            arg_names    : value.arg_names.clone(),
+            requirements : Some(value.requirements.clone()),
 
             index : usize::MAX,
 
@@ -777,14 +782,15 @@ impl From<TaskState> for TaskDef {
             package : value.package_name,
             version : value.package_version,
 
-            function   : Box::new(FunctionDef {
+            function : Box::new(FunctionDef {
                 name : value.name,
                 args : value.signature.args.into_iter().map(|d| d.into()).collect(),
                 ret  : value.signature.ret.into(),
 
                 table : SymTable::new(),
             }),
-            args_names : value.arg_names,
+            args_names   : value.arg_names,
+            requirements : value.requirements,
         }
     }
 }

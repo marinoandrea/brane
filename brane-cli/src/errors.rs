@@ -4,7 +4,7 @@
 //  Created:
 //    17 Feb 2022, 10:27:28
 //  Last edited:
-//    14 Nov 2022, 13:15:48
+//    05 Jan 2023, 12:16:36
 //  Auto updated?
 //    Yes
 // 
@@ -193,7 +193,7 @@ pub enum BuildError {
     ImageBuildError{ command: String, code: i32 },
 
     /// Could not get the digest from the just-built image
-    DigestError{ err: PackageInfoError },
+    DigestError{ err: brane_tsk::docker::Error },
     /// Could not write the PackageFile to the build directory.
     PackageFileCreateError{ err: PackageInfoError },
 
@@ -356,14 +356,8 @@ pub enum DataError {
 
     /// Failed to get the datasets folder
     DatasetsError{ err: UtilError },
-    /// Failed to read the datasets folder
-    DatasetsReadError{ path: PathBuf, err: std::io::Error },
-    /// Failed to open a data.yml file.
-    DataInfoOpenError{ path: PathBuf, err: std::io::Error },
-    /// Failed to read/parse a data.yml file.
-    DataInfoReadError{ path: PathBuf, err: serde_yaml::Error },
-    /// Failed to create a new DataIndex from the infos locally read.
-    DataIndexError{ err: specifications::data::DataIndexError },
+    /// Failed to fetch the local data index.
+    LocalDataIndexError{ err: brane_tsk::local::Error },
 
     /// Failed to load the given AssetInfo file.
     AssetFileError{ path: PathBuf, err: specifications::data::AssetInfoError },
@@ -435,11 +429,8 @@ impl Display for DataError {
             TarWriteError{ path, err }               => write!(f, "Failed to write to tarball file '{}': {}", path.display(), err),
             TarExtractError{ source, target, err }   => write!(f, "Failed to extract '{}' to '{}': {}", source.display(), target.display(), err),
 
-            DatasetsError{ err }           => write!(f, "Failed to get datasets folder: {}", err),
-            DatasetsReadError{ path, err } => write!(f, "Failed to read datasets folder '{}': {}", path.display(), err),
-            DataInfoOpenError{ path, err } => write!(f, "Failed to open data info file '{}': {}", path.display(), err),
-            DataInfoReadError{ path, err } => write!(f, "Failed to read/parse data info file '{}': {}", path.display(), err),
-            DataIndexError{ err }          => write!(f, "Failed to create data index from local datasets: {}", err),
+            DatasetsError{ err }       => write!(f, "Failed to get datasets folder: {}", err),
+            LocalDataIndexError{ err } => write!(f, "Failed to get local data index: {}", err),
 
             AssetFileError{ path, err }        => write!(f, "Failed to load given asset file '{}': {}", path.display(), err),
             FileCanonicalizeError{ path, err } => write!(f, "Failed to resolve path '{}': {}", path.display(), err),
@@ -505,13 +496,8 @@ impl Error for ImportError {}
 pub enum PackageError {
     /// Something went wrong while calling utilities
     UtilError{ err: UtilError },
-
-    /// There was an error reading entries from the packages directory
-    PackagesDirReadError{ path: PathBuf, err: std::io::Error },
-    /// We tried to load a package YML but failed
-    InvalidPackageYml{ package: String, path: PathBuf, err: specifications::package::PackageInfoError },
-    /// We tried to load a Package Index from a JSON value with PackageInfos but we failed
-    PackageIndexError{ err: specifications::package::PackageIndexError },
+    /// Something went wrong when fetching an index.
+    IndexError{ err: brane_tsk::local::Error },
 
     /// Failed to resolve a specific package/version pair
     PackageVersionError{ name: String, version: Version, err: UtilError },
@@ -537,11 +523,8 @@ impl std::fmt::Display for PackageError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         use self::PackageError::*;
         match self {
-            UtilError{ err } => write!(f, "{}", err),
-
-            PackagesDirReadError{ path, err }        => write!(f, "Could not read from Brane packages directory '{}': {}", path.display(), err),
-            InvalidPackageYml{ package, path, err }  => write!(f, "Could not read '{}' for package '{}': {}", path.display(), package, err),
-            PackageIndexError{ err }                 => write!(f, "Could not create PackageIndex: {}", err),
+            UtilError{ err }  => write!(f, "{}", err),
+            IndexError{ err } => write!(f, "Failed to fetch a local package index: {}", err),
 
             PackageVersionError{ name, version, err }     => write!(f, "Package '{}' does not exist or has no version {} ({})", name, version, err),
             PackageError{ name, err }                     => write!(f, "Package '{}' does not exist ({})", name, err),
@@ -592,6 +575,8 @@ pub enum RegistryError {
     KindParseError{ url: String, raw: String, err: specifications::package::PackageKindError },
     /// Could not parse the version as a proper PackageInfo version
     VersionParseError{ url: String, raw: String, err: specifications::version::ParseError },
+    /// Could not parse the list of requirements of the package.
+    RequirementParseError{ url: String, raw: String, err: serde_json::Error },
     /// Could not parse the functions as proper PackageInfo functions
     FunctionsParseError{ url: String, raw: String, err: serde_json::Error },
     /// Could not parse the types as proper PackageInfo types
@@ -606,7 +591,7 @@ pub enum RegistryError {
     /// Failed to resolve the packages directory
     PackagesDirError{ err: UtilError },
     /// Failed to get all versions for the given package
-    VersionsError{ name: String, err: UtilError },
+    VersionsError{ name: String, err: brane_tsk::local::Error },
     /// Failed to resolve the directory of a specific package
     PackageDirError{ name: String, version: Version, err: UtilError },
     /// Could not create a new temporary file
@@ -639,6 +624,7 @@ impl Display for RegistryError {
             GraphQLResponseError{ url, err }         => write!(f, "Could not get the GraphQL respones from '{}': {}", url, err),
             KindParseError{ url, raw, err }          => write!(f, "Could not parse '{}' (received from '{}') as package kind: {}", raw, url, err),
             VersionParseError{ url, raw, err }       => write!(f, "Could not parse '{}' (received from '{}') as package version: {}", raw, url, err),
+            RequirementParseError{ url, raw, err }   => write!(f, "Could not parse '{}' (received from '{}') as package requirement: {}", raw, url, err),
             FunctionsParseError{ url, raw, err }     => write!(f, "Could not parse '{}' (received from '{}') as package functions: {}", raw, url, err),
             TypesParseError{ url, raw, err }         => write!(f, "Could not parse '{}' (received from '{}') as package types: {}", raw, url, err),
             PackageInfoCreateError{ path, err }      => write!(f, "Could not create PackageInfo file '{}': {}", path.display(), err),
@@ -701,9 +687,9 @@ impl Error for ReplError {}
 #[derive(Debug)]
 pub enum RunError {
     /// Failed to create the local package index.
-    LocalPackageIndexError{ err: PackageError },
+    LocalPackageIndexError{ err: brane_tsk::local::Error },
     /// Failed to create the local data index.
-    LocalDataIndexError{ err: DataError },
+    LocalDataIndexError{ err: brane_tsk::local::Error },
     /// Failed to get the packages directory.
     PackagesDirError{ err: UtilError },
     /// Failed to get the datasets directory.
@@ -735,7 +721,7 @@ pub enum RunError {
     /// Failed to parse the value returned by the remote driver.
     ValueParseError{ address: String, raw: String, err: serde_json::Error },
     /// Failed to run the workflow
-    ExecError{ err: brane_tsk::errors::TaskError },
+    ExecError{ err: OfflineVmError },
 
     /// The returned dataset was unknown.
     UnknownDataset{ name: String },
@@ -802,7 +788,7 @@ pub enum TestError {
     /// Failed to ask the user for confirmation
     YesNoQueryError{ err: std::io::Error },
     /// Failed to get the local data index.
-    DataIndexError{ err: DataError },
+    DataIndexError{ err: brane_tsk::local::Error },
     /// Failed to query the user.
     ValueQueryError{ res_type: &'static str, err: std::io::Error },
     /// Failed to resolve a given class' name.
@@ -867,7 +853,7 @@ impl Error for TestError {}
 #[derive(Debug)]
 pub enum VerifyError {
     /// Failed to verify the config
-    ConfigFailed{ err: brane_cfg::Error },
+    ConfigFailed{ err: brane_cfg::infra::Error },
 }
 
 impl Display for VerifyError {
@@ -986,6 +972,9 @@ pub enum UtilError {
     /// Could not find the dataset folder inside brane's data folder.
     BraneDatasetsDirNotFound{ path: PathBuf },
 
+    /// Failed to read the versions in a package's directory.
+    VersionsError{ err: brane_tsk::errors::LocalError },
+
     /// Could not create the directory for a package
     PackageDirCreateError{ package: String, path: PathBuf, err: std::io::Error },
     /// The target package directory does not exist
@@ -999,17 +988,6 @@ pub enum UtilError {
     BraneDatasetDirCreateError{ name: String, path: PathBuf, err: std::io::Error },
     /// Could not find the dataset folder for a specific dataset.
     BraneDatasetDirNotFound{ name: String, path: PathBuf },
-
-    /// There was an error reading entries from a package's directory
-    PackageDirReadError{ path: PathBuf, err: std::io::Error },
-    /// Found a version entry who's path could not be split into a filename
-    UnreadableVersionEntry{ path: PathBuf },
-    /// The name of version directory in a package's dir is not a valid version
-    IllegalVersionEntry{ package: String, version: String, err: VersionParseError },
-    /// The given package has no versions registered to it
-    NoVersions{ package: String },
-    // /// Could not canonicalize a package/version directory
-    // VersionCanonicalizeError{ path: PathBuf, err: std::io::Error },
 
     /// Could not get the registry login info
     ConfigFileError{ err: specifications::registry::RegistryConfigError },
@@ -1058,6 +1036,8 @@ impl Display for UtilError {
             BraneDatasetsDirCreateError{ path, err } => write!(f, "Could not create Brane datasets directory '{}': {}", path.display(), err),
             BraneDatasetsDirNotFound{ path }         => write!(f, "Brane datasets directory '{}' not found", path.display()),
 
+            VersionsError{ err } => write!(f, "Failed to read package versions: {}", err),
+
             PackageDirCreateError{ package, path, err }          => write!(f, "Could not create directory for package '{}' (path: '{}'): {}", package, path.display(), err),
             PackageDirNotFound{ package, path }                  => write!(f, "Directory for package '{}' does not exist (path: '{}')", package, path.display()),
             VersionDirCreateError{ package, version, path, err } => write!(f, "Could not create directory for package '{}', version: {} (path: '{}'): {}", package, version, path.display(), err),
@@ -1066,18 +1046,35 @@ impl Display for UtilError {
             BraneDatasetDirCreateError{ name, path, err } => write!(f, "Could not create Brane dataset directory '{}' for dataset '{}': {}", path.display(), name, err),
             BraneDatasetDirNotFound{ name, path }         => write!(f, "Brane dataset directory '{}' for dataset '{}' not found", path.display(), name),
 
-            PackageDirReadError{ path, err }             => write!(f, "Could not read package directory '{}': {}", path.display(), err),
-            UnreadableVersionEntry{ path }               => write!(f, "Could not get the version directory from '{}'", path.display()),
-            IllegalVersionEntry{ package, version, err } => write!(f, "Entry '{}' for package '{}' is not a valid version: {}", version, package, err),
-            NoVersions{ package }                        => write!(f, "Package '{}' does not have any registered versions", package),
-            // VersionCanonicalizeError{ path, err }        => write!(f, "Could not resolve version directory '{}': {}", path.display(), err),
-
             InvalidBakeryName{ name } => write!(f, "The given name '{}' is not a valid name; expected alphanumeric or underscore characters", name),
         }
     }
 }
 
 impl Error for UtilError {}
+
+
+
+/// Declares errors that relate to the offline VM.
+#[derive(Debug)]
+pub enum OfflineVmError {
+    /// Failed to plan a workflow.
+    PlanError{ err: brane_tsk::errors::PlanError },
+    /// Failed to run a workflow.
+    ExecError{ err: brane_exe::Error },
+}
+
+impl Display for OfflineVmError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
+        use OfflineVmError::*;
+        match self {
+            PlanError{ err } => write!(f, "Failed to plan workflow: {}", err),
+            ExecError{ err } => write!(f, "Failed to execute workflow: {}", err),
+        }
+    }
+}
+
+impl Error for OfflineVmError {}
 
 
 

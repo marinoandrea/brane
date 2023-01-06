@@ -4,7 +4,7 @@
 //  Created:
 //    12 Sep 2022, 16:42:57
 //  Last edited:
-//    14 Nov 2022, 13:29:01
+//    23 Dec 2022, 16:41:00
 //  Auto updated?
 //    Yes
 // 
@@ -28,18 +28,17 @@ use brane_ast::state::CompileState;
 // use brane_cfg::certs::{load_cert, load_keypair};
 use brane_dsl::Language;
 use brane_exe::FullValue;
-use brane_tsk::errors::TaskError;
 use brane_tsk::spec::{LOCALHOST, AppId};
 use brane_tsk::grpc::{CreateSessionRequest, DriverServiceClient, ExecuteRequest};
-use brane_tsk::offline::OfflineVm;
 use specifications::data::{AccessKind, DataIndex, DataInfo};
 use specifications::package::PackageIndex;
 use specifications::registry::RegistryConfig;
 
 pub use crate::errors::RunError as Error;
+use crate::errors::OfflineVmError;
 use crate::data;
-use crate::packages;
-use crate::utils::{get_datasets_dir, get_packages_dir, get_registry_file};
+use crate::utils::{ensure_datasets_dir, ensure_packages_dir, get_datasets_dir, get_packages_dir, get_registry_file};
+use crate::vm::OfflineVm;
 
 
 /***** HELPER FUNCTIONS *****/
@@ -96,7 +95,7 @@ fn compile(state: &mut CompileState, source: &mut String, pindex: &PackageIndex,
         _ => { unreachable!(); },
     };
     debug!("Compiled to workflow:\n\n");
-    let workflow = if log::max_level() == log::LevelFilter::Debug{ brane_ast::traversals::print::ast::do_traversal(workflow).unwrap() } else { workflow };
+    let workflow = if log::max_level() == log::LevelFilter::Debug{ brane_ast::traversals::print::ast::do_traversal(workflow, std::io::stdout()).unwrap() } else { workflow };
 
     // Return
     Ok(workflow)
@@ -160,13 +159,24 @@ pub struct InstanceVmState {
 /// # Errors
 /// This function errors if we failed to get the new package indices or other information.
 pub fn initialize_offline_vm(options: ParserOptions) -> Result<OfflineVmState, Error> {
+    // Get the directory with the packages
+    let packages_dir = match ensure_packages_dir(false) {
+        Ok(dir)  => dir,
+        Err(err) => { return Err(Error::PackagesDirError{ err }); }
+    };
+    // Get the directory with the datasets
+    let datasets_dir = match ensure_datasets_dir(false) {
+        Ok(dir)  => dir,
+        Err(err) => { return Err(Error::DatasetsDirError{ err }); }
+    };
+
     // Get the package index for the local repository
-    let package_index: Arc<PackageIndex> = match packages::get_package_index() {
+    let package_index: Arc<PackageIndex> = match brane_tsk::local::get_package_index(packages_dir) {
         Ok(index) => Arc::new(index),
         Err(err)  => { return Err(Error::LocalPackageIndexError{ err }); }
     };
     // Get the data index for the local repository
-    let data_index: Arc<DataIndex> = match data::get_data_index() {
+    let data_index: Arc<DataIndex> = match brane_tsk::local::get_data_index(datasets_dir) {
         Ok(index) => Arc::new(index),
         Err(err)  => { return Err(Error::LocalDataIndexError{ err }); }
     };
@@ -300,7 +310,7 @@ pub async fn run_offline_vm(state: &mut OfflineVmState, what: impl AsRef<str>, s
     let workflow: Workflow = compile(&mut state.state, &mut state.source, &state.pindex, &state.dindex, &state.options, what, snippet)?;
 
     // Run it in the local VM (which is a bit ugly do to the need to consume the VM itself)
-    let res: (OfflineVm, Result<FullValue, TaskError>) = state.vm.take().unwrap().exec(workflow).await;
+    let res: (OfflineVm, Result<FullValue, OfflineVmError>) = state.vm.take().unwrap().exec(workflow).await;
     state.vm = Some(res.0);
     let res: FullValue = match res.1 {
         Ok(res)  => res,
@@ -441,8 +451,14 @@ pub fn process_offline_result(result: FullValue) -> Result<(), Error> {
 
             // If it's a dataset, attempt to download it
             FullValue::Data(name) => {
+                // Get the directory with the datasets
+                let datasets_dir = match ensure_datasets_dir(false) {
+                    Ok(dir)  => dir,
+                    Err(err) => { return Err(Error::DatasetsDirError{ err }); }
+                };
+
                 // Fetch a new, local DataIndex to get up-to-date entries
-                let index: DataIndex = match data::get_data_index() {
+                let index: DataIndex = match brane_tsk::local::get_data_index(datasets_dir) {
                     Ok(index) => index,
                     Err(err)  => { return Err(Error::LocalDataIndexError{ err }); }
                 };

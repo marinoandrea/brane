@@ -16,7 +16,6 @@ use hyper::Body;
 use indicatif::{DecimalBytes, HumanDuration};
 use prettytable::format::FormatBuilder;
 use prettytable::Table;
-use serde_json::json;
 use tokio::fs::File as TFile;
 use tokio_stream::StreamExt;
 use tokio_util::codec::{BytesCodec, FramedRead};
@@ -25,11 +24,11 @@ use brane_dsl::DataType;
 use brane_shr::debug::PrettyListFormatter;
 use brane_tsk::docker;
 use specifications::container::Image;
-use specifications::package::{PackageIndex, PackageInfo};
+use specifications::package::PackageInfo;
 use specifications::version::Version;
 
 use crate::errors::PackageError;
-use crate::utils::{ensure_packages_dir, ensure_package_dir, get_package_versions};
+use crate::utils::{ensure_packages_dir, ensure_package_dir};
 
 
 /***** HELPER FUNCTIONS *****/
@@ -57,63 +56,6 @@ fn insert_package_in_list(infos: &mut Vec<PackageInfo>, info: PackageInfo) {
 
     // Simply add to the list
     infos.push(info);
-}
-/*******/
-
-/* TIM */
-/// **Edited: Changed to return PackageErrors.**
-///
-/// Returns the an index of available packages and their versions.
-/// 
-/// **Returns**  
-/// A PackageIndex if we could retrieve it, or a PackageError if we failed.
-pub fn get_package_index() -> Result<PackageIndex, PackageError> {
-    // Try to get the generic packages dir (which is guaranteed to exist)
-    let packages_dir = match ensure_packages_dir(false) {
-        Ok(packages_dir) => packages_dir,
-        Err(err)         => { return Err(PackageError::UtilError{ err }); }
-    };
-
-    // Open an iterator to the list of files
-    let package_dirs = match fs::read_dir(&packages_dir) {
-        Ok(dir)  => dir,
-        Err(err) => { return Err(PackageError::PackagesDirReadError{ path: packages_dir, err }); }
-    };
-
-    // Start iterating through all the packages
-    let mut packages = vec![];
-    for package in package_dirs {
-        if let Err(reason) = package { return Err(PackageError::PackagesDirReadError{ path: packages_dir, err: reason }); }
-        let package = package.unwrap();
-
-        // Make sure it's a directory
-        let package_path = package.path();
-        if !package_path.is_dir() { continue; }
-
-        // Read the versions inside the package directory and add each of them separately
-        let package_name = package_path.file_name().unwrap().to_string_lossy();
-        let versions = match get_package_versions(&package_name, &package_path) {
-            Ok(versions) => versions,
-            Err(err)     => { return Err(PackageError::UtilError{ err }); }
-        };
-        for version in versions {
-            // Get the path of this version
-            let version_path = package_path.join(version.to_string());
-
-            // Try to read the propery package info
-            let package_file = version_path.join("package.yml");
-            match PackageInfo::from_path(package_file.clone()) {
-                Ok(package_info) => { packages.push(package_info); }
-                Err(err)         => { return Err(PackageError::InvalidPackageYml{ package: package_name.to_string(), path: package_file, err }); }
-            }
-        }
-    }
-
-    // Generate the package index from the collected list of packages
-    match PackageIndex::from_value(json!(packages)) {
-        Ok(index) => Ok(index),
-        Err(err)  => Err(PackageError::PackageIndexError{ err }),
-    }
 }
 /*******/
 
@@ -252,9 +194,9 @@ pub fn list(
     table.add_row(row!["ID", "NAME", "VERSION", "KIND", "CREATED", "SIZE"]);
 
     // Get the local PackageIndex
-    let index = match get_package_index() {
-        Ok(idx) => idx,
-        Err(reason) => { return Err(reason); }
+    let index = match brane_tsk::local::get_package_index(&packages_dir) {
+        Ok(idx)  => idx,
+        Err(err) => { return Err(PackageError::IndexError{ err }); }
     };
 
     // Collect a list of PackageInfos to show

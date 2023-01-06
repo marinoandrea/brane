@@ -1,0 +1,138 @@
+//  PACKAGES.rs
+//    by Lut99
+// 
+//  Created:
+//    06 Dec 2022, 11:57:11
+//  Last edited:
+//    06 Dec 2022, 13:05:28
+//  Auto updated?
+//    Yes
+// 
+//  Description:
+//!   Implements subcommands relating to packages.
+// 
+
+use std::borrow::Cow;
+use std::ffi::OsString;
+use std::fs::{self, ReadDir, DirEntry};
+use std::path::PathBuf;
+use std::str::FromStr;
+
+use log::{debug, info, warn};
+
+use brane_cfg::node::NodeConfig;
+use brane_tsk::docker;
+use specifications::version::Version;
+
+pub use crate::errors::PackagesError as Error;
+
+
+/***** LIBRARY *****/
+/// Attempts to hash the given container for use in policies.
+/// 
+/// # Arguments
+/// - `node_config_path`: The path to the node config file that contains environment settings for this node.
+/// 
+/// # Returns
+/// Nothing directly, but does print the hash to `stdout`.
+/// 
+/// # Errors
+/// This function errors if we failed to find the given image or if we failed to hash the file.
+pub async fn hash(node_config_path: impl Into<PathBuf>, image: impl Into<String>) -> Result<(), Error> {
+    let node_config_path : PathBuf = node_config_path.into();
+    let image            : String  = image.into();
+    info!("Computing hash for image '{}'...", image);
+
+    // Load the node config file
+    debug!("Loading node config file '{}'...", node_config_path.display());
+    let node_config: NodeConfig = match NodeConfig::from_path(&node_config_path) {
+        Ok(config) => config,
+        Err(err)   => { return Err(Error::NodeConfigLoadError{ err }); },
+    };
+
+    // Attempt to resolve the image
+    debug!("Resolving image...");
+    let mut image_path: PathBuf = PathBuf::from(&image);
+    if image_path.exists() {
+        if !image_path.is_file() { return Err(Error::FileNotAFile{ path: image_path }); }
+    } else {
+        // It needs more work
+
+        // Split the image into a name and possible version number
+        let (name, version): (String, Version) = match Version::from_package_pair(&image) {
+            Ok(res)  => res,
+            Err(err) => { return Err(Error::IllegalNameVersionPair{ raw: image, err }); },
+        };
+
+        // Start reading the packages directory
+        let entries: ReadDir = match fs::read_dir(&node_config.paths.packages) {
+            Ok(entries) => entries,
+            Err(err)    => { return Err(Error::DirReadError{ what: "packages", path: node_config.paths.packages, err }); },
+        };
+        let mut file: Option<(PathBuf, Version)> = None;
+        for (i, entry) in entries.enumerate() {
+            // Unwrap the entry
+            let entry: DirEntry = match entry {
+                Ok(entry) => entry,
+                Err(err)  => { return Err(Error::DirEntryReadError { what: "packages", entry: i, path: node_config.paths.packages, err }); },
+            };
+
+            // Attempt to analyse the filename by parsing it as a (name, version) pair
+            let entry_name: OsString = entry.file_name();
+            let entry_name: Cow<str> = entry_name.to_string_lossy();
+            let dash_pos: usize = match entry_name.find('-') {
+                Some(pos) => pos,
+                None      => { warn!("Missing dash ('-') in file '{}' (skipping)", entry.path().display()); continue; }
+            };
+            let dot_pos: usize = match entry_name.rfind('.') {
+                Some(pos) => pos,
+                None      => { warn!("Missing extension dot ('.') in file '{}' (skipping)", entry.path().display()); continue; }
+            };
+            let ename    : &str = &entry_name[..dash_pos];
+            let eversion : &str = &entry_name[dash_pos + 1..dot_pos];
+
+            // Attempt to parse the eversion
+            let eversion: Version = match Version::from_str(eversion) {
+                Ok(eversion) => eversion,
+                Err(err)     => { warn!("File '{}' has illegal version number '{}': {} (skipping)", entry.path().display(), eversion, err); continue; },  
+            };
+
+            // Check if this package checks out
+            if name == ename {
+                // Only write it if the version makes sense
+                if version.is_latest() {
+                    // Check if it's 'latest' too or the highest
+                    if eversion.is_latest() || file.is_none() || eversion > file.as_ref().unwrap().1 {
+                        let is_latest: bool = eversion.is_latest();
+                        file = Some((entry.path(), eversion));
+                        if is_latest { break; }
+                    }
+                } else if version == eversion {
+                    // Always accept it and stop searching
+                    file = Some((entry.path(), eversion));
+                    break;
+                }
+            }
+        }
+
+        // Fail if we didn't find any
+        if let Some((path, _)) = file {
+            image_path = path;
+        } else {
+            return Err(Error::UnknownImage{ path: node_config.paths.packages, name, version });
+        }
+    }
+
+    // With the image resolved, hash it
+    debug!("Hashing image '{}'...", image_path.display());
+    let hash: String = match docker::hash_container(&image_path).await {
+        Ok(hash) => hash,
+        Err(err) => { return Err(Error::HashError{ err }); },  
+    };
+
+    // Write it
+    println!("{}", hash);
+
+    // Done
+    Ok(())
+}

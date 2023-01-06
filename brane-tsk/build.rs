@@ -4,7 +4,7 @@
 //  Created:
 //    27 Oct 2022, 10:28:41
 //  Last edited:
-//    27 Oct 2022, 15:51:59
+//    29 Nov 2022, 13:07:50
 //  Auto updated?
 //    Yes
 // 
@@ -17,6 +17,5 @@
 /***** ENTRYPOINT *****/
 fn main() -> Result<(), std::io::Error> {
     tonic_build::configure()
-        .format(false)
         .compile(&["proto/driver.proto", "proto/job.proto"], &["proto"])
 }

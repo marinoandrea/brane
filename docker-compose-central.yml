@@ -7,7 +7,7 @@ services:
 
   # Database that contains package metadata
   aux-scylla:
-    image: scylladb/scylla:4.6.3
+    image: aux-scylla:${BRANE_VERSION:-latest}
     # ports:
     #   - "127.0.0.1:9042:9042"
     command: --smp 1
@@ -16,49 +16,9 @@ services:
     - kompose.service.type=nodeport
     - kompose.service.nodeport.port=9042
 
-  # Contains the Docker images for the packages
-  aux-registry:
-    image: registry:2
-    ports:
-      - "0.0.0.0:50050:5000"
-    restart: always
-    labels:
-    - kompose.service.type=nodeport
-    - kompose.service.nodeport.port=50050
-
-  # # Handles events and callbacks throughout the framework
-  # aux-kafka:
-  #   image: confluentinc/cp-kafka:6.2.0
-  #   depends_on:
-  #     - aux-zookeeper
-  #   ports:
-  #     - "127.0.0.1:9092:9092"
-  #   restart: always
-  #   environment:
-  #     KAFKA_BROKER_ID: 0
-  #     KAFKA_ZOOKEEPER_CONNECT: aux-zookeeper:2181
-  #     KAFKA_LISTENERS: DOCKER://aux-kafka:29092,HOST://aux-kafka:9092
-  #     KAFKA_ADVERTISED_LISTENERS: DOCKER://aux-kafka:29092,HOST://localhost:9092
-  #     KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: DOCKER:PLAINTEXT,HOST:PLAINTEXT
-  #     KAFKA_INTER_BROKER_LISTENER_NAME: DOCKER
-  #     KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-  #     KAFKA_NUM_PARTITIONS: 1
-  #     CONFLUENT_SUPPORT_METRICS_ENABLE: 0
-  #   labels:
-  #   - kompose.service.type=nodeport
-  #   - kompose.service.nodeport.port=9092
-
-  # # Zookeeper for Kafka
-  # aux-zookeeper:
-  #   # image: confluentinc/cp-zookeeper:5.5.1
-  #   image: zookeeper:3.8.0
-  #   environment:
-  #     ZOOKEEPER_CLIENT_PORT: "2181"
-  #   restart: always
-
   # Handles events and callbacks throughout the framework
   aux-kafka:
-    image: ubuntu/kafka:3.1-22.04_beta
+    image: aux-kafka:${BRANE_VERSION:-latest}
     # ports:
     # - "127.0.0.1:9092:9092"
     restart: always
@@ -71,12 +31,12 @@ services:
 
   # Zookeeper for Kafka
   aux-zookeeper:
-    image: ubuntu/zookeeper:3.1-22.04_beta
+    image: aux-zookeeper:${BRANE_VERSION:-latest}
     restart: always
 
   # Xenon scheduler, which allows the framework to act as its own domain-local scheduler
   brane-xenon:
-    image: brane-xenon:latest
+    image: aux-xenon:${BRANE_VERSION:-latest}
     # ports:
     #   - "127.0.0.1:50054:50054"
     command: -v
@@ -87,127 +47,56 @@ services:
 
 
 
-  # #############
-  # ## JuiceFS ##
-  # #############
-
-  # # The actual database backend for Redis (although it's in-memory)
-  # aux-minio:
-  #   image: minio/minio
-  #   ports:
-  #   - "0.0.0.0:9000:9000"
-  #   command: server /data
-  #   restart: always
-  #   environment:
-  #     MINIO_ROOT_USER: JntYwuVjKY5v5F2bPZr3aZtD
-  #     MINIO_ROOT_PASSWORD: qBKuJxbCNa5bSCPQb3kEyB4s
-  #   volumes:
-  #   - data:/data
-  #   labels:
-  #   - kompose.service.type=nodeport
-  #   - kompose.service.nodeport.port=9000
-
-  # # The distributed filesystem service
-  # aux-redis:
-  #   image: redis:6-alpine
-  #   ports:
-  #   - "0.0.0.0:6379:6379"
-  #   restart: always
-  #   labels:
-  #   - kompose.service.type=nodeport
-  #   - kompose.service.nodeport.port=6379
-
-  # # Simple one-off container that formats the Redis filesystem
-  # once-format:
-  #   image: brane-format:latest
-  #   depends_on: 
-  #   - aux-minio
-  #   - aux-redis
-  #   command: format --access-key JntYwuVjKY5v5F2bPZr3aZtD --secret-key qBKuJxbCNa5bSCPQb3kEyB4s --storage minio --bucket http://aux-minio:9000/data aux-redis brane
-
-
-
   ###########
   ## BRANE ##
   ###########
 
+  # "Proxy" service that can be targeted by local connections to be proxied (and encrypted with client auth) to remote hosts.
+  brane-prx:
+    image: brane-prx:${BRANE_VERSION:-latest}
+    container_name: ${PRX_NAME:-brane-prx}
+    restart: always
+    volumes:
+    - ${NODE_CONFIG_PATH}:/node.yml
+    - ${CERTS}:${CERTS}
+
   # The service in charge of package registry, downloading, uploading, etc
   brane-api:
     image: brane-api:${BRANE_VERSION:-latest}
-    container_name: brane-api
-    ports:
-    - "0.0.0.0:50051:50051"
-    volumes:
-    - ${CERTS:-./certs}:/certs
-    - ${CONFIG:-./config}:/config
+    container_name: ${API_NAME:-brane-api}
     restart: always
-    environment:
-      ADDRESS: "0.0.0.0:50051"
-      REGISTRY: "aux-registry:5000"
-      SCYLLA: "aux-scylla:9042"
+    ports:
+    - "0.0.0.0:${API_PORT}:${API_PORT}"
+    volumes:
+    - ${NODE_CONFIG_PATH}:/node.yml
+    - ${INFRA}:${INFRA}
+    - ${CERTS}:${CERTS}
+    - ${PACKAGES}:${PACKAGES}
     depends_on:
     - aux-scylla
-    - aux-registry
+    - brane-prx
+    # - aux-registry
     labels:
     - kompose.service.type=nodeport
     - kompose.service.nodeport.port=50051
 
-  # # The service that receives job callbacks and puts them in the Kafka event system
-  # brane-clb:
-  #   image: brane-clb:${BRANE_VERSION:-latest}
-  #   container_name: brane-clb
-  #   ports:
-  #   - "127.0.0.1:50052:50052"
-  #   restart: always
-  #   environment:
-  #     ADDRESS: "0.0.0.0:50052"
-  #     BROKERS: "aux-kafka:9092"
-  #   depends_on:
-  #   - aux-kafka
-  #   labels:
-  #   - kompose.service.type=nodeport
-  #   - kompose.service.nodeport.port=50052
-
   # The service that accepts client connections and executes workflow control flow
   brane-drv:
     image: brane-drv:${BRANE_VERSION:-latest}
-    container_name: brane-drv
-    ports:
-    - "0.0.0.0:50053:50053"
-    volumes:
-    - ${CONFIG:-./config}:/config
+    container_name: ${DRV_NAME:-brane-drv}
     restart: always
-    links:
-    - brane-api:brane-api
-    environment:
-      API_ADDRESS: "http://brane-api:50051"
-      REG_ADDRESS: "http://aux-registry:50050"
-      ADDRESS: "0.0.0.0:50053"
-      BROKERS: "aux-kafka:9092"
+    ports:
+    - "0.0.0.0:${DRV_PORT}:${DRV_PORT}"
+    volumes:
+    - ${NODE_CONFIG_PATH}:/node.yml
+    - ${INFRA}:${INFRA}
     depends_on:
     - aux-kafka
+    - brane-prx
     - brane-api
     labels:
     - kompose.service.type=nodeport
     - kompose.service.nodeport.port=50053
-
-  # # The service that takes external job calls and schedules them on the local domain
-  # brane-job:
-  #   image: brane-job:${BRANE_VERSION:-latest}
-  #   container_name: brane-job
-  #   restart: always
-  #   volumes:
-  #   - ./config:/config
-  #   - /var/run/docker.sock:/var/run/docker.sock
-  #   environment:
-  #     BROKERS: "aux-kafka:9092"
-  #     CALLBACK_TOPIC: clb
-  #     COMMAND_TOPIC: plr-cmd
-  #     EVENT_TOPIC: job-evt
-  #     XENON: "brane-xenon:50054"
-  #   depends_on:
-  #   - aux-kafka
-  #   - brane-xenon
 
   # # The service logging everything
   # brane-log:
@@ -229,19 +118,17 @@ services:
   # The service that chooses the appropriate domain to run a job on
   brane-plr:
     image: brane-plr:${BRANE_VERSION:-latest}
-    container_name: brane-plr
+    container_name: ${PLR_NAME:-brane-plr}
     restart: always
     volumes:
-    - ${CONFIG:-./config}:/config
-    environment:
-      API_ADDRESS: "http://brane-api:50051"
-      BROKERS: "aux-kafka:9092"
+    - ${NODE_CONFIG_PATH}:/node.yml
+    - ${INFRA}:${INFRA}
     depends_on:
     - aux-kafka
 
 networks:
   default:
-    name: brane
+    name: brane-central
 
 volumes:
   data:

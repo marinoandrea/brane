@@ -4,7 +4,7 @@
 //  Created:
 //    24 Oct 2022, 15:27:26
 //  Last edited:
-//    11 Nov 2022, 16:47:54
+//    05 Jan 2023, 15:12:39
 //  Auto updated?
 //    Yes
 // 
@@ -12,18 +12,22 @@
 //!   Defines errors that occur in the `brane-tsk` crate.
 // 
 
+use std::collections::HashSet;
 use std::error::Error;
 use std::fmt::{Display, Formatter, Result as FResult};
 use std::path::PathBuf;
 
 use bollard::ClientVersion;
+use enum_debug::EnumDebug as _;
 use reqwest::StatusCode;
 use tonic::Status;
 
 use brane_ast::locations::{Location, Locations};
 use brane_ast::ast::DataName;
-use brane_shr::debug::{BlockFormatter, Capitalizeable, EnumDebug};
+use brane_cfg::spec::Address;
+use brane_shr::debug::{BlockFormatter, Capitalizeable};
 use specifications::container::Image;
+use specifications::package::Capability;
 use specifications::planning::PlanningStatusKind;
 use specifications::version::Version;
 
@@ -60,10 +64,20 @@ impl Error for TaskError {}
 #[derive(Debug)]
 pub enum PlanError {
     /// Failed to load the infrastructure file.
-    InfraFileLoadError{ err: brane_cfg::Error },
+    InfraFileLoadError{ err: brane_cfg::infra::Error },
 
     /// The user didn't specify the location (specifically enough).
     AmbigiousLocationError{ name: String, locs: Locations },
+    /// Failed to send a request to the API service.
+    RequestError{ address: String, err: reqwest::Error },
+    /// The request failed with a non-OK status code
+    RequestFailure{ address: String, code: reqwest::StatusCode, err: Option<String> },
+    /// Failed to get the body of a request.
+    RequestBodyError{ address: String, err: reqwest::Error },
+    /// Failed to parse the body of the request as valid JSON
+    RequestParseError{ address: String, raw: String, err: serde_json::Error },
+    /// The planned domain does not support the task.
+    UnsupportedCapabilities{ task: String, loc: String, expected: HashSet<Capability>, got: HashSet<Capability> },
     /// The given dataset was unknown to us.
     UnknownDataset{ name: String },
     /// The given intermediate result was unknown to us.
@@ -110,12 +124,17 @@ impl Display for PlanError {
         match self {
             InfraFileLoadError{ err } => write!(f, "Failed to load infrastructure file: {}", err),
 
-            AmbigiousLocationError{ name, locs }        => write!(f, "Ambigious location for task '{}': {}", name, if let Locations::Restricted(locs) = locs { format!("possible locations are {}, but you need to reduce that to only 1 (use On-structs for that)", locs.join(", ")) } else { "all locations are possible, but you need to reduce that to only 1 (use On-structs for that)".into() }),
-            UnknownDataset{ name }                      => write!(f, "Unknown dataset '{}'", name),
-            UnknownIntermediateResult{ name }           => write!(f, "Unknown intermediate result '{}'", name),
-            DataPlanError{ err }                        => write!(f, "Failed to plan dataset: {}", err),
-            DatasetUnavailable{ name, locs }            => write!(f, "Dataset '{}' is unavailable{}", name, if !locs.is_empty() { format!("; however, locations {} do (try to get download permission to those datasets)", locs.iter().map(|l| format!("'{}'", l)).collect::<Vec<String>>().join(", ")) } else { String::new() }),
-            IntermediateResultUnavailable{ name, locs } => write!(f, "Intermediate result '{}' is unavailable{}", name, if !locs.is_empty() { format!("; however, locations {} do (try to get download permission to those datasets)", locs.iter().map(|l| format!("'{}'", l)).collect::<Vec<String>>().join(", ")) } else { String::new() }),
+            AmbigiousLocationError{ name, locs }                => write!(f, "Ambigious location for task '{}': {}", name, if let Locations::Restricted(locs) = locs { format!("possible locations are {}, but you need to reduce that to only 1 (use On-structs for that)", locs.join(", ")) } else { "all locations are possible, but you need to reduce that to only 1 (use On-structs for that)".into() }),
+            RequestError{ address, err }                        => write!(f, "Failed to send GET-request to '{}': {}", address, err),
+            RequestFailure{ address, code, err }                => write!(f, "GET-request to '{}' failed with {} ({}){}", address, code, code.canonical_reason().unwrap_or("???"), if let Some(err) = err { format!(": {}", err) } else { String::new() }),
+            RequestBodyError{ address, err }                    => write!(f, "Failed to get the body of response from '{}' as UTF-8 text: {}", address, err),
+            RequestParseError{ address, raw, err }              => write!(f, "Failed to parse response '{}' from '{}' as valid JSON: {}", raw, address, err),
+            UnsupportedCapabilities{ task, loc, expected, got } => write!(f, "Location '{}' only supports capabilities {:?}, whereas task '{}' requires capabilities {:?}", loc, got, task, expected),
+            UnknownDataset{ name }                              => write!(f, "Unknown dataset '{}'", name),
+            UnknownIntermediateResult{ name }                   => write!(f, "Unknown intermediate result '{}'", name),
+            DataPlanError{ err }                                => write!(f, "Failed to plan dataset: {}", err),
+            DatasetUnavailable{ name, locs }                    => write!(f, "Dataset '{}' is unavailable{}", name, if !locs.is_empty() { format!("; however, locations {} do (try to get download permission to those datasets)", locs.iter().map(|l| format!("'{}'", l)).collect::<Vec<String>>().join(", ")) } else { String::new() }),
+            IntermediateResultUnavailable{ name, locs }         => write!(f, "Intermediate result '{}' is unavailable{}", name, if !locs.is_empty() { format!("; however, locations {} do (try to get download permission to those datasets)", locs.iter().map(|l| format!("'{}'", l)).collect::<Vec<String>>().join(", ")) } else { String::new() }),
 
             UpdateEncodeError{ correlation_id, kind, err } => write!(f, "Failed to encode status update '{:?}' for a planning session with ID '{}': {}", kind, correlation_id, err),
             KafkaSendError{ correlation_id, topic, err }   => write!(f, "Failed to send status update on Kafka topic '{}' for a planning session with ID '{}': {}", topic, correlation_id, err),
@@ -146,18 +165,22 @@ pub enum PreprocessError {
     UnavailableData{ name: DataName },
 
     // Instance only (client-side)
+    /// Failed to load the node config file.
+    NodeConfigReadError{ path: PathBuf, err: brane_cfg::node::Error },
     /// Failed to load the infra file.
-    InfraReadError{ path: PathBuf, err: brane_cfg::Error },
+    InfraReadError{ path: PathBuf, err: brane_cfg::infra::Error },
     /// The given location was unknown.
     UnknownLocationError{ loc: Location },
+    /// Failed to connect to a proxy.
+    ProxyError{ err: String },
     /// Failed to connect to a delegate node with gRPC
-    GrpcConnectError{ endpoint: String, err: tonic::transport::Error },
+    GrpcConnectError{ endpoint: Address, err: tonic::transport::Error },
     /// Failed to send a preprocess request to a delegate node with gRPC
-    GrpcRequestError{ what: &'static str, endpoint: String, err: tonic::Status },
+    GrpcRequestError{ what: &'static str, endpoint: Address, err: tonic::Status },
     /// Preprocessing failed with the following error.
-    PreprocessError{ endpoint: String, kind: String, name: String, err: String },
+    PreprocessError{ endpoint: Address, kind: String, name: String, err: String },
     /// Failed to re-serialize the access kind.
-    AccessKindParseError{ endpoint: String, raw: String, err: serde_json::Error },
+    AccessKindParseError{ endpoint: Address, raw: String, err: serde_json::Error },
 
     // Instance only (worker-side)
     // /// Failed to load the keypair.
@@ -185,7 +208,7 @@ pub enum PreprocessError {
     /// A directory could not be created.
     DirCreateError{ what: &'static str, path: PathBuf, err: std::io::Error },
     /// Failed to create a reqwest proxy object.
-    ProxyCreateError{ address: String, err: reqwest::Error },
+    ProxyCreateError{ address: Address, err: reqwest::Error },
     /// Failed to create a reqwest client.
     ClientCreateError{ err: reqwest::Error },
     /// Failed to send a GET-request to fetch the data.
@@ -212,8 +235,10 @@ impl Display for PreprocessError {
         match self {
             UnavailableData{ name } => write!(f, "{} '{}' is not available locally", name.variant(), name.name()),
 
+            NodeConfigReadError{ err, .. }               => write!(f, "Failed to load node config file: {}", err),
             InfraReadError{ path, err }                  => write!(f, "Failed to load infrastructure file '{}': {}", path.display(), err),
             UnknownLocationError{ loc }                  => write!(f, "Unknown location '{}'", loc),
+            ProxyError{ err }                            => write!(f, "Failed to prepare proxy service: {}", err),
             GrpcConnectError{ endpoint, err }            => write!(f, "Failed to start gRPC connection with delegate node '{}': {}", endpoint, err),
             GrpcRequestError{ what, endpoint, err }      => write!(f, "Failed to send {} request to delegate node '{}': {}", what, endpoint, err),
             PreprocessError{ endpoint, kind, name, err } => write!(f, "Remote delegate '{}' failed to preprocess {} '{}': {}", endpoint, kind, name, err),
@@ -289,26 +314,53 @@ pub enum ExecuteError {
     StatusTripletParseError{ status: TaskStatus, raw: String, err: serde_json::Error },
     /// Failed to update the client of a status change.
     ClientUpdateError{ status: TaskStatus, err: tokio::sync::mpsc::error::SendError<Result<TaskReply, Status>> },
+    /// Failed to load the node config file.
+    NodeConfigReadError{ path: PathBuf, err: brane_cfg::node::Error },
     /// Failed to load the infra file.
-    InfraReadError{ path: PathBuf, err: brane_cfg::Error },
+    InfraReadError{ path: PathBuf, err: brane_cfg::infra::Error },
     /// The given location was unknown.
     UnknownLocationError{ loc: Location },
+    /// Failed to prepare the proxy service.
+    ProxyError{ err: String },
     /// Failed to connect to a delegate node with gRPC
-    GrpcConnectError{ endpoint: String, err: tonic::transport::Error },
+    GrpcConnectError{ endpoint: Address, err: tonic::transport::Error },
     /// Failed to send a preprocess request to a delegate node with gRPC
-    GrpcRequestError{ what: &'static str, endpoint: String, err: tonic::Status },
+    GrpcRequestError{ what: &'static str, endpoint: Address, err: tonic::Status },
     /// Preprocessing failed with the following error.
-    ExecuteError{ endpoint: String, name: String, status: TaskStatus, err: String },
+    ExecuteError{ endpoint: Address, name: String, status: TaskStatus, err: String },
 
     // Instance-only (worker side)
+    /// Failed to fetch the digest of an already existing image.
+    DigestError{ path: PathBuf, err: DockerError },
+    /// Failed to create a reqwest proxy object.
+    ProxyCreateError{ address: Address, err: reqwest::Error },
+    /// Failed to create a reqwest client.
+    ClientCreateError{ err: reqwest::Error },
+    /// Failed to send a GET-request to fetch the data.
+    DownloadRequestError{ address: String, err: reqwest::Error },
+    /// The given download request failed with a non-success status code.
+    DownloadRequestFailure{ address: String, code: StatusCode, message: Option<String> },
+    /// Failed to reach the next chunk of data.
+    DownloadStreamError{ address: String, err: reqwest::Error },
+    /// Failed to create the file to which we write the download stream.
+    ImageCreateError{ path: PathBuf, err: std::io::Error },
+    /// Failed to write to the file where we write the download stream.
+    ImageWriteError{ path: PathBuf, err: std::io::Error },
+    /// Failed to hash the given container.
+    HashError{ err: DockerError },
+    /// Failed to write to the file where we write the container hash.
+    HashWriteError{ path: PathBuf, err: std::io::Error },
+    /// Failed to read to the file where we cached the container hash.
+    HashReadError{ path: PathBuf, err: std::io::Error },
+
     /// The checker rejected the workflow.
-    AuthorizationFailure{ checker: String },
+    AuthorizationFailure{ checker: Address },
     /// The checker failed to check workflow authorization.
-    AuthorizationError{ checker: String, err: AuthorizeError },
+    AuthorizationError{ checker: Address, err: AuthorizeError },
     /// Failed to get an up-to-date package index.
     PackageIndexError{ endpoint: String, err: ApiError },
-    /// Failed to load the credentials file.
-    CredsFileError{ path: PathBuf, err: brane_cfg::creds::Error },
+    /// Failed to load the backend file.
+    BackendFileError{ path: PathBuf, err: brane_cfg::backend::Error },
 }
 
 impl Display for ExecuteError {
@@ -333,16 +385,30 @@ impl Display for ExecuteError {
             StatusValueParseError{ status, raw, err }   => write!(f, "Failed to parse '{}' as a FullValue in incoming status update {:?}: {}", raw, status, err),
             StatusTripletParseError{ status, raw, err } => write!(f, "Failed to parse '{}' as a return code/stdout/stderr triplet in incoming status update {:?}: {}", raw, status, err),
             ClientUpdateError{ status, err }            => write!(f, "Failed to update client of status {:?}: {}", status, err),
+            NodeConfigReadError{ err, .. }              => write!(f, "Failed to load node config file: {}", err),
             InfraReadError{ path, err }                 => write!(f, "Failed to load infrastructure file '{}': {}", path.display(), err),
             UnknownLocationError{ loc }                 => write!(f, "Unknown location '{}'", loc),
+            ProxyError{ err }                           => write!(f, "Failed to prepare proxy service: {}", err),
             GrpcConnectError{ endpoint, err }           => write!(f, "Failed to start gRPC connection with delegate node '{}': {}", endpoint, err),
             GrpcRequestError{ what, endpoint, err }     => write!(f, "Failed to send {} request to delegate node '{}': {}", what, endpoint, err),
             ExecuteError{ endpoint, name, status, err } => write!(f, "Remote delegate '{}' returned status '{:?}' while executing task '{}': {}", endpoint, status, name, err),
 
+            DigestError{ path, err }                         => write!(f, "Failed to read digest of image '{}': {}", path.display(), err),
+            ProxyCreateError{ address, err }                 => write!(f, "Failed to create proxy to '{}': {}", address, err),
+            ClientCreateError{ err }                         => write!(f, "Failed to create HTTP-client: {}", err),
+            DownloadRequestError{ address, err }             => write!(f, "Failed to send GET download request to '{}': {}", address, err),
+            DownloadRequestFailure{ address, code, message } => write!(f, "GET download request to '{}' failed with status code {} ({}){}", address, code, code.canonical_reason().unwrap_or("???"), if let Some(message) = message { format!(": {}", message) } else { String::new() }),
+            DownloadStreamError{ address, err }              => write!(f, "Failed to get next chunk in download stream from '{}': {}", address, err),
+            ImageCreateError{ path, err }                    => write!(f, "Failed to create tarball file '{}': {}", path.display(), err),
+            ImageWriteError{ path, err }                     => write!(f, "Failed to write to tarball file '{}': {}", path.display(), err),
+            HashError{ err }                                 => write!(f, "Failed to hash image: {}", err),
+            HashWriteError{ path, err }                      => write!(f, "Failed to write image hash to file '{}': {}", path.display(), err),
+            HashReadError{ path, err }                       => write!(f, "Failed to read image hash from file '{}': {}", path.display(), err),
+
             AuthorizationFailure{ checker: _ }    => write!(f, "Checker rejected workflow"),
             AuthorizationError{ checker: _, err } => write!(f, "Checker failed to authorize workflow: {}", err),
             PackageIndexError{ endpoint, err }    => write!(f, "Failed to get PackageIndex from '{}': {}", endpoint, err),
-            CredsFileError{ path, err }           => write!(f, "Failed to load credentials file '{}': {}", path.display(), err),
+            BackendFileError{ path, err }         => write!(f, "Failed to load backend file '{}': {}", path.display(), err),
         }
     }
 }
@@ -354,15 +420,18 @@ impl Error for ExecuteError {}
 /// A special case of the execute error, this relates to authorization errors in the backend eFLINT reasoner (or other reasoners).
 #[derive(Debug)]
 pub enum AuthorizeError {
-    // Placeholder until we encounter an error
-    Temp,
+    /// Failed to load the policy file.
+    PolicyFileError{ err: brane_cfg::policies::Error },
+    /// No policy rule defined for the given container.
+    NoContainerPolicy{ hash: String },
 }
 
 impl Display for AuthorizeError {
     fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
         use AuthorizeError::*;
         match self {
-            Temp => write!(f, "TEMP"),
+            PolicyFileError{ err }    => write!(f, "Failed to load policy file: {}", err),
+            NoContainerPolicy{ hash } => write!(f, "No policy found that applies to a container with hash '{}' (did you add a final AllowAll/DenyAll?)", hash),
         }
     }
 }
@@ -415,16 +484,20 @@ pub enum CommitError {
     DataCopyError{ err: brane_shr::fs::Error },
 
     // Instance-only (client side)
+    /// Failed to load the node config file.
+    NodeConfigReadError{ path: PathBuf, err: brane_cfg::node::Error },
     /// Failed to load the infra file.
-    InfraReadError{ path: PathBuf, err: brane_cfg::Error },
+    InfraReadError{ path: PathBuf, err: brane_cfg::infra::Error },
     /// The given location was unknown.
     UnknownLocationError{ loc: Location },
+    /// Failed to prepare the proxy service.
+    ProxyError{ err: String },
     /// Failed to connect to a delegate node with gRPC
-    GrpcConnectError{ endpoint: String, err: tonic::transport::Error },
+    GrpcConnectError{ endpoint: Address, err: tonic::transport::Error },
     /// Failed to send a preprocess request to a delegate node with gRPC
-    GrpcRequestError{ what: &'static str, endpoint: String, err: tonic::Status },
+    GrpcRequestError{ what: &'static str, endpoint: Address, err: tonic::Status },
     /// Preprocessing failed with the following error.
-    CommitError{ endpoint: String, name: String, err: Option<String> },
+    CommitError{ endpoint: Address, name: String, err: Option<String> },
 
     // Instance-only (worker side)
     /// Failed to read the AssetInfo file.
@@ -451,8 +524,10 @@ impl Display for CommitError {
             DirEntryReadError{ path, i, err }    => write!(f, "Failed to read entry {} in directory '{}': {}", i, path.display(), err),
             DataCopyError{ err }                 => write!(f, "Failed to copy data directory: {}", err),
 
+            NodeConfigReadError{ err, .. }          => write!(f, "Failed to load node config file: {}", err),
             InfraReadError{ path, err }             => write!(f, "Failed to load infrastructure file '{}': {}", path.display(), err),
             UnknownLocationError{ loc }             => write!(f, "Unknown location '{}'", loc),
+            ProxyError{ err }                       => write!(f, "Failed to prepare proxy service: {}", err),
             GrpcConnectError{ endpoint, err }       => write!(f, "Failed to start gRPC connection with delegate node '{}': {}", endpoint, err),
             GrpcRequestError{ what, endpoint, err } => write!(f, "Failed to send {} request to delegate node '{}': {}", what, endpoint, err),
             CommitError{ endpoint, name, err }      => write!(f, "Remote delegate '{}' failed to commit intermediate result '{}'{}", endpoint, name, if let Some(err) = err { format!(": {}", err) } else { String::new() }),
@@ -494,7 +569,7 @@ impl Error for IdError {}
 #[derive(Debug)]
 pub enum DockerError {
     /// We failed to connect to the local Docker daemon.
-    ConnectionError{ path: String, version: ClientVersion, err: bollard::errors::Error },
+    ConnectionError{ path: PathBuf, version: ClientVersion, err: bollard::errors::Error },
 
     /// Failed to wait for the container with the given name.
     WaitError{ name: String, err: bollard::errors::Error },
@@ -525,10 +600,35 @@ pub enum DockerError {
     ImageImportError{ path: PathBuf, err: bollard::errors::Error },
 
     /// Failed to pull the given image file.
-    ImagePullError{ image: Image, err: bollard::errors::Error },
+    ImagePullError{ source: String, err: bollard::errors::Error },
+    /// Failed to appropriately tag the pulled image.
+    ImageTagError{ image: Image, source: String, err: bollard::errors::Error },
 
+    /// Failed to inspect a certain image.
+    ImageInspectError{ image: Image, err: bollard::errors::Error },
     /// Failed to remove a certain image.
     ImageRemoveError{ image: Image, id: String, err: bollard::errors::Error },
+
+    /// Could not open the given image.tar.
+    ImageTarOpenError{ path: PathBuf, err: std::io::Error },
+    /// Could not read from the given image.tar.
+    ImageTarReadError{ path: PathBuf, err: std::io::Error },
+    /// Could not get the list of entries from the given image.tar.
+    ImageTarEntriesError{ path: PathBuf, err: std::io::Error },
+    /// COuld not read a single entry from the given image.tar.
+    ImageTarEntryError{ path: PathBuf, err: std::io::Error },
+    /// Could not get path from entry
+    ImageTarIllegalPath{ path: PathBuf, err: std::io::Error },
+    /// Could not read the manifest.json file
+    ImageTarManifestReadError{ path: PathBuf, entry: PathBuf, err: std::io::Error },
+    /// Could not parse the manifest.json file
+    ImageTarManifestParseError{ path: PathBuf, entry: PathBuf, err: serde_json::Error },
+    /// Incorrect number of items found in the toplevel list of the manifest.json file
+    ImageTarIllegalManifestNum{ path: PathBuf, entry: PathBuf, got: usize },
+    /// Could not find the expected part of the config digest
+    ImageTarIllegalDigest{ path: PathBuf, entry: PathBuf, digest: String },
+    /// Could not find the manifest.json file in the given image.tar.
+    ImageTarNoManifest{ path: PathBuf },
 }
 
 impl Display for DockerError {
@@ -536,7 +636,7 @@ impl Display for DockerError {
     fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
         use DockerError::*;
         match self {
-            ConnectionError{ path, version, err } => write!(f, "Failed to connect to the local Docker daemon through socket '{}' and with client version {}: {}", path, version, err),
+            ConnectionError{ path, version, err } => write!(f, "Failed to connect to the local Docker daemon through socket '{}' and with client version {}: {}", path.display(), version, err),
 
             WaitError{ name, err } => write!(f, "Failed to wait for Docker container with name '{}': {}", name, err),
             LogsError{ name, err } => write!(f, "Failed to get logs of Docker container with name '{}': {}", name, err),
@@ -555,14 +655,81 @@ impl Display for DockerError {
             ImageFileOpenError{ path, err } => write!(f, "Failed to open image file '{}': {}", path.display(), err),
             ImageImportError{ path, err }   => write!(f, "Failed to import image file '{}' into Docker engine: {}", path.display(), err),
 
-            ImagePullError{ image, err } => write!(f, "Failed to pull image '{}' into Docker engine: {}", image.name(), err),
+            ImagePullError{ source, err }       => write!(f, "Failed to pull image '{}' into Docker engine: {}", source, err),
+            ImageTagError{ image, source, err } => write!(f, "Failed to tag pulled image '{}' as '{}': {}", source, image, err),
 
+            ImageInspectError{ image, err }    => write!(f, "Failed to inspect image '{}'{}: {}", image.name(), if let Some(digest) = image.digest() { format!(" ({})", digest) } else { String::new() }, err),
             ImageRemoveError{ image, id, err } => write!(f, "Failed to remove image '{}' (id: {}) from Docker engine: {}", image.name(), id, err),
+
+            ImageTarOpenError{ path, err }                 => write!(f, "Could not open given Docker image file '{}': {}", path.display(), err),
+            ImageTarReadError{ path, err }                 => write!(f, "Could not read given Docker image file '{}': {}", path.display(), err),
+            ImageTarEntriesError{ path, err }              => write!(f, "Could not get file entries in Docker image file '{}': {}", path.display(), err),
+            ImageTarEntryError{ path, err }                => write!(f, "Could not get file entry from Docker image file '{}': {}", path.display(), err),
+            ImageTarNoManifest{ path }                     => write!(f, "Could not find manifest.json in given Docker image file '{}'", path.display()),
+            ImageTarManifestReadError{ path, entry, err }  => write!(f, "Failed to read '{}' in Docker image file '{}': {}", entry.display(), path.display(), err),
+            ImageTarManifestParseError{ path, entry, err } => write!(f, "Could not parse '{}' in Docker image file '{}': {}", entry.display(), path.display(), err),
+            ImageTarIllegalManifestNum{ path, entry, got } => write!(f, "Got incorrect number of entries in '{}' in Docker image file '{}': got {}, expected 1", entry.display(), path.display(), got),
+            ImageTarIllegalDigest{ path, entry, digest }   => write!(f, "Found image digest '{}' in '{}' in Docker image file '{}' is illegal: does not start with '{}'", digest, entry.display(), path.display(), crate::docker::MANIFEST_CONFIG_PREFIX),
+            ImageTarIllegalPath{ path, err }               => write!(f, "Given Docker image file '{}' contains illegal path entry: {}", path.display(), err),
         }
     }
 }
 
 impl Error for DockerError {}
+
+
+
+/// Collects errors that relate to local index interaction.
+#[derive(Debug)]
+pub enum LocalError {
+    /// There was an error reading entries from a package's directory
+    PackageDirReadError{ path: PathBuf, err: std::io::Error },
+    /// Found a version entry who's path could not be split into a filename
+    UnreadableVersionEntry{ path: PathBuf },
+    /// The name of version directory in a package's dir is not a valid version
+    IllegalVersionEntry{ package: String, version: String, err: specifications::version::ParseError },
+    /// The given package has no versions registered to it
+    NoVersions{ package: String },
+
+    /// There was an error reading entries from the packages directory
+    PackagesDirReadError{ path: PathBuf, err: std::io::Error },
+    /// We tried to load a package YML but failed
+    InvalidPackageYml{ package: String, path: PathBuf, err: specifications::package::PackageInfoError },
+    /// We tried to load a Package Index from a JSON value with PackageInfos but we failed
+    PackageIndexError{ err: specifications::package::PackageIndexError },
+
+    /// Failed to read the datasets folder
+    DatasetsReadError{ path: PathBuf, err: std::io::Error },
+    /// Failed to open a data.yml file.
+    DataInfoOpenError{ path: PathBuf, err: std::io::Error },
+    /// Failed to read/parse a data.yml file.
+    DataInfoReadError{ path: PathBuf, err: serde_yaml::Error },
+    /// Failed to create a new DataIndex from the infos locally read.
+    DataIndexError{ err: specifications::data::DataIndexError },
+}
+
+impl Display for LocalError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
+        use LocalError::*;
+        match self {
+            PackageDirReadError{ path, err }             => write!(f, "Could not read package directory '{}': {}", path.display(), err),
+            UnreadableVersionEntry{ path }               => write!(f, "Could not get the version directory from '{}'", path.display()),
+            IllegalVersionEntry{ package, version, err } => write!(f, "Entry '{}' for package '{}' is not a valid version: {}", version, package, err),
+            NoVersions{ package }                        => write!(f, "Package '{}' does not have any registered versions", package),
+
+            PackagesDirReadError{ path, err }        => write!(f, "Could not read from Brane packages directory '{}': {}", path.display(), err),
+            InvalidPackageYml{ package, path, err }  => write!(f, "Could not read '{}' for package '{}': {}", path.display(), package, err),
+            PackageIndexError{ err }                 => write!(f, "Could not create PackageIndex: {}", err),
+
+            DatasetsReadError{ path, err } => write!(f, "Failed to read datasets folder '{}': {}", path.display(), err),
+            DataInfoOpenError{ path, err } => write!(f, "Failed to open data info file '{}': {}", path.display(), err),
+            DataInfoReadError{ path, err } => write!(f, "Failed to read/parse data info file '{}': {}", path.display(), err),
+            DataIndexError{ err }          => write!(f, "Failed to create data index from local datasets: {}", err),
+        }
+    }
+}
+
+impl Error for LocalError {}
 
 
 

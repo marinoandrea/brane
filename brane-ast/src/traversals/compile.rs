@@ -4,7 +4,7 @@
 //  Created:
 //    31 Aug 2022, 11:32:04
 //  Last edited:
-//    14 Nov 2022, 11:49:45
+//    23 Dec 2022, 16:35:59
 //  Auto updated?
 //    Yes
 // 
@@ -84,7 +84,7 @@ mod tests {
             };
 
             // Now print the file for prettyness
-            ast_unresolved::do_traversal(&state, workflow).unwrap();
+            ast_unresolved::do_traversal(&state, workflow, std::io::stdout()).unwrap();
             println!("{}\n\n", (0..80).map(|_| '-').collect::<String>());
         });
     }
@@ -449,8 +449,16 @@ fn pass_stmt(stmt: dsl::Stmt, edges: &mut EdgeBuffer, f_edges: &mut HashMap<usiz
         },
 
         // Run let assigns as assigns, since the actual variable creation and removal is done at runtime
-        LetAssign{ value, st_entry, .. } |
-        Assign{ value, st_entry, .. }    => {
+        LetAssign{ value, st_entry, .. } => {
+            // Prepare the stack by writing the expression
+            pass_expr(value, edges, table);
+            // Write the instruction
+            edges.write(ast::Edge::Linear {
+                instrs : vec![ ast::EdgeInstr::VarSet { def: st_entry.unwrap().borrow().index } ],
+                next   : usize::MAX,
+            });
+        },
+        Assign{ value, st_entry, .. } => {
             // Prepare the stack by writing the expression
             pass_expr(value, edges, table);
             // Write the instruction
@@ -719,6 +727,10 @@ fn pass_expr(expr: dsl::Expr, edges: &mut EdgeBuffer, _table: &TableState) {
         Literal{ literal, .. } => {
             // Match the literal itself
             match literal {
+                dsl::Literal::Null { .. } => edges.write(ast::Edge::Linear {
+                    instrs : vec![ ast::EdgeInstr::Null{} ],
+                    next   : usize::MAX,
+                }),
                 dsl::Literal::Boolean { value, .. } => edges.write(ast::Edge::Linear {
                     instrs : vec![ ast::EdgeInstr::Boolean{ value } ],
                     next   : usize::MAX,
@@ -737,7 +749,8 @@ fn pass_expr(expr: dsl::Expr, edges: &mut EdgeBuffer, _table: &TableState) {
                 }),
 
                 // The rest is not relevant
-                _ => {},
+                dsl::Literal::Semver { .. } |
+                dsl::Literal::Void { .. }   => {},
             };
         },
 

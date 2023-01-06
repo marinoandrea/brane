@@ -4,7 +4,7 @@
 //  Created:
 //    26 Sep 2022, 12:15:06
 //  Last edited:
-//    14 Nov 2022, 10:54:06
+//    05 Jan 2023, 12:37:08
 //  Auto updated?
 //    Yes
 // 
@@ -96,7 +96,7 @@ pub async fn get_package_index(endpoint: impl AsRef<str>) -> Result<PackageIndex
             Ok(kind) => kind,
             Err(err) => { return Err(Error::PackageKindParseError{ address: endpoint.into(), index: i, raw: p.kind, err }); }
         };
-        let version   : Version = match Version::from_str(&p.version) {
+        let version: Version = match Version::from_str(&p.version) {
             Ok(version) => version,
             Err(err)    => { return Err(Error::VersionParseError{ address: endpoint.into(), index: i, raw: p.version, err }); }  
         };

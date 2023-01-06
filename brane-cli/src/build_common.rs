@@ -4,7 +4,7 @@
 //  Created:
 //    21 Feb 2022, 12:32:28
 //  Last edited:
-//    03 Nov 2022, 14:31:12
+//    07 Dec 2022, 11:31:03
 //  Auto updated?
 //    Yes
 // 
@@ -13,9 +13,13 @@
 //!   different
 // 
 
-use std::fs::{self, File};
-use std::path::Path;
+use std::fs;
+use std::io::Write;
+use std::path::{Path, PathBuf};
 use std::process::Command;
+
+use console::style;
+use file_lock::{FileLock, FileOptions};
 
 use specifications::arch::Arch;
 
@@ -53,6 +57,84 @@ pub const BRANELET_URL: &str = concat!(
 
 
 
+/***** COMMON STRUCTS *****/
+/// Wraps around a FileLock to provide a bit additional functionality and abstract away the underlying mechanism.
+#[derive(Debug)]
+pub struct LockHandle {
+    /// The path to the lockfile itself.
+    path : PathBuf,
+    /// The physical lock that we own.
+    lock : FileLock,
+}
+
+impl LockHandle {
+    /// Attempts to acquire a new lock.
+    /// 
+    /// # Arguments
+    /// - `name`: The name of the package for which we lock. Only used for debugging in this function.
+    /// - `path`: The path to the actual file lock itself.
+    /// 
+    /// # Returns
+    /// A new LockHandle that represents the lock. Note that this function will block until we get a lock (it will print a nice message to stdout notifying the user, though).
+    /// 
+    /// # Errors
+    /// This function may error if there are other reasons than it already being locked that prevent us from acquiring a lock (i.e., IO error).
+    pub fn lock(name: impl AsRef<str>, path: impl Into<PathBuf>) -> Result<Self, BuildError> {
+        let name : &str    = name.as_ref();
+        let path : PathBuf = path.into();
+
+        // Attempt to acquire a lock instantly
+        let mut lock: FileLock = match FileLock::lock(&path, false, FileOptions::new().create(true).write(true).append(true)) {
+            Ok(lock) => lock,
+            Err(err) => {
+                // If it would block, the file is locked - so we wait instead
+                if err.kind() == std::io::ErrorKind::WouldBlock {
+                    // Try again
+                    debug!("Lockfile '{}' is already locked (processes write who locks it, so just check the lockfile itself)", path.display());
+                    println!("Package {} is already being built; waiting until the other process completes...", style(name).bold().cyan());
+                    match FileLock::lock(&path, true, FileOptions::new().create(true).write(true).append(true)) {
+                        Ok(lock) => lock,
+                        Err(err) => { return Err(BuildError::LockCreateError { path, err }); },
+                    }
+                } else {
+                    return Err(BuildError::LockCreateError { path, err });
+                }
+            },
+        };
+        debug!("Lockfile '{}' acquired", path.display());
+
+        // Append that we're locking it now
+        if let Err(err) = lock.file.write_all(format!("Lock owned by process {}\n", std::process::id()).as_bytes()) { warn!("Failed to log acquiring ownership of lockfile '{}': {}", path.display(), err); }
+
+        // With those ready, return a new instance
+        Ok(Self {
+            lock,
+            path,
+        })
+    }
+
+
+
+    /// Returns the path to the lockfile.
+    #[inline]
+    pub fn path(&self) -> &Path { &self.path }
+}
+
+impl Drop for LockHandle {
+    fn drop(&mut self) {
+        debug!("Releasing lockfile '{}'", self.path.display());
+
+        // Write we don't need it anymore
+        if let Err(err) = self.lock.file.write_all(format!("Process {} no longer needs this lock\n", std::process::id()).as_bytes()) { warn!("Failed to log release of lockfile '{}': {}", self.path.display(), err); }
+        // Drop the lock
+        if let Err(err) = self.lock.unlock() { warn!("Failed to unlock lockfile '{}': {}", self.path.display(), err); }
+    }
+}
+
+
+
+
+
 /***** COMMON FUNCTIONS *****/
 /// **Edited: now returning BuildErrors. Also leaving .lock removal to the main handle function.**
 /// 
@@ -82,51 +164,6 @@ pub fn clean_directory(
         } else {
             warn!("To-be-cleaned file '{}' is neither a file nor a directory", file.display());
         }
-    }
-}
-
-
-
-/// Creates a new lock file in the given package directory.
-/// 
-/// **Arguments**
-///  * `package_dir`: The directory to create the lock file in. We assume this path is already canonicalized and thus exists.
-/// 
-/// **Returns**  
-/// Nothing if we created the .lock file successfully, or a BuildError otherwise (if the directory is already locked, for example).
-pub fn lock_directory(
-    package_dir: &Path,
-) -> Result<(), BuildError> {
-    debug!("Using package directory: '{}'", package_dir.display());
-
-    // Make sure there is no lock file
-    let lock = package_dir.join(".lock");
-    if lock.exists() {
-        return Err(BuildError::LockFileExists{ path: package_dir.to_path_buf() });
-    }
-
-    // Create the lock file
-    if let Err(err) = File::create(&lock) {
-        return Err(BuildError::LockCreateError{ path: lock, err });
-    };
-
-    // Success!
-    Ok(())
-}
-
-/// Removes the lock file in the given package directory.
-/// 
-/// **Arguments**
-///  * `package_dir`: The directory to remove the lock file from. We assume this path is already canonicalized and thus exists.
-/// 
-/// **Returns**  
-/// Nothing - but does write a warning to stderr if we could not remove the lock.
-pub fn unlock_directory(
-    package_dir: &Path,
-) {
-    let lock = package_dir.join(".lock");
-    if let Err(err) = fs::remove_file(&lock) {
-        warn!("{}", BuildError::LockCleanupError{ path: lock, err });
     }
 }
 

@@ -4,7 +4,7 @@
 //  Created:
 //    31 Aug 2022, 09:25:11
 //  Last edited:
-//    14 Nov 2022, 10:23:06
+//    05 Jan 2023, 13:15:02
 //  Auto updated?
 //    Yes
 // 
@@ -13,6 +13,7 @@
 // 
 
 use std::collections::HashSet;
+use std::io::Write;
 
 pub use crate::errors::AstError as Error;
 use crate::data_type::DataType;
@@ -53,84 +54,88 @@ const INDENT_SIZE: usize = 4;
 /// Prints the global table of the Workflow.
 /// 
 /// # Arguments
+/// - `writer`: The `Write`r to write to.
 /// - `table`: The SymTable we print.
 /// - `indent`: The indent with which to print the table.
 /// 
 /// # Returns
 /// Nothing, but does print the table to stdout.
-fn pass_table(table: &SymTable, indent: usize) {
+fn pass_table(writer: &mut impl Write, table: &SymTable, indent: usize) -> std::io::Result<()> {
     // Simply print all fields in a less-cluttering-to-most-cluttering order
 
     // Variables first
     for v in &table.vars {
-        println!("{}Var {}: {};", indent!(indent), &v.name, v.data_type);
+        writeln!(writer, "{}Var {}: {};", indent!(indent), &v.name, v.data_type)?;
     }
-    if !table.vars.is_empty() { println!(); }
+    if !table.vars.is_empty() { writeln!(writer)?; }
 
     // Then, print all normal functions...
     for f in &table.funcs {
-        print!("{}Function {}({}){}", indent!(indent),
+        write!(writer, "{}Function {}({}){}", indent!(indent),
             &f.name,
             f.args.iter().map(|a| format!("{}", a)).collect::<Vec<String>>().join(", "),
             if f.ret != DataType::Void { format!(" -> {}", f.ret) } else { String::new() },
-        );
+        )?;
 
         // If the function has a (meaningful) nested state, print that too
         if !f.table.funcs.is_empty() || !f.table.tasks.is_empty() || !f.table.classes.is_empty() || !f.table.vars.is_empty() {
-            println!(" [");
-            pass_table(&f.table, INDENT_SIZE + indent);
-            print!("{}]", indent!(indent));
+            writeln!(writer, " [")?;
+            pass_table(writer, &f.table, INDENT_SIZE + indent)?;
+            write!(writer, "{}]", indent!(indent))?;
         }
-        println!(";");
+        writeln!(writer, ";")?;
     }
     // ...and all tasks
     for t in &table.tasks {
         match t {
-            TaskDef::Compute { package, version, function, args_names }  => {
-                println!("{}Task<Compute> {}{}::{}({}){};", indent!(indent),
+            TaskDef::Compute { package, version, function, args_names, requirements }  => {
+                if !requirements.is_empty() { writeln!(writer, "{}#[requirements = {:?}]", indent!(indent), requirements)?; }
+                writeln!(writer, "{}Task<Compute> {}{}::{}({}){};", indent!(indent),
                     package,
                     if !version.is_latest() { format!("<{}>", version) } else { String::new() },
                     &function.name,
                     function.args.iter().enumerate().map(|(i, a)| format!("{}: {}", args_names[i], a)).collect::<Vec<String>>().join(", "),
                     if function.ret != DataType::Void { format!(" -> {}", function.ret) } else { String::new() },
-                );
+                )?;
             },
-            TaskDef::Transfer {} => println!("Task<Transfer>;"),
+            TaskDef::Transfer {} => writeln!(writer, "Task<Transfer>;")?,
         }
     }
-    if !table.vars.is_empty() || !table.funcs.is_empty() || !table.tasks.is_empty() { println!(); }
+    if !table.vars.is_empty() || !table.funcs.is_empty() || !table.tasks.is_empty() { writeln!(writer)?; }
 
     // Finally print the class definitions
     for c in &table.classes {
-        println!("{}Class {}{} {{", indent!(indent), if let Some(package) = &c.package { format!("{}::", package) } else { String::new() }, &c.name);
+        writeln!(writer, "{}Class {}{} {{", indent!(indent), if let Some(package) = &c.package { format!("{}::", package) } else { String::new() }, &c.name)?;
         // Print all properties
         for p in &c.props {
-            println!("{}property {}: {};", indent!(INDENT_SIZE + indent), &p.name, p.data_type);
+            writeln!(writer, "{}property {}: {};", indent!(INDENT_SIZE + indent), &p.name, p.data_type)?;
         }
         // Print all functions
         for m in &c.methods {
             let m: &FunctionDef = &table.funcs[*m];
-            println!("{}method &{}({}){};", indent!(INDENT_SIZE + indent),
+            writeln!(writer, "{}method &{}({}){};", indent!(INDENT_SIZE + indent),
                 &m.name,
                 m.args.iter().map(|a| format!("{}", a)).collect::<Vec<String>>().join(", "),
                 if m.ret != DataType::Void { format!(" -> {}", m.ret) } else { String::new() },
-            );
+            )?;
         }
-        println!("{}}};", indent!(indent));
+        writeln!(writer, "{}}};", indent!(indent))?;
     }
-    if !table.vars.is_empty() || !table.funcs.is_empty() || !table.tasks.is_empty() || !table.classes.is_empty() { println!(); }
+    if !table.vars.is_empty() || !table.funcs.is_empty() || !table.tasks.is_empty() || !table.classes.is_empty() { writeln!(writer)?; }
 
     // And the results
     for (name, avail) in table.results.iter() {
-        println!("{}IntermediateResult '{}' -> '{:?}'", indent!(INDENT_SIZE), name, avail);
+        writeln!(writer, "{}IntermediateResult '{}' -> '{:?}'", indent!(INDENT_SIZE), name, avail)?;
     }
 
     // Done
+    Ok(())
 }
 
 /// Prints a given Edge buffer to stdout.
 /// 
 /// # Arguments
+/// - `writer`: The `Write`r to write to.
 /// - `index`: The starting index in the edges list to follow.
 /// - `edges`: The list of Edges to print.
 /// - `table`: The VirtualSymTable we use to resolve indices.
@@ -139,13 +144,13 @@ fn pass_table(table: &SymTable, indent: usize) {
 /// 
 /// # Returns
 /// Nothing, but does print the buffer to stdout.
-fn pass_edges(index: usize, edges: &[Edge], table: &VirtualSymTable, indent: usize, done: &mut HashSet<usize>) {
+fn pass_edges(writer: &mut impl Write, index: usize, edges: &[Edge], table: &VirtualSymTable, indent: usize, done: &mut HashSet<usize>) -> std::io::Result<()> {
     // Loop until we are out-of-bounds or encounter a stop
     let mut i: usize = index;
     while i < edges.len() {
         // If we've alread done this one, stop
         if done.contains(&i) {
-            println!("{} {}<Link to {}>", indent!(LINE_SIZE), indent!(indent), i);
+            writeln!(writer, "{} {}<Link to {}>", indent!(LINE_SIZE), indent!(indent), i)?;
             break;
         }
         done.insert(i);
@@ -158,7 +163,7 @@ fn pass_edges(index: usize, edges: &[Edge], table: &VirtualSymTable, indent: usi
         match node {
             Node { task, locs, at, input, result, next } => {
                 // Write the Node as a task call
-                println!("{} {}Node({}){}{}{}",
+                writeln!(writer, "{} {}Node({}){}{}{}",
                     line_number!(i),
                     indent!(indent),
                     match &table.task(*task) {
@@ -171,28 +176,28 @@ fn pass_edges(index: usize, edges: &[Edge], table: &VirtualSymTable, indent: usi
                         if !input.is_empty() { input.iter().map(|(name, avail)| format!("'{}'{}", name, if let Some(avail) = avail { format!(" ({:?})", avail) } else { String::new() })).collect::<Vec<String>>().join(", ").to_string() } else { "''".into() },
                         if let Some(name) = result { format!("'{}'", name) } else { "''".into() },
                     ) } else { String::new() },
-                );
+                )?;
 
                 // Move to the next node
                 i = *next;
             },
             Linear { instrs, next } => {
                 // Write the instructions within this edge
-                print!("{} {}[", line_number!(i), indent!(indent));
+                write!(writer, "{} {}[", line_number!(i), indent!(indent))?;
                 let mut first: bool = true;
                 for i in instrs {
                     if first { first = false; }
-                    else { print!("\n{} {} ", indent!(LINE_SIZE), indent!(indent)); }
-                    pass_edge_instr(i, table);
+                    else { write!(writer, "\n{} {} ", indent!(LINE_SIZE), indent!(indent))?; }
+                    pass_edge_instr(writer, i, table)?;
                 }
-                println!("]");
+                writeln!(writer, "]")?;
 
                 // Move to the next node
                 i = *next;
             },
             Stop {} => {
                 // Write a simple stop
-                println!("{} {}<Stop>", line_number!(i), indent!(indent));
+                writeln!(writer, "{} {}<Stop>", line_number!(i), indent!(indent))?;
 
                 // Do still move to the next node, if any
                 i += 1;
@@ -203,19 +208,19 @@ fn pass_edges(index: usize, edges: &[Edge], table: &VirtualSymTable, indent: usi
                 let rem_merge: Option<bool> = merge.as_ref().map(|m| done.insert(*m));
 
                 // Write the two branches of the branch
-                print!("{} {}Branch {{", line_number!(i), indent!(indent));
+                write!(writer, "{} {}Branch {{", line_number!(i), indent!(indent))?;
                 if merge.is_none() || merge.as_ref().unwrap() != true_next {
-                    println!();
-                    pass_edges(*true_next, edges, table, INDENT_SIZE + indent, done);
-                    print!("{} {}", indent!(LINE_SIZE), indent!(indent));
+                    writeln!(writer)?;
+                    pass_edges(writer, *true_next, edges, table, INDENT_SIZE + indent, done)?;
+                    write!(writer, "{} {}", indent!(LINE_SIZE), indent!(indent))?;
                 }
-                print!("}} {{");
+                write!(writer, "}} {{")?;
                 if false_next.is_some() && (merge.is_none() || merge.as_ref().unwrap() != false_next.as_ref().unwrap()) {
-                    println!();
-                    pass_edges(false_next.unwrap(), edges, table, INDENT_SIZE + indent, done);
-                    print!("{} {}", indent!(LINE_SIZE), indent!(indent));
+                    writeln!(writer)?;
+                    pass_edges(writer, false_next.unwrap(), edges, table, INDENT_SIZE + indent, done)?;
+                    write!(writer, "{} {}", indent!(LINE_SIZE), indent!(indent))?;
                 }
-                println!("}}");
+                writeln!(writer, "}}")?;
 
                 // Remove the 'already done' to make sure it is written next
                 if rem_merge.is_some() && rem_merge.unwrap() {
@@ -233,7 +238,7 @@ fn pass_edges(index: usize, edges: &[Edge], table: &VirtualSymTable, indent: usi
                 let rem_merge: bool = done.insert(*merge);
 
                 // Write the branches of the branch, in sequence
-                print!("{} {}Parallel {{", line_number!(i), indent!(indent));
+                write!(writer, "{} {}Parallel {{", line_number!(i), indent!(indent))?;
                 let mut first: bool = true;
                 for i in 0..branches.len() {
                     if *merge != branches[i] {
@@ -242,16 +247,16 @@ fn pass_edges(index: usize, edges: &[Edge], table: &VirtualSymTable, indent: usi
 
                         // Print it
                         if first { first = false; }
-                        else { print!("}} {{"); }
-                        println!();
-                        pass_edges(branches[i], edges, table, INDENT_SIZE + indent, done);
-                        print!("{} {}", indent!(LINE_SIZE), indent!(indent));
+                        else { write!(writer, "}} {{")?; }
+                        writeln!(writer)?;
+                        pass_edges(writer, branches[i], edges, table, INDENT_SIZE + indent, done)?;
+                        write!(writer, "{} {}", indent!(LINE_SIZE), indent!(indent))?;
 
                         // Remove the next one again
                         if rem_merge { done.remove(&branches[i + 1]); }
                     }
                 }
-                println!("}}");
+                writeln!(writer, "}}")?;
 
                 // Remove the 'already done' to make sure it is written next
                 if rem_merge { done.remove(merge); }
@@ -261,7 +266,7 @@ fn pass_edges(index: usize, edges: &[Edge], table: &VirtualSymTable, indent: usi
             },
             Join { merge, next } => {
                 // Write the join itself
-                println!("{} {}Join({:?})", line_number!(i), indent!(indent), *merge);
+                writeln!(writer, "{} {}Join({:?})", line_number!(i), indent!(indent), *merge)?;
 
                 // Move to the next node
                 i = *next;
@@ -269,15 +274,15 @@ fn pass_edges(index: usize, edges: &[Edge], table: &VirtualSymTable, indent: usi
 
             Loop { cond, body, next } => {
                 // Write the loop
-                println!("{} {}Loop {{", line_number!(i), indent!(indent));
-                pass_edges(*cond, edges, table, INDENT_SIZE + indent, done);
-                print!("{} {}}} {{", indent!(LINE_SIZE), indent!(indent));
+                writeln!(writer, "{} {}Loop {{", line_number!(i), indent!(indent))?;
+                pass_edges(writer, *cond, edges, table, INDENT_SIZE + indent, done)?;
+                write!(writer, "{} {}}} {{", indent!(LINE_SIZE), indent!(indent))?;
                 if next.is_none() || body != next.as_ref().unwrap() {
-                    println!();
-                    pass_edges(*body, edges, table, INDENT_SIZE + indent, done);
-                    print!("{} {}", indent!(LINE_SIZE), indent!(indent));
+                    writeln!(writer)?;
+                    pass_edges(writer, *body, edges, table, INDENT_SIZE + indent, done)?;
+                    write!(writer, "{} {}", indent!(LINE_SIZE), indent!(indent))?;
                 }
-                println!("}}");
+                writeln!(writer, "}}")?;
 
                 // Move to the next node
                 match next {
@@ -288,54 +293,61 @@ fn pass_edges(index: usize, edges: &[Edge], table: &VirtualSymTable, indent: usi
 
             Call { next } => {
                 // Just print it
-                println!("{} {}Call", line_number!(i), indent!(indent));
+                writeln!(writer, "{} {}Call", line_number!(i), indent!(indent))?;
 
                 // Move to the next node
                 i = *next;
             },
             Return{} => {
-                println!("{} {}Return", line_number!(i), indent!(indent));
+                writeln!(writer, "{} {}Return", line_number!(i), indent!(indent))?;
                 i += 1
             },
         }
     }
+
+    // Done
+    Ok(())
 }
 
 /// Prints a given EdgeInstr to stdout.
 /// 
 /// # Arguments
+/// - `writer`: The `Write`r to write to.
 /// - `instr`: The EdgeInstr to print.
 /// - `table`: The VirtualSymTable we use to resolve indices.
 /// 
 /// # Returns
 /// Nothing, but does print the instruction to stdout.
-fn pass_edge_instr(instr: &EdgeInstr, table: &VirtualSymTable) {
+fn pass_edge_instr(writer: &mut impl Write, instr: &EdgeInstr, table: &VirtualSymTable) -> std::io::Result<()> {
     // Match the instruction
     use EdgeInstr::*;
     match instr {
-        Cast{ res_type } => { print!("{} {}", instr, res_type); },
+        Cast{ res_type } => { write!(writer, "{} {}", instr, res_type)?; },
 
-        Branch{ next }    => { print!("{} {}", instr, next); },
-        BranchNot{ next } => { print!("{} {}", instr, next); },
+        Branch{ next }    => { write!(writer, "{} {}", instr, next)?; },
+        BranchNot{ next } => { write!(writer, "{} {}", instr, next)?; },
 
-        Proj{ field } => { print!("{} {}", instr, field); },
+        Proj{ field } => { write!(writer, "{} {}", instr, field)?; },
 
-        Array{ length, res_type } => { print!("{} {},{}", instr, res_type, length); },
-        ArrayIndex{ res_type }    => { print!("{} {}", instr, res_type); },
-        Instance{ def }           => { print!("{} {}", instr, table.class(*def).name); },
+        Array{ length, res_type } => { write!(writer, "{} {},{}", instr, res_type, length)?; },
+        ArrayIndex{ res_type }    => { write!(writer, "{} {}", instr, res_type)?; },
+        Instance{ def }           => { write!(writer, "{} {}", instr, table.class(*def).name)?; },
 
-        VarGet{ def } => { print!("{} {}", instr, table.var(*def).name); },
-        VarSet{ def } => { print!("{} {}", instr, table.var(*def).name); },
+        VarGet{ def } => { write!(writer, "{} {}", instr, table.var(*def).name)?; },
+        VarSet{ def } => { write!(writer, "{} {}", instr, table.var(*def).name)?; },
 
-        Boolean{ value } => { print!("{} {}", instr, value); },
-        Integer{ value } => { print!("{} {}", instr, value); },
-        Real{ value }    => { print!("{} {}", instr, value); },
-        String{ value }  => { print!("{} \"{}\"", instr, value.replace('\\', "\\\\").replace('\n', "\\n").replace('\t', "\\t").replace('\r', "\\r").replace('\"', "\\\"")); },
-        Function{ def }  => { print!("{} {}", instr, table.func(*def).name); },
+        Boolean{ value } => { write!(writer, "{} {}", instr, value)?; },
+        Integer{ value } => { write!(writer, "{} {}", instr, value)?; },
+        Real{ value }    => { write!(writer, "{} {}", instr, value)?; },
+        String{ value }  => { write!(writer, "{} \"{}\"", instr, value.replace('\\', "\\\\").replace('\n', "\\n").replace('\t', "\\t").replace('\r', "\\r").replace('\"', "\\\""))?; },
+        Function{ def }  => { write!(writer, "{} {}", instr, table.func(*def).name)?; },
 
         // Any other instruction is just printing it without any value
-        instr => { print!("{}", instr); }
+        instr => { write!(writer, "{}", instr)?; }
     }
+
+    // Done
+    Ok(())
 }
 
 
@@ -347,38 +359,41 @@ fn pass_edge_instr(instr: &EdgeInstr, table: &VirtualSymTable) {
 /// 
 /// # Arguments
 /// - `root`: The root node of the tree on which this compiler pass will be done.
+/// - `writer`: The `Write`r to write to.
 /// 
 /// # Returns
 /// The same root node as went in (since this compiler pass performs no transformations on the tree).
 /// 
 /// # Errors
 /// This pass doesn't really error, but is here for convention purposes.
-pub fn do_traversal(root: Workflow) -> Result<Workflow, Vec<Error>> {
-    println!("Workflow {{");
+pub fn do_traversal(root: Workflow, writer: impl Write) -> Result<Workflow, Vec<Error>> {
+    let mut writer = writer;
+
+    if let Err(err) = writeln!(&mut writer, "Workflow {{") { return Err(vec![ Error::WriteError{ err } ]); };
 
     // First up: print the workflow table
-    pass_table(&root.table, INDENT_SIZE);
+    if let Err(err) = pass_table(&mut writer, &root.table, INDENT_SIZE) { return Err(vec![ Error::WriteError{ err } ]); };
     if !root.table.vars.is_empty() || !root.table.funcs.is_empty() || !root.table.tasks.is_empty() || !root.table.classes.is_empty() || !root.table.results.is_empty() {
-        println!();
-        println!();
-        println!();
+        if let Err(err) = writeln!(&mut writer) { return Err(vec![ Error::WriteError{ err } ]); };
+        if let Err(err) = writeln!(&mut writer) { return Err(vec![ Error::WriteError{ err } ]); };
+        if let Err(err) = writeln!(&mut writer) { return Err(vec![ Error::WriteError{ err } ]); };
     }
 
     // Print the main function body (and thus all function bodies)
-    println!("{}<Main>", indent!(INDENT_SIZE));
+    if let Err(err) = writeln!(&mut writer, "{}<Main>", indent!(INDENT_SIZE)) { return Err(vec![ Error::WriteError{ err } ]); };
     let mut table: VirtualSymTable = VirtualSymTable::with(&root.table);
-    pass_edges(0, &root.graph, &table, INDENT_SIZE, &mut HashSet::new());
+    if let Err(err) = pass_edges(&mut writer, 0, &root.graph, &table, INDENT_SIZE, &mut HashSet::new()) { return Err(vec![ Error::WriteError{ err } ]); };
 
     // Print the functions
     for (i, f) in root.funcs.iter() {
-        println!();
-        println!("{}<Function {} ({})>", indent!(INDENT_SIZE), *i, root.table.funcs[*i].name);
+        if let Err(err) = writeln!(&mut writer) { return Err(vec![ Error::WriteError{ err } ]); };
+        if let Err(err) = writeln!(&mut writer, "{}<Function {} ({})>", indent!(INDENT_SIZE), *i, root.table.funcs[*i].name) { return Err(vec![ Error::WriteError{ err } ]); };
         table.push(&table.func(*i).table);
-        pass_edges(0, f, &table, INDENT_SIZE, &mut HashSet::new());
+        if let Err(err) = pass_edges(&mut writer, 0, f, &table, INDENT_SIZE, &mut HashSet::new()) { return Err(vec![ Error::WriteError{ err } ]); };
         table.pop();
     }
 
     // Done
-    println!("}}");
+    if let Err(err) = writeln!(&mut writer, "}}") { return Err(vec![ Error::WriteError{ err } ]); };
     Ok(root)
 }

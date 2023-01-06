@@ -4,7 +4,7 @@
 //  Created:
 //    17 Oct 2022, 15:17:39
 //  Last edited:
-//    14 Nov 2022, 13:27:21
+//    05 Jan 2023, 12:39:10
 //  Auto updated?
 //    Yes
 // 
@@ -12,10 +12,16 @@
 //!   Defines things that we need when accessing the API with GraphQL.
 // 
 
+use std::path::PathBuf;
+use std::str::FromStr;
+
 use chrono::{DateTime, TimeZone, Utc};
 use juniper::{graphql_object, EmptySubscription, FieldResult, GraphQLObject, RootNode};
+use log::{debug, info};
 use scylla::IntoTypedRows;
 use uuid::Uuid;
+
+use specifications::version::Version;
 
 use crate::spec::Context;
 use crate::packages::PackageUdt;
@@ -66,6 +72,7 @@ impl Query {
     ///
     ///
     async fn apiVersion() -> &str {
+        info!("Handling GRAPHQL on '/graphql' (i.e., get API version)");
         env!("CARGO_PKG_VERSION")
     }
 
@@ -78,13 +85,17 @@ impl Query {
         term: Option<String>,
         context: &Context,
     ) -> FieldResult<Vec<Package>> {
+        info!("Handling GRAPHQL on '/graphql' (i.e., get packages list)");
         let scylla = context.scylla.clone();
 
         let like = format!("%{}%", term.unwrap_or_default());
         let query = "SELECT package FROM brane.packages WHERE name LIKE ? ALLOW FILTERING";
 
-        let mut packages = vec![];
+        debug!("Querying Scylla database...");
+        let mut packages: Vec<Package> = vec![];
         if let Some(rows) = scylla.query(query, &(like,)).await?.rows {
+
+            // Search for all matches of this package
             for row in rows.into_typed::<(PackageUdt,)>() {
                 let (package,) = row?;
 
@@ -94,16 +105,57 @@ impl Query {
                     }
                 }
 
-                if let Some(version) = &version {
-                    if version != &package.version {
-                        continue;
+                packages.push(package.into());
+            }
+
+            // Now find the target version if relevant
+            if let Some(version) = version {
+                let target_version: Version = Version::from_str(&version)?;
+                let mut package: Option<Package> = None;
+                let mut version: Option<Version> = None;
+                if target_version.is_latest() {
+                    for p in packages {
+                        // Find the one with the highest version
+
+                        // Parse it as a version
+                        let pversion: Version = match Version::from_str(&p.version) {
+                            Ok(version) => version,
+                            Err(_)      => { continue; },
+                        };
+
+                        // Compare
+                        if package.is_none() || &pversion > version.as_ref().unwrap() {
+                            package = Some(p);
+                            version = Some(pversion);
+                        }
+                    }
+                } else {
+                    for p in packages {
+                        // Find the first matching one
+
+                        // Parse it as a version
+                        let pversion: Version = match Version::from_str(&p.version) {
+                            Ok(version) => version,
+                            Err(_)      => { continue; },
+                        };
+
+                        // Compare
+                        if target_version == pversion {
+                            package = Some(p);
+                        }
                     }
                 }
 
-                packages.push(package.into());
+                // Overwrite the list
+                packages = if let Some(package) = package {
+                    vec![ package ]
+                } else {
+                    vec![]
+                };
             }
         }
 
+        debug!("Returning {} packages", packages.len());
         Ok(packages)
     }
 }
@@ -120,6 +172,7 @@ impl Mutations {
         _password: String,
         _context: &Context,
     ) -> FieldResult<String> {
+        info!("Handling GRAPHQL on '/graphql' (i.e., login)");
         todo!();
     }
 
@@ -131,10 +184,26 @@ impl Mutations {
         version: String,
         context: &Context,
     ) -> FieldResult<&str> {
+        info!("Handling GRAPHQL on '/graphql' (i.e., unpublish package)");
         let scylla = context.scylla.clone();
 
-        let query = "DELETE FROM brane.packages WHERE name = ? AND version = ?";
-        scylla.query(query, &(&name, &version)).await?;
+        // Get the image file first, tho
+        debug!("Querying file path from Scylla database...");
+        let query = "SELECT file FROM brane.packages WHERE name = ? AND version = ?";
+        let file = scylla.query(query, &(&name, &version)).await?;
+        if let Some(rows) = file.rows {
+            if rows.is_empty() { return Ok("OK!"); }
+            let file: PathBuf = PathBuf::from(rows[0].columns[0].as_ref().unwrap().as_text().unwrap());
+
+            // Delete the thing from the database
+            debug!("Deleting package from Scylla database...");
+            let query = "DELETE FROM brane.packages WHERE name = ? AND version = ?";
+            scylla.query(query, &(&name, &version)).await?;
+
+            // Delete the file
+            debug!("Deleting container file '{}'...", file.display());
+            tokio::fs::remove_file(&file).await?;
+        }
 
         Ok("OK!")
     }

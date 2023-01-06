@@ -4,7 +4,7 @@
 //  Created:
 //    13 Sep 2022, 16:43:11
 //  Last edited:
-//    14 Nov 2022, 11:51:12
+//    05 Jan 2023, 16:53:18
 //  Auto updated?
 //    Yes
 // 
@@ -59,7 +59,7 @@ impl VmPlugin for DummyPlugin {
     type CommitError     = Error;
 
 
-    async fn preprocess(_global: &Arc<RwLock<Self::GlobalState>>, _local: &Self::LocalState, _loc: &Location, name: &DataName, _preprocess: &specifications::data::PreprocessKind) -> Result<AccessKind, Self::PreprocessError> {
+    async fn preprocess(_global: Arc<RwLock<Self::GlobalState>>, _local: Self::LocalState, _loc: Location, name: DataName, _preprocess: specifications::data::PreprocessKind) -> Result<AccessKind, Self::PreprocessError> {
         info!("Processing dummy `DummyVm::preprocess()` call for intermediate result '{}'", name);
 
         // We also accept it with a dummy accesskind

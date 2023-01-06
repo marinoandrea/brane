@@ -13,47 +13,49 @@ services:
   ## BRANE ##
   ###########
 
+  # "Proxy" service that can be targeted by local connections to be proxied (and encrypted with client auth) to remote hosts.
+  brane-prx:
+    image: brane-prx:${BRANE_VERSION:-latest}
+    container_name: ${PRX_NAME:-brane-prx}
+    restart: always
+    volumes:
+    - ${NODE_CONFIG_PATH}:/node.yml
+    - ${CERTS}:${CERTS}
+
   # The service in charge of the local container- and data registry
   brane-reg:
     image: brane-reg:${BRANE_VERSION:-latest}
-    container_name: brane-reg
+    container_name: ${REG_NAME:-brane-reg}
     ports:
-    - "0.0.0.0:${REG_PORT:-50051}:${REG_PORT:-50051}"
+    - "0.0.0.0:${REG_PORT}:${REG_PORT}"
     restart: always
-    environment:
-      ADDRESS: "0.0.0.0:${REG_PORT:-50051}"
-      DATA_PATH: ${DATA:-./data}
-      RESULTS_PATH: ${RESULTS:-./results}
     volumes:
-    - ${CONFIG:-./config}:/config
-    - ${DATA:-./data}:${DATA:-./data}
-    - ${RESULTS:-./results}:${RESULTS:-./results}
-    - ${CERTS:-./certs}:/certs
+    - ${NODE_CONFIG_PATH}:/node.yml
+    - ${BACKEND}:${BACKEND}
+    - ${POLICIES}:${POLICIES}
+    - ${CERTS}:${CERTS}
+    - ${DATA}:${DATA}
+    - ${RESULTS}:${RESULTS}
 
   # The service that is the 'main' service on the worker.
   brane-job:
     image: brane-job:${BRANE_VERSION:-latest}
-    container_name: brane-job
+    container_name: ${JOB_NAME:-brane-job}
     ports:
-    - "0.0.0.0:${JOB_PORT:-50052}:${JOB_PORT:-50052}"
+    - "0.0.0.0:${JOB_PORT}:${JOB_PORT}"
     restart: always
-    environment:
-      ADDRESS: "0.0.0.0:${JOB_PORT:-50052}"
-      KEEP_CONTAINERS: ${KEEP_CONTAINERS:-}
-      LOCATION_ID: ${LOCATION_ID}
-      DATA_PATH: ${DATA:-./data}
-      RESULTS_PATH: ${RESULTS:-./results}
-      TEMP_DATA_PATH: ${TEMP_DATA:-/tmp/brane_data}
-      TEMP_RESULTS_PATH: ${TEMP_RESULTS:-/tmp/brane_results}
     volumes:
-    - ${CONFIG:-./config}:/config
-    - ${DATA:-./data}:${DATA:-./data}
-    - ${RESULTS:-./results}:${RESULTS:-./results}
-    - ${TEMP_DATA:-/tmp/brane_data}:${TEMP_DATA:-/tmp/brane_data}
-    - ${TEMP_RESULTS:-/tmp/brane_results}:${TEMP_RESULTS:-/tmp/brane_results}
-    - ${CERTS:-./certs}:/certs
+    - ${NODE_CONFIG_PATH}:/node.yml
+    - ${BACKEND}:${BACKEND}
+    - ${POLICIES}:${POLICIES}
+    - ${CERTS}:${CERTS}
+    - ${PACKAGES}:${PACKAGES}
+    - ${DATA}:${DATA}
+    - ${RESULTS}:${RESULTS}
+    - ${TEMP_DATA}:${TEMP_DATA}
+    - ${TEMP_RESULTS}:${TEMP_RESULTS}
     - /var/run/docker.sock:/var/run/docker.sock
 
 networks:
   default:
-    name: brane
+    name: brane-worker-${LOCATION_ID}

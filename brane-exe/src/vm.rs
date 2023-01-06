@@ -4,7 +4,7 @@
 //  Created:
 //    12 Sep 2022, 17:41:33
 //  Last edited:
-//    14 Nov 2022, 11:50:36
+//    23 Dec 2022, 16:37:08
 //  Auto updated?
 //    Yes
 // 
@@ -99,7 +99,7 @@ pub mod tests {
                     let workflow: Workflow = DummyPlanner::plan(workflow);
 
                     // Print the file itself
-                    let workflow = ast::do_traversal(workflow).unwrap();
+                    let workflow = ast::do_traversal(workflow, std::io::stdout()).unwrap();
                     println!("{}", (0..40).map(|_| "- ").collect::<String>());
 
                     // Run the VM on this snippet

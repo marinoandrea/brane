@@ -4,7 +4,7 @@
 //  Created:
 //    04 Oct 2022, 11:08:37
 //  Last edited:
-//    02 Nov 2022, 11:47:32
+//    05 Jan 2023, 11:44:25
 //  Auto updated?
 //    Yes
 // 
@@ -14,19 +14,10 @@
 // 
 
 // Declare modules
-// pub mod infrastructure;
-// pub mod secrets;
-// pub mod store;
 pub mod errors;
 pub mod spec;
 pub mod certs;
-pub mod creds;
-pub mod secrets;
+pub mod backend;
 pub mod infra;
-
-// Promote some stuff to the crate's namespace
-// pub use infrastructure::Infrastructure;
-// pub use secrets::Secrets;
-pub use spec::{InfraLocation, InfraPath};
-pub use creds::CredsFile;
-pub use infra::{Error, InfraFile};
+pub mod node;
+pub mod policies;

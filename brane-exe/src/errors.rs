@@ -4,7 +4,7 @@
 //  Created:
 //    26 Aug 2022, 18:01:09
 //  Last edited:
-//    14 Nov 2022, 10:36:55
+//    03 Jan 2023, 12:07:29
 //  Auto updated?
 //    Yes
 // 
@@ -17,22 +17,11 @@ use std::fmt::{Display, Formatter, Result as FResult};
 use std::path::PathBuf;
 
 use console::style;
+use enum_debug::EnumDebug as _;
 
 use brane_ast::{DataType, MergeStrategy};
 use brane_ast::ast::DataName;
 use specifications::version::Version;
-
-
-/***** HELPER MACROS *****/
-/// Generates a string with the given character repeated N times.
-macro_rules! rep {
-    ($c:literal, $n:literal) => {
-        (0..$n).map(|_| $c).collect::<String>()
-    };
-}
-
-
-
 
 
 /***** HELPER FUNCTIONS *****/
@@ -212,6 +201,8 @@ pub enum VarRegError {
     DuplicateDeclaration{ id: usize, old_name: String, old_type: DataType, new_name: String, new_type: DataType },
     /// The given variable was not declared.
     UndeclaredVariable{ id: usize },
+    /// The given variable was declared but never initialized.
+    UninitializedVariable{ id: usize },
 }
 
 impl Display for VarRegError {
@@ -221,6 +212,7 @@ impl Display for VarRegError {
         match self {
             DuplicateDeclaration{ id, old_name, old_type, new_name, new_type } => write!(f, "Variable {} was already declared before (old '{}: {}', new '{}: {}')", id, old_name, old_type, new_name, new_type),
             UndeclaredVariable{ id }                                           => write!(f, "Variable {} was not declared", id),
+            UninitializedVariable{ id }                                        => write!(f, "Variable {} was not initialized", id),
         }
     }
 }
@@ -270,8 +262,12 @@ pub enum VmError {
     FunctionTypeError{ edge: usize, name: String, arg: usize, got: DataType, expected: DataType },
     /// We got told to run a function but do not know where.
     UnresolvedLocation{ edge: usize, name: String },
-    /// The given dataset was not locally available by the time it has to be executed.
-    UnavailableDataset{ edge: usize, name: DataName },
+    /// The given input (dataset, result) was not there as possible option for the given task.
+    UnknownInput{ edge: usize, task: String, name: DataName },
+    /// The given input (dataset, result) was not yet planned at the time of execution.
+    UnplannedInput{ edge: usize, task: String, name: DataName },
+    // /// The given dataset was not locally available by the time it has to be executed.
+    // UnavailableDataset{ edge: usize, name: DataName },
     /// Attempted to call a function but the framestack thought otherwise.
     FrameStackPushError{ edge: usize, err: FrameStackError },
     /// Attempted to call a function but the framestack was empty.
@@ -323,7 +319,9 @@ impl VmError {
             IllegalBranchType{ edge, .. }   => prettyprint_err(*edge, self),
             FunctionTypeError{ edge, .. }   => prettyprint_err(*edge, self),
             UnresolvedLocation{ edge, .. }  => prettyprint_err(*edge, self),
-            UnavailableDataset{ edge, .. }  => prettyprint_err(*edge, self),
+            UnknownInput{ edge, .. }        => prettyprint_err(*edge, self),
+            UnplannedInput{ edge, .. }      => prettyprint_err(*edge, self),
+            // UnavailableDataset{ edge, .. }  => prettyprint_err(*edge, self),
             FrameStackPushError{ edge, .. } => prettyprint_err(*edge, self),
             FrameStackPopError{ edge, .. }  => prettyprint_err(*edge, self),
             ReturnTypeError{ edge, .. }     => prettyprint_err(*edge, self),
@@ -366,7 +364,9 @@ impl Display for VmError {
             IllegalBranchType{ branch, merge, got, expected, .. } => write!(f, "Branch {} returned a value of type {}, but the current merge strategy ({:?}) requires values of {} type", branch, got, merge, expected),
             FunctionTypeError{ name, arg, got, expected, .. }     => write!(f, "Argument {} for function '{}' has incorrect type: expected {}, got {}", arg, name, expected, got),
             UnresolvedLocation{ name, .. }                        => write!(f, "Cannot call task '{}' because it has no resolved location.", name),
-            UnavailableDataset{ name, .. }                        => write!(f, "Dataset '{}' is unavailable at execution time", name),
+            UnknownInput{ task, name, .. }                        => write!(f, "{} '{}' is not a possible input for task '{}'", name.variant(), name.name(), task),
+            UnplannedInput{ task, name, .. }                      => write!(f, "{} '{}' as input for task '{}' is not yet planned", name.variant(), name.name(), task),
+            // UnavailableDataset{ name, .. }                        => write!(f, "Dataset '{}' is unavailable at execution time", name),
             FrameStackPushError{ err, .. }                        => write!(f, "Failed to push to frame stack: {}", err),
             FrameStackPopError{ err, .. }                         => write!(f, "Failed to pop from frame stack: {}", err),
             ReturnTypeError{ got, expected, .. }                  => write!(f, "Got incorrect return type for function: expected {}, got {}", expected, got),
@@ -398,35 +398,6 @@ pub enum LocalVmError {
     /// Failed to decode the string as JSON.
     JsonDecodeError{ name: String, raw: String, err: serde_json::Error },
 
-    /// Failed to connect to the local Docker instance.
-    DockerConnectError{ err: bollard::errors::Error },
-
-    /// Failed to read a Docker image .tar file.
-    ImageReadError{ path: PathBuf, err: std::io::Error },
-    /// Failed to import a new Docker image.
-    DockerImageImportError{ path: PathBuf, err: bollard::errors::Error },
-    /// Failed to create a new Docker image.
-    DockerImagePullError{ image: String, err: bollard::errors::Error },
-    /// Failed to launch a new Docker container.
-    DockerContainerCreateError{ name: String, image: String, err: bollard::errors::Error },
-    /// Failed to start a new Docker container.
-    DockerContainerStartError{ name: String, image: String, err: bollard::errors::Error },
-
-    /// Failed to wait for the given container.
-    DockerContainerWaitError{ name: String, err: bollard::errors::Error },
-    /// Failed to get the logs of the given container.
-    DockerContainerLogsError{ name: String, err: bollard::errors::Error },
-    /// Failed to inspect a Docker container.
-    DockerContainerInspectError{ name: String, err: bollard::errors::Error },
-    /// When inspecting a container, it had no state(?)
-    DockerContainerNoState{ name: String },
-    /// When inspecting a container, it had no return code
-    DockerContainerNoReturnCode{ name: String },
-    /// The given container failed with a certain non-zero exit code.
-    DockerContainerFailed{ name: String, code: i32, stdout: String, stderr: String },
-    /// Failed to remove the given container.
-    DockerContainerRemoveError{ name: String, err: bollard::errors::Error },
-
     /// A given dataset was not found at the current location.
     DataNotAvailable{ name: String, loc: String },
     /// The given data's path was not found.
@@ -445,22 +416,6 @@ impl Display for LocalVmError {
             Base64DecodeError{ name, raw, err } => write!(f, "Could not decode result '{}' from task '{}' as Base64: {}", raw, name, err),
             Utf8DecodeError{ name, err }        => write!(f, "Could not decode base64-decoded result from task '{}' as UTF-8: {}", name, err),
             JsonDecodeError{ name, raw, err }   => write!(f, "Could not decode result '{}' from task '{}' as JSON: {}", raw, name, err),
-
-            DockerConnectError{ err } => write!(f, "Failed to connect to local Docker instance: {}", err),
-
-            ImageReadError { path, err }                   => write!(f, "Could not read image file '{}': {}", path.display(), err),
-            DockerImageImportError{ path, err }            => write!(f, "Failed to import image '{}': {}", path.display(), err),
-            DockerImagePullError{ image, err }             => write!(f, "Failed to pull image '{}': {}", image, err),
-            DockerContainerCreateError{ name, image, err } => write!(f, "Failed to create container '{}' from image '{}': {}", name, image, err),
-            DockerContainerStartError{ name, image, err }  => write!(f, "Failed to start container '{}' from image '{}': {}", name, image, err),
-
-            DockerContainerWaitError{ name, err }               => write!(f, "Failed to wait for container '{}' to complete: {}", name, err),
-            DockerContainerLogsError{ name, err }               => write!(f, "Failed to get logs (=stdout/stderr) of container '{}': {}", name, err),
-            DockerContainerInspectError{ name, err }            => write!(f, "Failed to inspect container '{}': {}", name, err),
-            DockerContainerNoState{ name }                      => write!(f, "Docker container '{}' has no inspectable state", name),
-            DockerContainerNoReturnCode{ name }                 => write!(f, "Docker container '{}' has no inspectable return code", name),
-            DockerContainerFailed{ name, code, stdout, stderr } => write!(f, "Docker container '{}' failed with non-zero exit code {}\n\n{}\nstdout:\n{}\n{}\n\n{}\nstderr:\n{}\n{}\n\n", name, code, rep!('-', 100), stdout, rep!('-', 100), rep!('-', 100), stderr, rep!('-', 100)),
-            DockerContainerRemoveError{ name, err }             => write!(f, "Failed to remove container '{}': {}", name, err),
 
             DataNotAvailable{ name, loc }      => write!(f, "Dataset '{}' is not available on the local location '{}'", name, loc),
             IllegalDataPath{ name, path, err } => write!(f, "Invalid path '{}' to dataset '{}': {}", path.display(), name, err),
