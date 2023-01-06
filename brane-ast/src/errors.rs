@@ -4,7 +4,7 @@
 //  Created:
 //    10 Aug 2022, 13:52:37
 //  Last edited:
-//    23 Dec 2022, 16:08:21
+//    06 Jan 2023, 17:05:35
 //  Auto updated?
 //    Yes
 // 
@@ -936,3 +936,21 @@ impl Display for FlattenError {
 }
 
 impl Error for FlattenError {}
+
+
+
+/// A very small error type for converting DataNames around.
+#[derive(Debug)]
+pub enum DataNameDeserializeError {
+    /// The given DataKind was unknown to us.
+    UnknownDataKind{ raw: i32 },
+}
+impl Display for DataNameDeserializeError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
+        use DataNameDeserializeError::*;
+        match self {
+            UnknownDataKind{ raw } => write!(f, "Unknown data kind identifier '{}'", raw),
+        }
+    }
+}
+impl Error for DataNameDeserializeError {}

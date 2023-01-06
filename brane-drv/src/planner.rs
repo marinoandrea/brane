@@ -4,7 +4,7 @@
 //  Created:
 //    25 Oct 2022, 11:35:00
 //  Last edited:
-//    28 Nov 2022, 16:13:48
+//    06 Jan 2023, 14:01:47
 //  Auto updated?
 //    Yes
 // 
@@ -33,8 +33,9 @@ use brane_ast::Workflow;
 use brane_cfg::node::NodeConfig;
 use brane_shr::kafka::{ensure_topics, restore_committed_offsets};
 use brane_tsk::errors::PlanError;
-use brane_tsk::spec::{Planner, TaskId};
+use brane_tsk::spec::TaskId;
 use specifications::planning::{PlanningStatus, PlanningStatusKind, PlanningUpdate};
+use specifications::profiling::PlannerProfile;
 
 
 /***** CONSTANTS *****/
@@ -334,11 +335,20 @@ impl InstancePlanner {
         // Done
         Ok(())
     }
-}
 
-#[async_trait::async_trait]
-impl Planner for InstancePlanner {
-    async fn plan(&self, workflow: Workflow) -> Result<Workflow, PlanError> {
+
+
+    /// Plans the given workflow.
+    /// 
+    /// Will populate the planning timings in the given profile struct if the planner reports them.
+    /// 
+    /// # Arguments
+    /// - `workflow`: The Workflow to plan.
+    /// - `profile`: The PlannerProfile struct to populate with planning timings if any.
+    /// 
+    /// # Returns
+    /// The same workflow as given, but now with all tasks and data transfers planned.
+    pub async fn plan(&self, workflow: Workflow, profile: &mut PlannerProfile) -> Result<Workflow, PlanError> {
         // Ensure that the to-be-send-on topic exists
         let brokers: String = self.node_config.node.central().services.brokers.iter().map(|a| a.to_string()).collect::<Vec<String>>().join(",");
         if let Err(err) = ensure_topics(vec![ &self.node_config.node.central().topics.planner_command ], &brokers).await { return Err(PlanError::KafkaTopicError { brokers, topics: vec![ self.node_config.node.central().topics.planner_command.clone() ], err }); };
@@ -367,3 +377,8 @@ impl Planner for InstancePlanner {
         Ok(plan)
     }
 }
+
+// #[async_trait::async_trait]
+// impl Planner for InstancePlanner {
+    
+// }

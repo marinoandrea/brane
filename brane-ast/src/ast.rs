@@ -4,7 +4,7 @@
 //  Created:
 //    30 Aug 2022, 11:55:49
 //  Last edited:
-//    05 Jan 2023, 13:06:58
+//    06 Jan 2023, 17:07:35
 //  Auto updated?
 //    Yes
 // 
@@ -30,6 +30,7 @@ use specifications::data::AvailabilityKind;
 use specifications::package::Capability;
 use specifications::version::Version;
 
+use crate::errors::DataNameDeserializeError;
 use crate::data_type::DataType;
 use crate::locations::{Location, Locations};
 use crate::state::TableList;
@@ -468,6 +469,50 @@ impl From<brane_dsl::ast::Data> for DataName {
             brane_dsl::ast::Data::IntermediateResult(name) => Self::IntermediateResult(name),
         }
     }
+}
+
+impl TryFrom<specifications::working::DataName> for DataName {
+    type Error = DataNameDeserializeError;
+
+    fn try_from(value: specifications::working::DataName) -> Result<Self, Self::Error> {
+        match specifications::working::DataKind::from_i32(value.kind) {
+            Some(specifications::working::DataKind::Data)               => Ok(Self::Data(value.name)),
+            Some(specifications::working::DataKind::IntermediateResult) => Ok(Self::IntermediateResult(value.name)),
+            None                                                        => Err(DataNameDeserializeError::UnknownDataKind{ raw: value.kind }),
+        }
+    }
+}
+impl TryFrom<&specifications::working::DataName> for DataName {
+    type Error = DataNameDeserializeError;
+
+    #[inline]
+    fn try_from(value: &specifications::working::DataName) -> Result<Self, Self::Error> {
+        Self::try_from(value.clone())
+    }
+}
+impl TryFrom<&mut specifications::working::DataName> for DataName {
+    type Error = DataNameDeserializeError;
+
+    #[inline]
+    fn try_from(value: &mut specifications::working::DataName) -> Result<Self, Self::Error> {
+        Self::try_from(value.clone())
+    }
+}
+impl From<DataName> for specifications::working::DataName {
+    fn from(value: DataName) -> Self {
+        match value {
+            DataName::Data(name)               => specifications::working::DataName{ name, kind: specifications::working::DataKind::Data.into() },
+            DataName::IntermediateResult(name) => specifications::working::DataName{ name, kind: specifications::working::DataKind::IntermediateResult.into() },
+        }
+    }
+}
+impl From<&DataName> for specifications::working::DataName {
+    #[inline]
+    fn from(value: &DataName) -> Self { Self::from(value.clone()) }
+}
+impl From<&mut DataName> for specifications::working::DataName {
+    #[inline]
+    fn from(value: &mut DataName) -> Self { Self::from(value.clone()) }
 }
 
 

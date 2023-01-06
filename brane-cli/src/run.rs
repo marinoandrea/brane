@@ -4,7 +4,7 @@
 //  Created:
 //    12 Sep 2022, 16:42:57
 //  Last edited:
-//    23 Dec 2022, 16:41:00
+//    06 Jan 2023, 12:55:24
 //  Auto updated?
 //    Yes
 // 
@@ -30,6 +30,7 @@ use brane_dsl::Language;
 use brane_exe::FullValue;
 use brane_tsk::spec::{LOCALHOST, AppId};
 use brane_tsk::grpc::{CreateSessionRequest, DriverServiceClient, ExecuteRequest};
+use specifications::timing;
 use specifications::data::{AccessKind, DataIndex, DataInfo};
 use specifications::package::PackageIndex;
 use specifications::registry::RegistryConfig;
@@ -332,13 +333,14 @@ pub async fn run_offline_vm(state: &mut OfflineVmState, what: impl AsRef<str>, s
 /// - `state`: The InstanceVmState that we use to connect to the driver.
 /// - `what`: The thing we're running. Either a filename, or something like '<stdin>'.
 /// - `snippet`: The snippet (as raw text) to compile and run.
+/// - `profile`: If given, prints the profile timings to stdout if reported by the remote.
 /// 
 /// # Returns
 /// The FullValue that the workflow returned, if any. If there was no value, returns FullValue::Void instead.
 /// 
 /// # Errors
 /// This function errors if we failed to compile the workflow, communicate with the remote driver or remote execution failed somehow.
-pub async fn run_instance_vm(endpoint: impl AsRef<str>, state: &mut InstanceVmState, what: impl AsRef<str>, snippet: impl AsRef<str>) -> Result<FullValue, Error> {
+pub async fn run_instance_vm(endpoint: impl AsRef<str>, state: &mut InstanceVmState, what: impl AsRef<str>, snippet: impl AsRef<str>, profile: bool) -> Result<FullValue, Error> {
     let endpoint: &str = endpoint.as_ref();
     let what: &str     = what.as_ref();
     let snippet: &str  = snippet.as_ref();
@@ -372,6 +374,22 @@ pub async fn run_instance_vm(endpoint: impl AsRef<str>, state: &mut InstanceVmSt
         match stream.message().await {
             // The message itself went alright
             Ok(Some(reply)) => {
+                // Show profile times
+                if profile {
+                    if let Some(profile) = reply.profile {
+                        println!("Remote reports profile times:");
+                        println!(" - Snippet : {}ms", timing!(&profile.snippet, elapsed_ms));
+                        println!();
+                        println!(" - Request overhead   : {}ms", timing!(&profile.request_overhead, elapsed_ms));
+                        println!(" - Request processing : {}ms", timing!(&profile.request_processing, elapsed_ms));
+                        println!();
+                        println!(" - Workflow parsing : {}ms", timing!(&profile.workflow_parse, elapsed_ms));
+                        println!();
+                        println!(" - Planning  : {}ms", timing!(&profile.planning, elapsed_ms));
+                        println!(" - Execution : {}ms", timing!(&profile.execution, elapsed_ms));
+                    }
+                }
+
                 // The remote send us some debug message
                 if let Some(debug) = reply.debug {
                     debug!("Remote: {}", debug);
@@ -575,10 +593,11 @@ pub async fn process_instance_result(certs_dir: impl AsRef<Path>, proxy_addr: &O
 /// - `remote`: Whether to (and what) remote Brane instance to run the file on instead.
 /// - `language`: The language with which to compile the file.
 /// - `file`: The file to read and run. Can also be '-', in which case it is read from stdin instead.
+/// - `profile`: If given, prints the profile timings to stdout if available.
 /// 
 /// # Returns
 /// Nothing, but does print results and such to stdout. Might also produce new datasets.
-pub async fn handle(certs_dir: impl AsRef<Path>, proxy_addr: Option<String>, language: Language, file: PathBuf, remote: Option<String>) -> Result<(), Error> {
+pub async fn handle(certs_dir: impl AsRef<Path>, proxy_addr: Option<String>, language: Language, file: PathBuf, remote: Option<String>, profile: bool) -> Result<(), Error> {
     // Either read the file or read stdin
     let (what, source_code): (Cow<str>, String) = if file == PathBuf::from("-") {
         let mut result: String = String::new();
@@ -596,7 +615,7 @@ pub async fn handle(certs_dir: impl AsRef<Path>, proxy_addr: Option<String>, lan
 
     // Now switch on remote or local mode
     if let Some(remote) = remote {
-        remote_run(certs_dir, proxy_addr, remote, options, what, source_code).await
+        remote_run(certs_dir, proxy_addr, remote, options, what, source_code, profile).await
     } else {
         local_run(options, what, source_code).await
     }
@@ -613,10 +632,11 @@ pub async fn handle(certs_dir: impl AsRef<Path>, proxy_addr: Option<String>, lan
 /// - `options`: The ParseOptions that specify how to parse the incoming source.
 /// - `what`: A description of the source we're reading (e.g., the filename or `<stdin>`)
 /// - `source`: The source code to read.
+/// - `profile`: If given, prints the profile timings to stdout if reported by the remote.
 /// 
 /// # Returns
 /// Nothing, but does print results and such to stdout. Might also produce new datasets.
-async fn remote_run(certs_dir: impl AsRef<Path>, proxy_addr: Option<String>, endpoint: impl AsRef<str>, options: ParserOptions, what: impl AsRef<str>, source: impl AsRef<str>) -> Result<(), Error> {
+async fn remote_run(certs_dir: impl AsRef<Path>, proxy_addr: Option<String>, endpoint: impl AsRef<str>, options: ParserOptions, what: impl AsRef<str>, source: impl AsRef<str>, profile: bool) -> Result<(), Error> {
     let certs_dir : &Path = certs_dir.as_ref();
     let endpoint  : &str  = endpoint.as_ref();
     let what      : &str  = what.as_ref();
@@ -625,7 +645,7 @@ async fn remote_run(certs_dir: impl AsRef<Path>, proxy_addr: Option<String>, end
     // First we initialize the remote thing
     let mut state: InstanceVmState = initialize_instance_vm(endpoint, None, options).await?;
     // Next, we run the VM (one snippet only ayway)
-    let res: FullValue = run_instance_vm(endpoint, &mut state, what, source).await?;
+    let res: FullValue = run_instance_vm(endpoint, &mut state, what, source, profile).await?;
     // Then, we collect and process the result
     process_instance_result(certs_dir, &proxy_addr, res).await?;
 

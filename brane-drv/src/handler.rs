@@ -4,7 +4,7 @@
 //  Created:
 //    12 Sep 2022, 16:18:11
 //  Last edited:
-//    29 Nov 2022, 13:20:10
+//    06 Jan 2023, 14:11:13
 //  Auto updated?
 //    Yes
 // 
@@ -28,6 +28,7 @@ use brane_exe::FullValue;
 use brane_prx::client::ProxyClient;
 use brane_tsk::spec::{AppId, Planner};
 use brane_tsk::grpc;
+use specifications::profiling::DriverProfile;
 
 use crate::errors::RemoteVmError;
 use crate::planner::InstancePlanner;
@@ -163,6 +164,11 @@ impl grpc::DriverService for DriverHandler {
         let request = request.into_inner();
         debug!("Receiving execute request for session '{}'", request.uuid);
 
+        // Start timing
+        let mut profile: DriverProfile = DriverProfile::new();
+        profile.snippet.start();
+        profile.request_overhead.start();
+
         // Prepare gRPC stream between client and (this) driver.
         let (tx, rx) = mpsc::channel::<Result<grpc::ExecuteReply, Status>>(10);
 
@@ -190,13 +196,16 @@ impl grpc::DriverService for DriverHandler {
 
         // We're gonna run the rest asynchronous, to allow the client to earlier receive callbacks
         let planner: Arc<InstancePlanner> = self.planner.clone();
+        profile.request_overhead.stop();
         tokio::spawn(async move {
+            profile.request_processing.start();
             debug!("Executing workflow for session '{}'", app_id);
     
             // We assume that the input is an already compiled workflow; so no need to fire up any parsers/compilers
 
             // We only have to use JSON magic
             debug!("Parsing workflow of {} characters", request.input.len());
+            profile.workflow_parse.start();
             let workflow: Workflow = match serde_json::from_str(&request.input) {
                 Ok(workflow) => workflow,
                 Err(err)     => {
@@ -204,23 +213,30 @@ impl grpc::DriverService for DriverHandler {
                     fatal_err!(tx, Status::invalid_argument, err);
                 },
             };
+            profile.workflow_parse.stop();
 
-            // Spend some time resolving the workflow with the planner
-            debug!("Planning workflow on Kafka topic '{}'", node_config.node.central().topics.planner_command);
-            let plan: Workflow = match planner.plan(workflow).await {
-                Ok(plan) => plan,
-                Err(err) => { fatal_err!(tx, Status::internal, err); },
-            };
+            // // Spend some time resolving the workflow with the planner
+            // debug!("Planning workflow on Kafka topic '{}'", node_config.node.central().topics.planner_command);
+            // profile.planning.start();
+            // let plan: Workflow = match planner.plan(workflow, &mut profile.planning_details).await {
+            //     Ok(plan) => plan,
+            //     Err(err) => { fatal_err!(tx, Status::internal, err); },
+            // };
+            // profile.planning.stop();
 
             // We now have a runnable plan ( ͡° ͜ʖ ͡°), so run it
-            debug!("Executing workflow of {} edges", plan.graph.len());
-            let (vm, res): (InstanceVm, Result<FullValue, RemoteVmError>) = vm.exec(tx.clone(), plan).await;
+            debug!("Executing workflow of {} edges", workflow.graph.len());
+            profile.execution.start();
+            let (vm, res): (InstanceVm, Result<FullValue, RemoteVmError>) = vm.exec(tx.clone(), workflow, &mut profile.execution_details).await;
+            profile.execution.stop();
 
             // Insert the VM again
             debug!("Saving state session state");
             sessions.insert(app_id, vm);
 
             // Switch on the actual result and send that back to the user
+            profile.request_processing.stop();
+            profile.snippet.stop();
             match res {
                 Ok(res)  => {
                     debug!("Completed execution.");
@@ -239,6 +255,17 @@ impl grpc::DriverService for DriverHandler {
                         stderr : None,
                         stdout : None,
                         value  : Some(sres),
+
+                        profile : Some(grpc::DriverProfile {
+                            snippet : serde_json::to_string(&profile.snippet).unwrap(),
+
+                            request_overhead   : serde_json::to_string(&profile.request_overhead).unwrap(),
+                            request_processing : serde_json::to_string(&profile.request_processing).unwrap(),
+
+                            workflow_parse : serde_json::to_string(&profile.workflow_parse).unwrap(),
+
+                            execution : serde_json::to_string(&profile.execution).unwrap(),
+                        }),
                     };
 
                     // Send it

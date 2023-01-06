@@ -4,7 +4,7 @@
 //  Created:
 //    27 Oct 2022, 10:14:26
 //  Last edited:
-//    05 Jan 2023, 16:53:40
+//    06 Jan 2023, 14:10:31
 //  Auto updated?
 //    Yes
 // 
@@ -35,9 +35,10 @@ use brane_exe::{Error as VmError, FullValue, RunState, Vm};
 use brane_exe::spec::{TaskInfo, VmPlugin};
 use brane_prx::client::ProxyClient;
 use brane_tsk::errors::{CommitError, ExecuteError, PreprocessError, StdoutError};
-use brane_tsk::spec::{AppId, JobStatus, Planner};
+use brane_tsk::spec::{AppId, JobStatus};
 use brane_tsk::grpc::{self, CommitReply, CommitRequest, DataKind, ExecuteReply, PreprocessKind as RawPreprocessKind, PreprocessReply, PreprocessRequest, TaskReply, TaskRequest, TaskStatus};
 use specifications::data::{AccessKind, PreprocessKind};
+use specifications::profiling::VmProfile;
 
 pub use crate::errors::RemoteVmError as Error;
 use crate::spec::{GlobalState, LocalState};
@@ -306,6 +307,8 @@ impl VmPlugin for InstancePlugin {
             value  : None,
 
             close : false,
+
+            profile : None,
         })).await {
             return Err(StdoutError::TxWriteError{ err });
         }
@@ -435,15 +438,21 @@ impl InstanceVm {
     /// # Arguments
     /// - `tx`: The transmission channel to send feedback to the client on.
     /// - `workflow`: The Workflow to execute.
+    /// - `profile`: The VmProfile struct to populate with detailled timings about various VM parts.
     /// 
     /// # Returns
     /// The result of the workflow, if any. It also returns `self` again for subsequent runs.
-    pub async fn exec(self, tx: Sender<Result<ExecuteReply, Status>>, workflow: Workflow) -> (Self, Result<FullValue, Error>) {
+    pub async fn exec(self, tx: Sender<Result<ExecuteReply, Status>>, workflow: Workflow, profile: &mut VmProfile) -> (Self, Result<FullValue, Error>) {
+        let _ = profile.snippet.guard();
+
         // Step 1: Plan
-        let plan: Workflow = match self.planner.plan(workflow).await {
+        debug!("Planning workflow on Kafka planner...");
+        profile.planning.start();
+        let plan: Workflow = match self.planner.plan(workflow, &mut profile.planning_details).await {
             Ok(plan) => plan,
             Err(err) => { return (self, Err(Error::PlanError{ err })); },
         };
+        profile.planning.stop();
 
         // Also update the TX & workflow in the internal state
         {
