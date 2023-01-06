@@ -4,7 +4,7 @@
 //  Created:
 //    24 Oct 2022, 15:34:05
 //  Last edited:
-//    05 Jan 2023, 18:55:33
+//    06 Jan 2023, 11:31:22
 //  Auto updated?
 //    Yes
 // 
@@ -67,7 +67,7 @@ impl VmPlugin for OfflinePlugin {
         // Match on the type of preprocessing
         match preprocess {
             // Anything that requires transfers, fails
-            PreprocessKind::TransferRegistryTar { .. } => Err(PreprocessError::UnavailableData{ name: name.clone() }),
+            PreprocessKind::TransferRegistryTar { .. } => Err(PreprocessError::UnavailableData{ name }),
         }
     }
 

@@ -4,7 +4,7 @@
 //  Created:
 //    09 Sep 2022, 13:23:41
 //  Last edited:
-//    05 Jan 2023, 16:53:02
+//    06 Jan 2023, 11:30:02
 //  Auto updated?
 //    Yes
 // 
@@ -1043,7 +1043,7 @@ impl<G: CustomGlobalState, L: CustomLocalState> Thread<G, L> {
                         let mut handles: HashMap<DataName, JoinHandle<Result<AccessKind, P::PreprocessError>>> = HashMap::new();
                         for value in args.values() {
                             // Preprocess the given value
-                            if let Err(err) = preprocess_value::<P>(&self.global, &mut self.local, pc, task, at, value, input, &mut handles).await { return EdgeResult::Err(err); };
+                            if let Err(err) = preprocess_value::<P>(&self.global, &self.local, pc, task, at, value, input, &mut handles).await { return EdgeResult::Err(err); };
                         }
                         // Join the handles
                         let mut data: HashMap<DataName, AccessKind> = HashMap::with_capacity(handles.len());
@@ -1062,7 +1062,7 @@ impl<G: CustomGlobalState, L: CustomLocalState> Thread<G, L> {
                             name            : &function.name,
                             package_name    : package,
                             package_version : version,
-                            requirements    : &requirements,
+                            requirements,
 
                             args,
                             location : at,

@@ -4,7 +4,7 @@
 //  Created:
 //    19 Sep 2022, 14:57:17
 //  Last edited:
-//    05 Jan 2023, 12:46:43
+//    06 Jan 2023, 11:30:58
 //  Auto updated?
 //    Yes
 // 
@@ -390,6 +390,7 @@ async fn create_and_start_container(docker: &Docker, info: &ExecuteInfo) -> Resu
     let create_options = CreateContainerOptions { name: &container_name };
 
     // Extract device requests from the capabilities
+    #[allow(clippy::unnecessary_filter_map)]
     let device_requests: Vec<DeviceRequest> = info.capabilities.iter().filter_map(|c| match c {
         // We need a CUDA-enabled GPU
         Capability::CudaGpu => {
