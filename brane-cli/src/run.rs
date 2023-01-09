@@ -4,7 +4,7 @@
 //  Created:
 //    12 Sep 2022, 16:42:57
 //  Last edited:
-//    06 Jan 2023, 12:55:24
+//    09 Jan 2023, 18:51:22
 //  Auto updated?
 //    Yes
 // 
@@ -21,7 +21,6 @@ use std::sync::Arc;
 
 use console::style;
 use tempfile::{tempdir, TempDir};
-use tonic::transport::Channel;
 
 use brane_ast::{compile_snippet, CompileResult, ParserOptions, Workflow};
 use brane_ast::state::CompileState;
@@ -29,9 +28,8 @@ use brane_ast::state::CompileState;
 use brane_dsl::Language;
 use brane_exe::FullValue;
 use brane_tsk::spec::{LOCALHOST, AppId};
-use brane_tsk::grpc::{CreateSessionRequest, DriverServiceClient, ExecuteRequest};
-use specifications::timing;
 use specifications::data::{AccessKind, DataIndex, DataInfo};
+use specifications::driving::{CreateSessionRequest, DriverServiceClient, ExecuteRequest};
 use specifications::package::PackageIndex;
 use specifications::registry::RegistryConfig;
 
@@ -144,7 +142,7 @@ pub struct InstanceVmState {
     /// The ID for this session.
     pub session : AppId,
     /// The client which we use to communicate to the VM.
-    pub client  : DriverServiceClient<Channel>,
+    pub client  : DriverServiceClient,
 }
 
 
@@ -249,7 +247,7 @@ pub async fn initialize_instance_vm(endpoint: impl AsRef<str>, attach: Option<Ap
 
     // Connect to the server with gRPC
     debug!("Connecting to driver '{}'...", endpoint);
-    let mut client: DriverServiceClient<Channel> = match DriverServiceClient::connect(endpoint.to_string()).await {
+    let mut client: DriverServiceClient = match DriverServiceClient::connect(endpoint.to_string()).await {
         Ok(client) => client,
         Err(err)   => { return Err(Error::ClientConnectError{ address: endpoint.into(), err }); }
     };
@@ -378,15 +376,34 @@ pub async fn run_instance_vm(endpoint: impl AsRef<str>, state: &mut InstanceVmSt
                 if profile {
                     if let Some(profile) = reply.profile {
                         println!("Remote reports profile times:");
-                        println!(" - Snippet : {}ms", timing!(&profile.snippet, elapsed_ms));
+                        println!(" - Snippet : {}", profile.snippet.display());
                         println!();
-                        println!(" - Request overhead   : {}ms", timing!(&profile.request_overhead, elapsed_ms));
-                        println!(" - Request processing : {}ms", timing!(&profile.request_processing, elapsed_ms));
+                        println!(" - Request overhead   : {}", profile.request_overhead.display());
+                        println!(" - Request processing : {}", profile.request_processing.display());
                         println!();
-                        println!(" - Workflow parsing : {}ms", timing!(&profile.workflow_parse, elapsed_ms));
+                        println!(" - Workflow parsing : {}", profile.workflow_parse.display());
                         println!();
-                        println!(" - Planning  : {}ms", timing!(&profile.planning, elapsed_ms));
-                        println!(" - Execution : {}ms", timing!(&profile.execution, elapsed_ms));
+                        println!(" - Execution : {}", profile.execution.display());
+                        println!("    - Snippet : {}", profile.execution_details.snippet.display());
+                        println!();
+                        println!("    - Planning: {}", profile.execution_details.planning.display());
+                        println!("       - Snippet : {}", profile.execution_details.planning_details.snippet.display());
+                        println!();
+                        println!("       - Request overhead     : {}", profile.execution_details.planning_details.request_overhead.display());
+                        println!("       - Workflow parsing     : {}", profile.execution_details.planning_details.workflow_parse.display());
+                        println!("       - Information overhead : {}", profile.execution_details.planning_details.information_overhead.display());
+                        println!();
+                        println!("       - Planning : {}", profile.execution_details.planning_details.planning.display());
+                        println!("          - Main planning      : {}", profile.execution_details.planning_details.main_planning.display());
+                        println!("          - Functions planning : {}", profile.execution_details.planning_details.funcs_planning.display());
+                        let longest_name: usize = profile.execution_details.planning_details.func_planning.iter().map(|p| p.name.len()).max().unwrap_or(0);
+                        for profile in profile.execution_details.planning_details.func_planning {
+                            println!("             - Function '{}' planning{} : {}", profile.name, (0..(longest_name - profile.name.len())).map(|_| ' ').collect::<String>(), profile.timing.display());
+                        }
+                        println!();
+                        println!("    - Execution : {}", profile.execution_details.running.display());
+                        println!("       - Snippet : {}", profile.execution_details.running_details.snippet.display());
+                        println!("       - Edges   :");
                     }
                 }
 

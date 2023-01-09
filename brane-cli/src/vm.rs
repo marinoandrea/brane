@@ -4,7 +4,7 @@
 //  Created:
 //    24 Oct 2022, 15:34:05
 //  Last edited:
-//    06 Jan 2023, 11:31:22
+//    09 Jan 2023, 16:02:58
 //  Auto updated?
 //    Yes
 // 
@@ -39,6 +39,7 @@ use brane_tsk::docker::{self, ExecuteInfo, ImageSource, Network};
 use specifications::container::{Image, VolumeBind};
 use specifications::data::{AccessKind, DataIndex, DataInfo, PreprocessKind};
 use specifications::package::{PackageIndex, PackageInfo};
+use specifications::profiling::ThreadProfile;
 
 pub use crate::errors::OfflineVmError as Error;
 use crate::spec::{GlobalState, LocalState};
@@ -320,7 +321,7 @@ impl OfflineVm {
         let this: Arc<RwLock<Self>> = Arc::new(RwLock::new(self));
 
         // Run the VM and get self back
-        let result: Result<FullValue, VmError> = Self::run::<OfflinePlugin>(this.clone(), plan).await;
+        let result: Result<FullValue, VmError> = Self::run::<OfflinePlugin>(this.clone(), plan, &mut ThreadProfile::new()).await;
         let this: Self = match Arc::try_unwrap(this) {
             Ok(this) => this.into_inner().unwrap(),
             Err(_)   => { panic!("Could not get self back"); },

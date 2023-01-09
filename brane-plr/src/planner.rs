@@ -4,7 +4,7 @@
 //  Created:
 //    25 Oct 2022, 11:35:00
 //  Last edited:
-//    06 Jan 2023, 13:58:02
+//    09 Jan 2023, 13:41:09
 //  Auto updated?
 //    Yes
 // 
@@ -35,7 +35,7 @@ use reqwest::Response;
 
 use brane_ast::Workflow;
 use brane_ast::locations::Locations;
-use brane_ast::ast::{DataName, Edge, SymTable, TaskDef};
+use brane_ast::ast::{ComputeTaskDef, DataName, Edge, SymTable, TaskDef};
 use brane_cfg::spec::Address;
 use brane_cfg::infra::InfraFile;
 use brane_cfg::node::{CentralConfig, NodeConfig, NodeKindConfig};
@@ -187,7 +187,7 @@ async fn plan_edges(table: &mut SymTable, edges: &mut [Edge], api_addr: &Address
                 };
 
                 // Assert that this is what we need
-                if let TaskDef::Compute{ function, requirements, .. } = &table.tasks[*task] {
+                if let TaskDef::Compute(ComputeTaskDef{ function, requirements, .. }) = &table.tasks[*task] {
                     if !capabilities.is_superset(requirements) { return Err(PlanError::UnsupportedCapabilities{ task: function.name.clone(), loc: location.into(), expected: requirements.clone(), got: capabilities }); }
                 } else {
                     panic!("Non-compute tasks are not (yet) supported.");

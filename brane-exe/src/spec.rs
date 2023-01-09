@@ -4,7 +4,7 @@
 //  Created:
 //    26 Aug 2022, 18:26:40
 //  Last edited:
-//    05 Jan 2023, 16:48:23
+//    09 Jan 2023, 13:45:02
 //  Auto updated?
 //    Yes
 // 
@@ -205,6 +205,9 @@ impl<G: CustomGlobalState> RunState<G> {
 /// Defines that which the execute closure needs to know about a task.
 #[derive(Clone, Debug)]
 pub struct TaskInfo<'a> {
+    /// The identifier of the task itself.
+    pub id : usize,
+
     /// The name of the task to execute.
     pub name            : &'a str,
     /// The package name of the task to execute.

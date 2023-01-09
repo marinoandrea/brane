@@ -4,7 +4,7 @@
 //  Created:
 //    12 Sep 2022, 16:18:11
 //  Last edited:
-//    06 Jan 2023, 14:11:13
+//    09 Jan 2023, 13:57:55
 //  Auto updated?
 //    Yes
 // 
@@ -23,11 +23,10 @@ use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
 
 use brane_ast::Workflow;
-use brane_cfg::node::NodeConfig;
 use brane_exe::FullValue;
 use brane_prx::client::ProxyClient;
-use brane_tsk::spec::{AppId, Planner};
-use brane_tsk::grpc;
+use brane_tsk::spec::AppId;
+use specifications::driving::{CreateSessionReply, CreateSessionRequest, DriverService, ExecuteReply, ExecuteRequest};
 use specifications::profiling::DriverProfile;
 
 use crate::errors::RemoteVmError;
@@ -124,8 +123,8 @@ impl DriverHandler {
 }
 
 #[tonic::async_trait]
-impl grpc::DriverService for DriverHandler {
-    type ExecuteStream = ReceiverStream<Result<grpc::ExecuteReply, Status>>;
+impl DriverService for DriverHandler {
+    type ExecuteStream = ReceiverStream<Result<ExecuteReply, Status>>;
 
     /// Creates a new BraneScript session.
     /// 
@@ -137,14 +136,14 @@ impl grpc::DriverService for DriverHandler {
     /// 
     /// # Errors
     /// This function doesn't typically error.
-    async fn create_session(&self, _request: Request<grpc::CreateSessionRequest>) -> Result<Response<grpc::CreateSessionReply>, Status> {
+    async fn create_session(&self, _request: Request<CreateSessionRequest>) -> Result<Response<CreateSessionReply>, Status> {
         // Create a new VM for this session
         let app_id: AppId = AppId::generate();
         self.sessions.insert(app_id.clone(), InstanceVm::new(&self.node_config_path, app_id.clone(), self.proxy.clone(), self.planner.clone()));
 
         // Now return the ID to the user for future reference
         debug!("Created new session '{}'", app_id);
-        let reply = grpc::CreateSessionReply { uuid: app_id.into() };
+        let reply = CreateSessionReply { uuid: app_id.into() };
         Ok(Response::new(reply))
     }
 
@@ -160,7 +159,7 @@ impl grpc::DriverService for DriverHandler {
     /// 
     /// # Errors
     /// This function may error for any reason a job might fail.
-    async fn execute(&self, request: Request<grpc::ExecuteRequest>) -> Result<Response<Self::ExecuteStream>, Status> {
+    async fn execute(&self, request: Request<ExecuteRequest>) -> Result<Response<Self::ExecuteStream>, Status> {
         let request = request.into_inner();
         debug!("Receiving execute request for session '{}'", request.uuid);
 
@@ -170,7 +169,7 @@ impl grpc::DriverService for DriverHandler {
         profile.request_overhead.start();
 
         // Prepare gRPC stream between client and (this) driver.
-        let (tx, rx) = mpsc::channel::<Result<grpc::ExecuteReply, Status>>(10);
+        let (tx, rx) = mpsc::channel::<Result<ExecuteReply, Status>>(10);
 
         // Parse the given ID
         let app_id: AppId = match AppId::from_str(&request.uuid) {
@@ -178,14 +177,14 @@ impl grpc::DriverService for DriverHandler {
             Err(err)   => { fatal_err!(tx, rx, Status::invalid_argument, err); },
         };
 
-        // Load the config, making sure it's a central config
-        let node_config: NodeConfig = match NodeConfig::from_path(&self.node_config_path) {
-            Ok(config) => config,
-            Err(err)   => {
-                error!("Failed to load the NodeConfig: {}", err);
-                fatal_err!(tx, rx, Status::internal, "An internal error has occurred.");
-            },
-        };
+        // // Load the config, making sure it's a central config
+        // let node_config: NodeConfig = match NodeConfig::from_path(&self.node_config_path) {
+        //     Ok(config) => config,
+        //     Err(err)   => {
+        //         error!("Failed to load the NodeConfig: {}", err);
+        //         fatal_err!(tx, rx, Status::internal, "An internal error has occurred.");
+        //     },
+        // };
 
         // Fetch the VM
         let sessions: Arc<DashMap<AppId, InstanceVm>> = self.sessions.clone();
@@ -195,7 +194,6 @@ impl grpc::DriverService for DriverHandler {
         };
 
         // We're gonna run the rest asynchronous, to allow the client to earlier receive callbacks
-        let planner: Arc<InstancePlanner> = self.planner.clone();
         profile.request_overhead.stop();
         tokio::spawn(async move {
             profile.request_processing.start();
@@ -249,23 +247,14 @@ impl grpc::DriverService for DriverHandler {
 
                     // Create the reply text
                     let msg = String::from("Driver completed execution.");
-                    let reply = grpc::ExecuteReply {
+                    let reply = ExecuteReply {
                         close  : true,
                         debug  : Some(msg.clone()),
                         stderr : None,
                         stdout : None,
                         value  : Some(sres),
 
-                        profile : Some(grpc::DriverProfile {
-                            snippet : serde_json::to_string(&profile.snippet).unwrap(),
-
-                            request_overhead   : serde_json::to_string(&profile.request_overhead).unwrap(),
-                            request_processing : serde_json::to_string(&profile.request_processing).unwrap(),
-
-                            workflow_parse : serde_json::to_string(&profile.workflow_parse).unwrap(),
-
-                            execution : serde_json::to_string(&profile.execution).unwrap(),
-                        }),
+                        profile : Some(profile),
                     };
 
                     // Send it

@@ -4,7 +4,7 @@
 //  Created:
 //    09 Sep 2022, 13:23:41
 //  Last edited:
-//    06 Jan 2023, 11:30:02
+//    09 Jan 2023, 18:43:27
 //  Auto updated?
 //    Yes
 // 
@@ -27,8 +27,9 @@ use tokio::task::JoinHandle;
 use brane_ast::{DataType, MergeStrategy, Workflow};
 use brane_ast::spec::{BuiltinClasses, BuiltinFunctions};
 use brane_ast::locations::Location;
-use brane_ast::ast::{ClassDef, DataName, Edge, EdgeInstr, FunctionDef, TaskDef};
+use brane_ast::ast::{ClassDef, ComputeTaskDef, DataName, Edge, EdgeInstr, FunctionDef, TaskDef};
 use specifications::data::{AccessKind, AvailabilityKind};
+use specifications::profiling::{CallProfile, EdgeProfile, EdgeTimings, JoinProfile, LinearProfile, NodeProfile, ThreadProfile, Timing};
 
 use crate::dbg_node;
 pub use crate::errors::VmError as Error;
@@ -133,10 +134,10 @@ mod tests {
 /// Defines the result of an Edge execution.
 #[derive(Debug)]
 enum EdgeResult {
-    /// The Edge completed the thread, returning a (maybe) value.
-    Ok(Value),
-    /// The Edge execution was a success but the workflow continues (to the given body and the given edge in that body, in fact).
-    Pending((usize, usize)),
+    /// The Edge completed the thread, returning a value. It also contains the timings it took to do the last instruction.
+    Ok(Value, EdgeProfile),
+    /// The Edge execution was a success but the workflow continues (to the given body and the given edge in that body, in fact). It also contains the timings it took to do the last instruction.
+    Pending((usize, usize), EdgeProfile),
     /// The Edge execution was a disaster and something went wrong.
     Err(Error),
 }
@@ -867,7 +868,7 @@ pub struct Thread<G: CustomGlobalState, L: CustomLocalState> {
     fstack : FrameStack,
 
     /// The threads that we're blocking on.
-    blocking_threads : Vec<(usize, JoinHandle<Result<Value, Error>>)>,
+    blocking_threads : Vec<(usize, JoinHandle<Result<(Value, ThreadProfile), Error>>)>,
 
     /// The thread-global custom part of the RunState.
     global : Arc<RwLock<G>>,
@@ -983,13 +984,15 @@ impl<G: CustomGlobalState, L: CustomLocalState> Thread<G, L> {
         if pc.0 == usize::MAX {
             if pc.1 >= self.graph.len() {
                 debug!("Nothing to do (main, PC {} >= #edges {})", pc.1, self.graph.len());
-                return EdgeResult::Ok(Value::Void);
+                // We didn't really execute anything, so no timing taken
+                return EdgeResult::Ok(Value::Void, EdgeProfile{ func: pc.0 as u64, edge: pc.1 as u64, timings: Some(EdgeTimings::Other(Timing::none())) });
             }
         } else {
             let f: &[Edge] = self.funcs.get(&pc.0).unwrap_or_else(|| panic!("Failed to find function with index '{}'", pc.0));
             if pc.1 >= f.len() {
                 debug!("Nothing to do ({}, PC {} >= #edges {})", pc.0, pc.1, f.len());
-                return EdgeResult::Ok(Value::Void);
+                // We didn't really execute anything, so no timing taken
+                return EdgeResult::Ok(Value::Void, EdgeProfile{ func: pc.0 as u64, edge: pc.1 as u64, timings: Some(EdgeTimings::Other(Timing::none())) });
             }
         }
 
@@ -1003,17 +1006,21 @@ impl<G: CustomGlobalState, L: CustomLocalState> Thread<G, L> {
 
         // Match on the specific edge
         use Edge::*;
-        let next: (usize, usize) = match edge {
-            Node{ task, at, input, result, next, .. } => {
+        let edge_timing: Timing = Timing::new_start();
+        let (next, profile): ((usize, usize), EdgeProfile) = match edge {
+            Node{ task: task_id, at, input, result, next, .. } => {
+                let mut nprof: NodeProfile = NodeProfile::new();
+
                 // Resolve the task
-                let task: &TaskDef = self.fstack.table().task(*task);
+                let task: &TaskDef = self.fstack.table().task(*task_id);
 
                 // Match the thing to do
                 match task {
-                    TaskDef::Compute { package, version, function, args_names, requirements } => {
+                    TaskDef::Compute(ComputeTaskDef{ package, version, function, args_names, requirements }) => {
                         debug!("Calling compute task '{}' ('{}' v{})", task.name(), package, version);
 
                         // Collect the arguments from the stack (remember, reverse order)
+                        nprof.pre.start();
                         let mut args: HashMap<String, FullValue> = HashMap::with_capacity(function.args.len());
                         for i in 0..function.args.len() {
                             let i: usize = function.args.len() - 1 - i;
@@ -1059,6 +1066,8 @@ impl<G: CustomGlobalState, L: CustomLocalState> Thread<G, L> {
 
                         // Prepare the TaskInfo for the call
                         let info: TaskInfo = TaskInfo {
+                            id : *task_id,
+
                             name            : &function.name,
                             package_name    : package,
                             package_version : version,
@@ -1069,14 +1078,18 @@ impl<G: CustomGlobalState, L: CustomLocalState> Thread<G, L> {
                             input    : data,
                             result,
                         };
+                        nprof.pre.stop();
 
                         // Call the external call function with the correct arguments
+                        nprof.exec.start();
                         let mut res: Option<Value> = match P::execute(&self.global, &self.local, info).await {
                             Ok(res)  => res.map(|v| v.into_value(self.fstack.table())),
                             Err(err) => { return EdgeResult::Err(Error::Custom{ edge: pc.1, err: Box::new(err) }); },
                         };
+                        nprof.exec.stop();
 
                         // If the function returns an intermediate result but returned nothing, that's fine; we inject the result here
+                        nprof.post.start();
                         if function.ret == DataType::IntermediateResult && (res.is_none() || res.as_ref().unwrap() == &Value::Null || res.as_ref().unwrap() == &Value::Void) {
                             // Make the intermediate result available for next steps by possible pushing it to the next registry
                             let name: &str = result.as_ref().unwrap();
@@ -1097,6 +1110,7 @@ impl<G: CustomGlobalState, L: CustomLocalState> Thread<G, L> {
                             // If we have it anyway, might as well push it onto the stack
                             if let Err(err) = self.stack.push(res) { return EdgeResult::Err(Error::StackError { edge: pc.1, instr: None, err }); }
                         } else if function.ret != DataType::Void { return EdgeResult::Err(Error::ReturnTypeError { edge: pc.1, got: DataType::Void, expected: function.ret.clone() }); }
+                        nprof.post.stop();
                     },
 
                     TaskDef::Transfer {  } => {
@@ -1105,25 +1119,32 @@ impl<G: CustomGlobalState, L: CustomLocalState> Thread<G, L> {
                 }
 
                 // Move to the next edge
-                (pc.0, *next)
+                nprof.edge = edge_timing.into_stop();
+                ((pc.0, *next), EdgeProfile::with_timings(pc.0, pc.1, EdgeTimings::Node(nprof)))
             },
             Linear{ instrs, next } => {
                 // Run the instructions (as long as they don't crash)
-                let mut instr_pc: usize = 0;
+                let mut instr_timings : Vec<Timing> = Vec::with_capacity(instrs.len());
+                let mut instr_pc      : usize       = 0;
                 while instr_pc < instrs.len() {
                     // It looks a bit funky, but we simply add the relative offset after every constrution to the edge-local program counter
+                    let timing: Timing = Timing::new_start();
                     instr_pc = (instr_pc as i64 + match exec_instr(pc.1, instr_pc, &instrs[instr_pc], &mut self.stack, &mut self.fstack) {
                         Ok(next) => next,
                         Err(err) => { return EdgeResult::Err(err); },
                     }) as usize;
+                    instr_timings.push(timing.into_stop());
                 }
 
                 // Move to the next edge
-                (pc.0, *next)
+                ((pc.0, *next), EdgeProfile::with_timings(pc.0, pc.1, EdgeTimings::Linear(LinearProfile{ 
+                    edge   : edge_timing.into_stop(),
+                    instrs : instr_timings,
+                })))
             },
             Stop{} => {
                 // Done no value
-                return EdgeResult::Ok(Value::Void);
+                return EdgeResult::Ok(Value::Void, EdgeProfile::with_timings(pc.0, pc.1, EdgeTimings::Other(edge_timing.into_stop())));
             },
 
             Branch{ true_next, false_next, .. } => {
@@ -1141,11 +1162,11 @@ impl<G: CustomGlobalState, L: CustomLocalState> Thread<G, L> {
 
                 // Branch appropriately
                 if value {
-                    (pc.0, *true_next)
+                    ((pc.0, *true_next), EdgeProfile::with_timings(pc.0, pc.1, edge_timing.into_stop()))
                 } else {
                     match false_next {
-                        Some(false_next) => (pc.0, *false_next),
-                        None             => { return EdgeResult::Ok(Value::Void); },
+                        Some(false_next) => ((pc.0, *false_next), EdgeProfile::with_timings(pc.0, pc.1, edge_timing.into_stop())),
+                        None             => { return EdgeResult::Ok(Value::Void, EdgeProfile::with_timings(pc.0, pc.1, edge_timing.into_stop())); },
                     }
                 }
             },
@@ -1159,15 +1180,16 @@ impl<G: CustomGlobalState, L: CustomLocalState> Thread<G, L> {
                 }
 
                 // Mark those threads to wait for, and then move to the join
-                (pc.0, *merge)
+                ((pc.0, *merge), EdgeProfile::with_timings(pc.0, pc.1, edge_timing.into_stop()))
             },
             Join{ merge, next } => {
                 // Await the threads first (if any)
-                let mut results: Vec<(usize, Value)> = Vec::with_capacity(self.blocking_threads.len());
+                let mut results        : Vec<(usize, Value)> = Vec::with_capacity(self.blocking_threads.len());
+                let mut branch_timings : Vec<ThreadProfile>  = Vec::with_capacity(self.blocking_threads.len());
                 for (i, t) in &mut self.blocking_threads {
                     match t.await {
                         Ok(status) => match status {
-                            Ok(res)  => { results.push((*i, res)); },
+                            Ok(res)  => { results.push((*i, res.0)); branch_timings.push(res.1); },
                             Err(err) => { return EdgeResult::Err(err); },
                         },
                         Err(err)   => { return EdgeResult::Err(Error::SpawnError{ edge: pc.1, err }); }
@@ -1376,12 +1398,15 @@ impl<G: CustomGlobalState, L: CustomLocalState> Thread<G, L> {
 
                 // We can now push that onto the stack, then go to next
                 if let Some(result) = result { if let Err(err) = self.stack.push(result) { return EdgeResult::Err(Error::StackError { edge: pc.1, instr: None, err }); } }
-                (pc.0, *next)
+                ((pc.0, *next), EdgeProfile::with_timings(pc.0, pc.1, EdgeTimings::Join(JoinProfile {
+                    edge     : edge_timing.into_stop(),
+                    branches : branch_timings,
+                })))
             },
 
             Loop{ cond, .. } => {
                 // The thing is built in such a way we can just run the condition and be happy
-                (pc.0, *cond)
+                ((pc.0, *cond), EdgeProfile::with_timings(pc.0, pc.1, edge_timing.into_stop()))
             },
 
             Call{ next } => {
@@ -1415,6 +1440,8 @@ impl<G: CustomGlobalState, L: CustomLocalState> Thread<G, L> {
 
                 // Either run as a builtin (if it is defined as one) or else run the call
                 if sig.name == BuiltinFunctions::Print.name() {
+                    let builtin_timing: Timing = Timing::new_start();
+
                     // We have one variable that is a string; so print it
                     let text: String = self.stack.pop().unwrap().try_as_string().unwrap();
                     if let Err(err) = P::stdout(&self.global, &self.local, &text, false).await {
@@ -1422,9 +1449,11 @@ impl<G: CustomGlobalState, L: CustomLocalState> Thread<G, L> {
                     }
 
                     // Done, go to the next immediately
-                    (pc.0, *next)
+                    ((pc.0, *next), EdgeProfile::with_timings(pc.0, pc.1, EdgeTimings::Call(CallProfile{ name: BuiltinFunctions::Print.name().into(), edge: edge_timing.into_stop(), builtin: builtin_timing.into_stop() })))
 
                 } else if sig.name == BuiltinFunctions::PrintLn.name() {
+                    let builtin_timing: Timing = Timing::new_start();
+
                     // We have one variable that is a string; so print it
                     let text: String = self.stack.pop().unwrap().try_as_string().unwrap();
                     if let Err(err) = P::stdout(&self.global, &self.local, &text, true).await {
@@ -1432,9 +1461,11 @@ impl<G: CustomGlobalState, L: CustomLocalState> Thread<G, L> {
                     }
 
                     // Done, go to the next immediately
-                    (pc.0, *next)
+                    ((pc.0, *next), EdgeProfile::with_timings(pc.0, pc.1, EdgeTimings::Call(CallProfile{ name: BuiltinFunctions::PrintLn.name().into(), edge: edge_timing.into_stop(), builtin: builtin_timing.into_stop() })))
 
                 } else if sig.name == BuiltinFunctions::Len.name() {
+                    let builtin_timing: Timing = Timing::new_start();
+
                     // Fetch the array
                     let array: Vec<Value> = self.stack.pop().unwrap().try_as_array().unwrap();
 
@@ -1442,9 +1473,11 @@ impl<G: CustomGlobalState, L: CustomLocalState> Thread<G, L> {
                     if let Err(err) = self.stack.push(Value::Integer { value: array.len() as i64 }) { return EdgeResult::Err(Error::StackError{ edge: pc.1, instr: None, err }); }
 
                     // We can then go to the next one immediately
-                    (pc.0, *next)
+                    ((pc.0, *next), EdgeProfile::with_timings(pc.0, pc.1, EdgeTimings::Call(CallProfile{ name: BuiltinFunctions::Len.name().into(), edge: edge_timing.into_stop(), builtin: builtin_timing.into_stop() })))
 
                 } else if sig.name == BuiltinFunctions::CommitResult.name() {
+                    let builtin_timing: Timing = Timing::new_start();
+
                     // Fetch the arguments
                     let res_name  : String   = self.stack.pop().unwrap().try_as_intermediate_result().unwrap();
                     let data_name : String   = self.stack.pop().unwrap().try_as_string().unwrap();
@@ -1464,12 +1497,12 @@ impl<G: CustomGlobalState, L: CustomLocalState> Thread<G, L> {
                     if let Err(err) = self.stack.push(Value::Data{ name: data_name }) { return EdgeResult::Err(Error::StackError { edge: pc.1, instr: None, err }); }
 
                     // We can then go to the next one immediately
-                    (pc.0, *next)
+                    ((pc.0, *next), EdgeProfile::with_timings(pc.0, pc.1, EdgeTimings::Call(CallProfile{ name: BuiltinFunctions::CommitResult.name().into(), edge: edge_timing.into_stop(), builtin: builtin_timing.into_stop() })))
 
                 } else {
                     // Push the return address onto the frame stack and then go to the correct function
                     if let Err(err) = self.fstack.push(def, (pc.0, *next)) { return EdgeResult::Err(Error::FrameStackPushError{ edge: pc.1, err }); }
-                    (def, 0)
+                    ((def, 0), EdgeProfile::with_timings(pc.0, pc.1, EdgeTimings::Call(CallProfile{ name: self.fstack.table().func(pc.0).name.clone(), edge: edge_timing.into_stop(), builtin: None })))
                 }
             },
             Return{} => {
@@ -1495,16 +1528,16 @@ impl<G: CustomGlobalState, L: CustomLocalState> Thread<G, L> {
                     }
 
                     // Go to the stack'ed index
-                    ret
+                    (ret, EdgeProfile::with_timings(pc.0, pc.1, edge_timing.into_stop()))
                 } else {
                     // We return the top value on the stack (if any) as a result of this thread
-                    return EdgeResult::Ok(self.stack.pop().unwrap_or(Value::Void));
+                    return EdgeResult::Ok(self.stack.pop().unwrap_or(Value::Void), EdgeProfile::with_timings(pc.0, pc.1, edge_timing.into_stop()));
                 }
             },
         };
 
         // Return it
-        EdgeResult::Pending(next)
+        EdgeResult::Pending(next, profile)
     }
 
 
@@ -1512,19 +1545,31 @@ impl<G: CustomGlobalState, L: CustomLocalState> Thread<G, L> {
     /// Runs the thread once until it is pending for something (either other threads or external function calls).
     /// 
     /// # Returns
-    /// A ThreadStatus that indicates the current position of the thread.
+    /// A tuple of the value that this thread returns once it is done, and the profiling information of the thread's execution (respectively).
     /// 
     /// # Errors
     /// This function may error if execution of an edge or instruction failed. This is typically due to incorrect runtime typing.
-    pub fn run<P: VmPlugin<GlobalState = G, LocalState = L>>(mut self) -> BoxFuture<'static, Result<Value, Error>> {
+    pub fn run<P: VmPlugin<GlobalState = G, LocalState = L>>(mut self) -> BoxFuture<'static, Result<(Value, ThreadProfile), Error>> {
         async move {
             // Start executing edges from where we left off
+            let mut profile: ThreadProfile = ThreadProfile::new();
             loop {
                 // Run the edge
                 self.pc = match self.exec_edge::<P>(self.pc).await {
-                    EdgeResult::Ok(value)     => { return Ok(value); },
-                    EdgeResult::Pending(next) => next,
-                    EdgeResult::Err(err)      => { return Err(err); },
+                    // Either quit or continue, noting down the time taken
+                    EdgeResult::Ok(value, eprof) => {
+                        if profile.edges.len() == profile.edges.capacity() { profile.edges.reserve(profile.edges.len()); }
+                        profile.edges.push(eprof);
+                        return Ok((value, profile));
+                    },
+                    EdgeResult::Pending(next, eprof) => {
+                        if profile.edges.len() == profile.edges.capacity() { profile.edges.reserve(profile.edges.len()); }
+                        profile.edges.push(eprof);
+                        next
+                    },
+
+                    // We failed
+                    EdgeResult::Err(err) => { return Err(err); },
                 };
             }
         }.boxed()
@@ -1535,20 +1580,32 @@ impl<G: CustomGlobalState, L: CustomLocalState> Thread<G, L> {
     /// This overload supports snippet execution, returning the state that is necessary for the next repl-loop together with the result.
     /// 
     /// # Returns
-    /// A tuple of a new VmState and a ThreadStatus that indicates the current position of the thread.
+    /// A tuple of the value that is returned by this thread, the running state used to refer to variables produced in this run and the profiling information of running this thread, respectively.
     /// 
     /// # Errors
     /// This function may error if execution of an edge or instruction failed. This is typically due to incorrect runtime typing.
-    pub fn run_snippet<P: VmPlugin<GlobalState = G, LocalState = L>>(mut self) -> BoxFuture<'static, Result<(Value, RunState<G>), Error>> {
+    pub fn run_snippet<P: VmPlugin<GlobalState = G, LocalState = L>>(mut self) -> BoxFuture<'static, Result<(Value, RunState<G>, ThreadProfile), Error>> {
         async move {
             // Start executing edges from where we left off
+            let mut profile: ThreadProfile = ThreadProfile::new();
             loop {
                 // Run the edge
                 self.pc = match self.exec_edge::<P>(self.pc).await {
+                    // Either quit or continue, noting down the time taken
                     // Return not just the value, but also the VmState part of this thread to keep.
-                    EdgeResult::Ok(value)     => { return Ok((value, self.into_state())); },
-                    EdgeResult::Pending(next) => next,
-                    EdgeResult::Err(err)      => { return Err(err); },
+                    EdgeResult::Ok(value, eprof) => {
+                        if profile.edges.len() == profile.edges.capacity() { profile.edges.reserve(profile.edges.len()); }
+                        profile.edges.push(eprof);
+                        return Ok((value, self.into_state(), profile));
+                    },
+                    EdgeResult::Pending(next, eprof) => {
+                        if profile.edges.len() == profile.edges.capacity() { profile.edges.reserve(profile.edges.len()); }
+                        profile.edges.push(eprof);
+                        next
+                    },
+
+                    // We failed
+                    EdgeResult::Err(err) => { return Err(err); },
                 };
             }
         }.boxed()

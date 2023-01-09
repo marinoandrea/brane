@@ -4,7 +4,7 @@
 //  Created:
 //    31 Oct 2022, 11:21:14
 //  Last edited:
-//    05 Jan 2023, 15:33:27
+//    09 Jan 2023, 15:54:22
 //  Auto updated?
 //    Yes
 // 
@@ -16,11 +16,11 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::str::FromStr;
 use std::sync::Arc;
 
 use bollard::{API_DEFAULT_VERSION, ClientVersion};
 use chrono::Utc;
+use enum_debug::EnumDebug as _;
 use futures_util::StreamExt;
 use hyper::body::Bytes;
 use log::{debug, error, info, warn};
@@ -33,7 +33,7 @@ use tonic::{Response, Request, Status};
 
 use brane_ast::Workflow;
 use brane_ast::locations::Location;
-use brane_ast::ast::DataName;
+use brane_ast::ast::{ComputeTaskDef, DataName, TaskDef};
 use brane_cfg::backend::{BackendFile, Credentials};
 use brane_cfg::node::NodeConfig;
 use brane_cfg::policies::{ContainerPolicy, PolicyFile};
@@ -44,13 +44,13 @@ use brane_shr::debug::BlockFormatter;
 use brane_shr::fs::{copy_dir_recursively_async, unarchive_async};
 use brane_tsk::errors::{AuthorizeError, CommitError, ExecuteError, PreprocessError};
 use brane_tsk::spec::JobStatus;
-use brane_tsk::grpc::{CommitReply, CommitRequest, DataKind, JobService, PreprocessKind, PreprocessReply, PreprocessRequest, TaskReply, TaskRequest, TaskStatus};
 use brane_tsk::tools::decode_base64;
 use brane_tsk::docker::{self, ExecuteInfo, ImageSource, Network};
 use specifications::container::{Image, VolumeBind};
 use specifications::data::{AccessKind, AssetInfo};
 use specifications::package::{Capability, PackageIndex, PackageInfo, PackageKind};
 use specifications::version::Version;
+use specifications::working::{CommitReply, CommitRequest, ExecuteReply, ExecuteRequest, JobService, PreprocessKind, PreprocessReply, PreprocessRequest, TaskStatus, TransferRegistryTar};
 
 
 /***** CONSTANTS *****/
@@ -91,12 +91,12 @@ macro_rules! err {
 /// 
 /// # Errors
 /// This function may error if we failed to update the client.
-async fn update_client(tx: &Sender<Result<TaskReply, Status>>, status: JobStatus) -> Result<(), ExecuteError> {
+async fn update_client(tx: &Sender<Result<ExecuteReply, Status>>, status: JobStatus) -> Result<(), ExecuteError> {
     // Convert the JobStatus into a code and (possible) value
     let (status, value): (TaskStatus, Option<String>) = status.into();
 
     // Put that in an ExecuteReply
-    let reply: TaskReply = TaskReply {
+    let reply: ExecuteReply = ExecuteReply {
         status : status as i32,
         value,
     };
@@ -605,7 +605,7 @@ async fn download_container(node_config: &NodeConfig, proxy: Arc<ProxyClient>, e
 /// 
 /// # Errors
 /// This function errors if the task fails for whatever reason or we didn't even manage to launch it.
-async fn execute_task_local(node_config: &NodeConfig, dinfo: DockerInfo, tx: &Sender<Result<TaskReply, Status>>, container_path: impl AsRef<Path>, tinfo: TaskInfo, keep_container: bool) -> Result<FullValue, JobStatus> {
+async fn execute_task_local(node_config: &NodeConfig, dinfo: DockerInfo, tx: &Sender<Result<ExecuteReply, Status>>, container_path: impl AsRef<Path>, tinfo: TaskInfo, keep_container: bool) -> Result<FullValue, JobStatus> {
     let container_path : &Path    = container_path.as_ref();
     let mut tinfo      : TaskInfo = tinfo;
     let image          : Image    = tinfo.image.unwrap();
@@ -701,7 +701,7 @@ async fn execute_task_local(node_config: &NodeConfig, dinfo: DockerInfo, tx: &Se
 /// 
 /// # Errors
 /// This fnction may error for many many reasons, but chief among those are unavailable backends or a crashing task.
-async fn execute_task(node_config: &NodeConfig, proxy: Arc<ProxyClient>, tx: Sender<Result<TaskReply, Status>>, workflow: Workflow, cinfo: ControlNodeInfo, tinfo: TaskInfo, keep_container: bool) -> Result<(), ExecuteError> {
+async fn execute_task(node_config: &NodeConfig, proxy: Arc<ProxyClient>, tx: Sender<Result<ExecuteReply, Status>>, workflow: Workflow, cinfo: ControlNodeInfo, tinfo: TaskInfo, keep_container: bool) -> Result<(), ExecuteError> {
     let mut tinfo          = tinfo;
 
     // We update the user first on that the job has been received
@@ -972,7 +972,7 @@ async fn commit_result(node_config: &NodeConfig, name: impl AsRef<str>, data_nam
 
 /***** LIBRARY *****/
 /// Defines a server for incoming worker requests.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct WorkerServer {
     /// The path to the node config file that we store.
     node_config_path : PathBuf,
@@ -1005,40 +1005,24 @@ impl WorkerServer {
 
 #[tonic::async_trait]
 impl JobService for WorkerServer {
-    type ExecuteStream = ReceiverStream<Result<TaskReply, Status>>;
+    type ExecuteStream = ReceiverStream<Result<ExecuteReply, Status>>;
 
     async fn preprocess(&self, request: Request<PreprocessRequest>) -> Result<Response<PreprocessReply>, Status> {
         let request = request.into_inner();
         debug!("Receiving preprocess request");
 
         // Fetch the data kind
-        let data_name: DataName = match DataKind::from_i32(request.data_kind) {
-            Some(DataKind::Data)               => DataName::Data(request.data_name),
-            Some(DataKind::IntermediateResult) => DataName::IntermediateResult(request.data_name),
-            None                               => {
-                debug!("Incoming request has invalid data kind '{}' (dropping it)", request.data_kind);
-                return Err(Status::invalid_argument(format!("Unknown data kind '{}'", request.data_kind)));
+        let data_name: DataName = match request.data {
+            Some(name) => name.into(),
+            None       => {
+                debug!("Incoming request has invalid data name (dropping it)");
+                return Err(Status::invalid_argument(format!("Unknown data name")));
             }
         };
 
         // Parse the preprocess kind
-        match PreprocessKind::from_i32(request.kind) {
-            Some(PreprocessKind::TransferRegistryTar) => {
-                // The given piece of data is the address
-                let (location, address): (String, String) = match request.data {
-                    Some(data) => match serde_json::from_str(&data) {
-                        Ok(res)  => res,
-                        Err(err) => {
-                            debug!("Incoming request has invalid (location, address) pair: {} (dropping it)", err);
-                            return Err(Status::invalid_argument("Illegal data field for TransferRegistryTar".to_string()));
-                        },
-                    },
-                    None => {
-                        debug!("Incoming request missing data field (dropping it)");
-                        return Err(Status::invalid_argument("Missing data field for TransferRegistryTar".to_string()));
-                    },
-                };
-
+        match request.kind {
+            Some(PreprocessKind::TransferRegistryTar(TransferRegistryTar{ location, address })) => {
                 // Load the node config file
                 let node_config: NodeConfig = match NodeConfig::from_path(&self.node_config_path) {
                     Ok(config) => config,
@@ -1069,26 +1053,25 @@ impl JobService for WorkerServer {
                 // Done
                 debug!("File transfer complete.");
                 Ok(Response::new(PreprocessReply {
-                    ok     : true,
                     access : saccess,
                 }))
             },
 
             None => {
-                debug!("Incoming request has invalid preprocess kind '{}' (dropping it)", request.kind);
-                Err(Status::invalid_argument(format!("Unknown preprocesskind '{}'", request.kind)))
+                debug!("Incoming request has invalid preprocess kind (dropping it)");
+                Err(Status::invalid_argument(format!("Unknown preprocesskind")))
             },
         }
     }
 
 
 
-    async fn execute(&self, request: Request<TaskRequest>) -> Result<Response<Self::ExecuteStream>, Status> {
+    async fn execute(&self, request: Request<ExecuteRequest>) -> Result<Response<Self::ExecuteStream>, Status> {
         let request = request.into_inner();
         debug!("Receiving execute request");
 
         // Prepare gRPC stream between client and (this) job delegate.
-        let (tx, rx) = mpsc::channel::<Result<TaskReply, Status>>(10);
+        let (tx, rx) = mpsc::channel::<Result<ExecuteReply, Status>>(10);
 
         // Attempt to parse the workflow
         let workflow: Workflow = match serde_json::from_str(&request.workflow) {
@@ -1101,14 +1084,19 @@ impl JobService for WorkerServer {
             },
         };
 
-        // Attempt to parse the version
-        let version: Version = match Version::from_str(&request.package_version) {
-            Ok(version) => version,
-            Err(err)    => {
-                error!("Failed to deserialize version '{}': {}", request.package_version, err);
-                if let Err(err) = tx.send(Err(Status::invalid_argument(format!("Failed to deserialize version '{}': {}", request.package_version, err)))).await { error!("{}", err); }
+        // Fetch the task ID
+        if request.task as usize >= workflow.table.tasks.len() {
+            error!("Given task ID '{}' is out-of-bounds for workflow with {} tasks", request.task, workflow.table.tasks.len());
+            if let Err(err) = tx.send(Err(Status::invalid_argument(format!("Given task ID '{}' is out-of-bounds for workflow with {} tasks", request.task, workflow.table.tasks.len())))).await { error!("{}", err); }
+            return Ok(Response::new(ReceiverStream::new(rx)));
+        }
+        let task: &ComputeTaskDef = match &workflow.table.tasks[request.task as usize] {
+            TaskDef::Compute(def) => def,
+            _                     => {
+                error!("A task of type '{}' is not yet supported", workflow.table.tasks[request.task as usize].variant());
+                if let Err(err) = tx.send(Err(Status::invalid_argument(format!("A task of type '{}' is not yet supported", workflow.table.tasks[request.task as usize].variant())))).await { error!("{}", err); }
                 return Ok(Response::new(ReceiverStream::new(rx)));
-            },
+            }
         };
 
         // Attempt to parse the input
@@ -1131,20 +1119,6 @@ impl JobService for WorkerServer {
             },
         };
 
-        // Attempt to parse the requirements
-        let mut requirements: HashSet<Capability> = HashSet::with_capacity(request.requirements.len());
-        for r in request.requirements {
-            // Parse it using serde
-            requirements.insert(match serde_json::from_str(&r) {
-                Ok(c)    => c,
-                Err(err) => {
-                    error!("Failed to deserialize capability '{}': {}", r, err);
-                    if let Err(err) = tx.send(Err(Status::invalid_argument(format!("Failed to deserialize capability '{}': {}", r, err)))).await { error!("{}", err); }
-                    return Ok(Response::new(ReceiverStream::new(rx)));
-                }
-            });
-        }
-
         // Load the node config file
         let node_config: NodeConfig = match NodeConfig::from_path(&self.node_config_path) {
             Ok(config) => config,
@@ -1157,14 +1131,14 @@ impl JobService for WorkerServer {
         // Collect some request data into ControlNodeInfo's and TaskInfo's.
         let cinfo : ControlNodeInfo = ControlNodeInfo::new(request.api);
         let tinfo : TaskInfo        = TaskInfo::new(
-            request.name,
-            request.package_name,
-            version,
+            task.function.name.clone(),
+            task.package.clone(),
+            task.version.clone(),
 
             input,
             request.result,
             args,
-            requirements,
+            task.requirements.clone(),
         );
 
         // Now move the rest to a separate task so we can return the start of the stream
@@ -1195,12 +1169,12 @@ impl JobService for WorkerServer {
         };
 
         // Run the function
-        if let Err(err) = commit_result(&node_config, &request.name, &request.data_name).await {
+        if let Err(err) = commit_result(&node_config, &request.result_name, &request.data_name).await {
             error!("{}", err);
             return Err(Status::internal("An internal error occurred"));
         }
 
         // Be done without any error
-        Ok(Response::new(CommitReply{ ok: true, error: None }))
+        Ok(Response::new(CommitReply{}))
     }
 }

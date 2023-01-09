@@ -4,7 +4,7 @@
 //  Created:
 //    30 Aug 2022, 11:55:49
 //  Last edited:
-//    06 Jan 2023, 17:07:35
+//    09 Jan 2023, 13:39:45
 //  Auto updated?
 //    Yes
 // 
@@ -182,33 +182,16 @@ pub struct FunctionDef {
 
 
 /// Defines a Task (i.e., a Node) in the Workflow graph.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, EnumDebug, Serialize)]
 #[serde(tag = "kind")]
 pub enum TaskDef {
     /// Defines a compute task, i.e., a task that is externally called.
     #[serde(rename = "cmp")]
-    Compute {
-        /// The name of the package that this task belongs to.
-        #[serde(rename = "p")]
-        package    : String,
-        /// The version of the package that this task belongs to.
-        #[serde(rename = "v")]
-        version    : Version,
-
-        /// The definition of the function that this package implements.
-        #[serde(rename = "d")]
-        function   : Box<FunctionDef>,
-        /// A list of names for every argument.
-        #[serde(rename = "a")]
-        args_names : Vec<String>,
-        /// Any requirements required for this task.
-        #[serde(rename = "r")]
-        requirements : HashSet<Capability>,
-    },
+    Compute(ComputeTaskDef),
 
     /// Defines a transfer task, i.e., a data transfer between two domains.
     #[serde(rename = "trf")]
-    Transfer {},
+    Transfer,
 }
 
 impl TaskDef {
@@ -217,8 +200,8 @@ impl TaskDef {
     pub fn name(&self) -> &str {
         use TaskDef::*;
         match self {
-            Compute{ function, .. } => &function.name,
-            Transfer{ .. }          => &TRANSFER_FUNC.name,
+            Compute(def) => &def.function.name,
+            Transfer     => &TRANSFER_FUNC.name,
         }
     }
 
@@ -227,10 +210,31 @@ impl TaskDef {
     pub fn func(&self) -> &FunctionDef {
         use TaskDef::*;
         match self {
-            Compute{ function, .. } => function,
-            Transfer{ .. }          => &TRANSFER_FUNC,
+            Compute(def) => &def.function,
+            Transfer     => &TRANSFER_FUNC,
         }
     }
+}
+
+/// Defines the contents of a compute task.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct ComputeTaskDef {
+    /// The name of the package that this task belongs to.
+    #[serde(rename = "p")]
+    pub package    : String,
+    /// The version of the package that this task belongs to.
+    #[serde(rename = "v")]
+    pub version    : Version,
+
+    /// The definition of the function that this package implements.
+    #[serde(rename = "d")]
+    pub function   : Box<FunctionDef>,
+    /// A list of names for every argument.
+    #[serde(rename = "a")]
+    pub args_names : Vec<String>,
+    /// Any requirements required for this task.
+    #[serde(rename = "r")]
+    pub requirements : HashSet<Capability>,
 }
 
 
@@ -453,16 +457,17 @@ impl Display for DataName {
 }
 
 impl From<&brane_dsl::ast::Data> for DataName {
-    fn from(value: &brane_dsl::ast::Data) -> Self {
-        Self::from(value.clone())
-    }
+    #[inline]
+    fn from(value: &brane_dsl::ast::Data) -> Self { Self::from(value.clone()) }
 }
 impl From<&mut brane_dsl::ast::Data> for DataName {
+    #[inline]
     fn from(value: &mut brane_dsl::ast::Data) -> Self {
         Self::from(value.clone())
     }
 }
 impl From<brane_dsl::ast::Data> for DataName {
+    #[inline]
     fn from(value: brane_dsl::ast::Data) -> Self {
         match value {
             brane_dsl::ast::Data::Data(name)               => Self::Data(name),
@@ -471,38 +476,61 @@ impl From<brane_dsl::ast::Data> for DataName {
     }
 }
 
-impl TryFrom<specifications::working::DataName> for DataName {
-    type Error = DataNameDeserializeError;
-
-    fn try_from(value: specifications::working::DataName) -> Result<Self, Self::Error> {
-        match specifications::working::DataKind::from_i32(value.kind) {
-            Some(specifications::working::DataKind::Data)               => Ok(Self::Data(value.name)),
-            Some(specifications::working::DataKind::IntermediateResult) => Ok(Self::IntermediateResult(value.name)),
-            None                                                        => Err(DataNameDeserializeError::UnknownDataKind{ raw: value.kind }),
+impl From<specifications::working::DataName> for DataName {
+    #[inline]
+    fn from(value: specifications::working::DataName) -> Self {
+        match value {
+            specifications::working::DataName::Data(name)               => Self::Data(name),
+            specifications::working::DataName::IntermediateResult(name) => Self::IntermediateResult(name),
         }
     }
 }
-impl TryFrom<&specifications::working::DataName> for DataName {
+impl From<&specifications::working::DataName> for DataName {
+    #[inline]
+    fn from(value: &specifications::working::DataName) -> Self {
+        Self::from(value.clone())
+    }
+}
+impl From<&mut specifications::working::DataName> for DataName {
+    #[inline]
+    fn from(value: &mut specifications::working::DataName) -> Self {
+        Self::from(value.clone())
+    }
+}
+impl TryFrom<Option<specifications::working::DataName>> for DataName {
     type Error = DataNameDeserializeError;
 
     #[inline]
-    fn try_from(value: &specifications::working::DataName) -> Result<Self, Self::Error> {
+    fn try_from(value: Option<specifications::working::DataName>) -> Result<Self, Self::Error> {
+        match value {
+            Some(specifications::working::DataName::Data(name))               => Ok(Self::Data(name)),
+            Some(specifications::working::DataName::IntermediateResult(name)) => Ok(Self::IntermediateResult(name)),
+            None                                                              => Err(DataNameDeserializeError::UnknownDataName),
+        }
+    }
+}
+impl TryFrom<&Option<specifications::working::DataName>> for DataName {
+    type Error = DataNameDeserializeError;
+
+    #[inline]
+    fn try_from(value: &Option<specifications::working::DataName>) -> Result<Self, Self::Error> {
         Self::try_from(value.clone())
     }
 }
-impl TryFrom<&mut specifications::working::DataName> for DataName {
+impl TryFrom<&mut Option<specifications::working::DataName>> for DataName {
     type Error = DataNameDeserializeError;
 
     #[inline]
-    fn try_from(value: &mut specifications::working::DataName) -> Result<Self, Self::Error> {
+    fn try_from(value: &mut Option<specifications::working::DataName>) -> Result<Self, Self::Error> {
         Self::try_from(value.clone())
     }
 }
 impl From<DataName> for specifications::working::DataName {
+    #[inline]
     fn from(value: DataName) -> Self {
         match value {
-            DataName::Data(name)               => specifications::working::DataName{ name, kind: specifications::working::DataKind::Data.into() },
-            DataName::IntermediateResult(name) => specifications::working::DataName{ name, kind: specifications::working::DataKind::IntermediateResult.into() },
+            DataName::Data(name)               => specifications::working::DataName::Data(name),
+            DataName::IntermediateResult(name) => specifications::working::DataName::IntermediateResult(name),
         }
     }
 }

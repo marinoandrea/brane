@@ -4,7 +4,7 @@
 //  Created:
 //    12 Sep 2022, 17:41:33
 //  Last edited:
-//    23 Dec 2022, 16:37:08
+//    09 Jan 2023, 16:09:22
 //  Auto updated?
 //    Yes
 // 
@@ -18,6 +18,7 @@ use std::sync::{Arc, RwLock};
 use async_trait::async_trait;
 
 use brane_ast::{SymTable, Workflow};
+use specifications::profiling::ThreadProfile;
 
 use crate::errors::VmError;
 use crate::spec::{CustomGlobalState, CustomLocalState, RunState, VmPlugin};
@@ -103,7 +104,7 @@ pub mod tests {
                     println!("{}", (0..40).map(|_| "- ").collect::<String>());
 
                     // Run the VM on this snippet
-                    match DummyVm::run::<DummyPlugin>(vm.clone(), workflow).await {
+                    match DummyVm::run::<DummyPlugin>(vm.clone(), workflow, &mut ThreadProfile::new()).await {
                         Ok(value) => {
                             println!("Workflow stdout:");
                             vm.read().unwrap().flush_stdout();
@@ -186,22 +187,15 @@ pub trait Vm {
     /// Runs the given workflow, possibly asynchronously (if a parallel is encountered / there are external functions calls and the given closure runs this asynchronously.)
     /// 
     /// # Generic arguments
-    /// - `F1`: The closure that performs an external function call for us. See the definition for `ExtCall` to learn how it looks like.
-    /// - `F2`: The closure that performs a stdout write to whatever stdout is being used. See the definition for `ExtStdout` to learn how it looks like.
-    /// - `F3`: The closure that commits an intermediate results to a full on dataset. This function hides a lot of complexity, and will probably involve contacting the job node to update its datasets in a distributed setting. See the definition for `ExtCommit` to learn how it looks like.
-    /// - `E1`: The error type for the `external_call` closure. See the definition of `ExtError` to learn how it looks like.
-    /// - `E2`: The error type for the `external_stdout` closure. See the definition of `ExtError` to learn how it looks like.
-    /// - `E3`: The error type for the `external_commit` closure. See the definition of `ExtError` to learn how it looks like.
+    /// - `P`: The "VM plugin" that will fill in the blanks with respect to interacting with the outside world.
     /// 
     /// # Arguments
     /// - `snippet`: The snippet to compile. This is either the entire workflow, or a snippet of it. In the case of the latter, the internal state will be used (and updated).
-    /// - `external_call`: A function that performs the external function call for the poll. It should make use of `.await` if it needs to block the thread somehow.
-    /// - `external_stdout`: A function that performs a write to stdout for the poll. It should make use of `.await` if it needs to block the thread somehow.
-    /// - `external_commit`: A function that promotes an intermediate result to a fully-fledged, permanent dataset. It should make use of `.await` if it needs to block the thread somehow.
+    /// - `profile`: The ThreadProfile data that we will attempt to populate further based on the execution times we manage.
     /// 
     /// # Returns
     /// The result if the Workflow returned any.
-    async fn run<P: VmPlugin<GlobalState = Self::GlobalState, LocalState = Self::LocalState>>(this: Arc<RwLock<Self>>, snippet: Workflow) -> Result<FullValue, VmError>
+    async fn run<P: VmPlugin<GlobalState = Self::GlobalState, LocalState = Self::LocalState>>(this: Arc<RwLock<Self>>, snippet: Workflow, profile: &mut ThreadProfile) -> Result<FullValue, VmError>
     where
         Self: Sync,
     {
@@ -214,7 +208,7 @@ pub trait Vm {
 
         // Run the workflow
         match main.run_snippet::<P>().await {
-            Ok((res, state)) => {
+            Ok((res, state, prof)) => {
                 // Convert the value into a full value (if any)
                 let res: FullValue = res.into_full(state.fstack.table());
 
@@ -222,6 +216,7 @@ pub trait Vm {
                 Self::store_state(&this, state)?;
 
                 // Done, return
+                *profile = prof;
                 Ok(res)
             },
             Err(err) => Err(err),

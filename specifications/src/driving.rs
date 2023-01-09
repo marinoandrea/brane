@@ -4,7 +4,7 @@
 //  Created:
 //    06 Jan 2023, 14:43:35
 //  Last edited:
-//    06 Jan 2023, 16:47:14
+//    09 Jan 2023, 13:52:13
 //  Auto updated?
 //    Yes
 // 
@@ -124,9 +124,6 @@ pub struct DriverServiceClient {
 impl DriverServiceClient {
     /// Attempts to connect to the remote endpoint.
     /// 
-    /// # Generic arguments
-    /// - `E`: The type of the remote endpoint. Must be convertible to a `tonic::transport::Endpoint`.
-    /// 
     /// # Arguments
     /// - `address`: The address of the remote endpoint to connect to.
     /// 
@@ -135,7 +132,7 @@ impl DriverServiceClient {
     /// 
     /// # Errors
     /// This function errors if the connection could not be established for whatever reason.
-    pub async fn connect<E>(address: impl Into<String>) -> Result<Self, Error> {
+    pub async fn connect(address: impl Into<String>) -> Result<Self, Error> {
         let address: String = address.into();
 
         // Attempt to make the connection
@@ -238,10 +235,26 @@ pub trait DriverService: 'static + Send + Sync {
 }
 
 /// The DriverServiceServer hosts the server part of the DriverService protocol.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct DriverServiceServer<T> {
     /// The service that we host.
     service : Arc<T>,
+}
+
+impl<T> DriverServiceServer<T> {
+    /// Constructor for the DriverServiceServer.
+    /// 
+    /// # Arguments
+    /// - `service`: The Service to serve.
+    /// 
+    /// # Returns
+    /// A new DriverServiceServer instance.
+    #[inline]
+    pub fn new(service: T) -> Self {
+        Self {
+            service : Arc::new(service),
+        }
+    }
 }
 
 impl<T: DriverService, B> Service<http::Request<B>> for DriverServiceServer<T>
@@ -328,6 +341,15 @@ where
                     )
                 })
             },
+        }
+    }
+}
+
+impl<T: Clone> Clone for DriverServiceServer<T> {
+    #[inline]
+    fn clone(&self) -> Self {
+        Self {
+            service : self.service.clone(),
         }
     }
 }

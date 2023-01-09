@@ -4,7 +4,7 @@
 //  Created:
 //    24 Oct 2022, 15:27:26
 //  Last edited:
-//    05 Jan 2023, 15:12:39
+//    09 Jan 2023, 13:56:09
 //  Auto updated?
 //    Yes
 // 
@@ -30,8 +30,9 @@ use specifications::container::Image;
 use specifications::package::Capability;
 use specifications::planning::PlanningStatusKind;
 use specifications::version::Version;
-
-use crate::grpc::{ExecuteReply, TaskReply, TaskStatus};
+use specifications::driving::ExecuteReply;
+// The TaskReply is here for legacy reasons; bad name
+use specifications::working::{ExecuteReply as TaskReply, TaskStatus};
 
 
 /***** LIBRARY *****/
@@ -174,7 +175,7 @@ pub enum PreprocessError {
     /// Failed to connect to a proxy.
     ProxyError{ err: String },
     /// Failed to connect to a delegate node with gRPC
-    GrpcConnectError{ endpoint: Address, err: tonic::transport::Error },
+    GrpcConnectError{ endpoint: Address, err: specifications::working::Error },
     /// Failed to send a preprocess request to a delegate node with gRPC
     GrpcRequestError{ what: &'static str, endpoint: Address, err: tonic::Status },
     /// Preprocessing failed with the following error.
@@ -323,7 +324,7 @@ pub enum ExecuteError {
     /// Failed to prepare the proxy service.
     ProxyError{ err: String },
     /// Failed to connect to a delegate node with gRPC
-    GrpcConnectError{ endpoint: Address, err: tonic::transport::Error },
+    GrpcConnectError{ endpoint: Address, err: specifications::working::Error },
     /// Failed to send a preprocess request to a delegate node with gRPC
     GrpcRequestError{ what: &'static str, endpoint: Address, err: tonic::Status },
     /// Preprocessing failed with the following error.
@@ -493,7 +494,7 @@ pub enum CommitError {
     /// Failed to prepare the proxy service.
     ProxyError{ err: String },
     /// Failed to connect to a delegate node with gRPC
-    GrpcConnectError{ endpoint: Address, err: tonic::transport::Error },
+    GrpcConnectError{ endpoint: Address, err: specifications::working::Error },
     /// Failed to send a preprocess request to a delegate node with gRPC
     GrpcRequestError{ what: &'static str, endpoint: Address, err: tonic::Status },
     /// Preprocessing failed with the following error.

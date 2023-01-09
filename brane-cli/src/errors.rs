@@ -4,7 +4,7 @@
 //  Created:
 //    17 Feb 2022, 10:27:28
 //  Last edited:
-//    05 Jan 2023, 12:16:36
+//    09 Jan 2023, 13:59:26
 //  Auto updated?
 //    Yes
 // 
@@ -706,7 +706,7 @@ pub enum RunError {
     /// Failed to pull the delegate map from the remote delegate index(ish - `brane-api`)
     RemoteDelegatesError{ address: String, err: DelegatesError },
     /// Could not connect to the given address
-    ClientConnectError{ address: String, err: tonic::transport::Error },
+    ClientConnectError{ address: String, err: specifications::driving::Error },
     /// Failed to parse the AppId send by the remote driver.
     AppIdError{ address: String, raw: String, err: brane_tsk::errors::IdError },
     /// Could not create a new session on the given address

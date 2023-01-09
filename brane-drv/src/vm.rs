@@ -4,7 +4,7 @@
 //  Created:
 //    27 Oct 2022, 10:14:26
 //  Last edited:
-//    06 Jan 2023, 14:10:31
+//    09 Jan 2023, 16:02:48
 //  Auto updated?
 //    Yes
 // 
@@ -18,12 +18,12 @@
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
+use async_trait::async_trait;
 use enum_debug::EnumDebug as _;
 use log::{debug, info, warn};
 use tokio::sync::mpsc::Sender;
 use serde_json_any_key::MapIterToJson;
 use tonic::{Response, Status, Streaming};
-use tonic::transport::Channel;
 
 use brane_ast::Workflow;
 use brane_ast::locations::Location;
@@ -36,9 +36,10 @@ use brane_exe::spec::{TaskInfo, VmPlugin};
 use brane_prx::client::ProxyClient;
 use brane_tsk::errors::{CommitError, ExecuteError, PreprocessError, StdoutError};
 use brane_tsk::spec::{AppId, JobStatus};
-use brane_tsk::grpc::{self, CommitReply, CommitRequest, DataKind, ExecuteReply, PreprocessKind as RawPreprocessKind, PreprocessReply, PreprocessRequest, TaskReply, TaskRequest, TaskStatus};
 use specifications::data::{AccessKind, PreprocessKind};
+use specifications::driving as driving_grpc;
 use specifications::profiling::VmProfile;
+use specifications::working as working_grpc;
 
 pub use crate::errors::RemoteVmError as Error;
 use crate::spec::{GlobalState, LocalState};
@@ -61,7 +62,7 @@ macro_rules! mundane_status_update {
 /// The InstancePlugin provides `brane-exe` functions for task execution.
 pub struct InstancePlugin;
 
-#[async_trait::async_trait]
+#[async_trait]
 impl VmPlugin for InstancePlugin {
     type GlobalState = GlobalState;
     type LocalState  = LocalState;
@@ -100,21 +101,13 @@ impl VmPlugin for InstancePlugin {
 
         // Prepare the request to send to the delegate node
         debug!("Sending preprocess request to job node '{}'...", delegate_address);
-        let message: PreprocessRequest = match preprocess {
-            PreprocessKind::TransferRegistryTar{ location, address } => PreprocessRequest {
-                data_kind : match name {
-                    DataName::Data(_)               => DataKind::Data as i32,
-                    DataName::IntermediateResult(_) => DataKind::IntermediateResult as i32,
-                },
-                data_name : name.name().into(),
-
-                kind      : RawPreprocessKind::TransferRegistryTar as i32,
-                data      : Some(serde_json::to_string(&(location, address)).unwrap()),
-            },
+        let message: working_grpc::PreprocessRequest = working_grpc::PreprocessRequest {
+            data : Some(name.into()),
+            kind : Some(preprocess.into()),
         };
 
         // Create the client
-        let mut client: grpc::JobServiceClient<Channel> = match proxy.connect_to_job(delegate_address.to_string()).await {
+        let mut client: working_grpc::JobServiceClient = match proxy.connect_to_job(delegate_address.to_string()).await {
             Ok(result) => match result {
                 Ok(client) => client,
                 Err(err)   => { return Err(PreprocessError::GrpcConnectError{ endpoint: delegate_address, err }); },
@@ -123,16 +116,11 @@ impl VmPlugin for InstancePlugin {
         };
 
         // Send the request to the job node
-        let response: Response<PreprocessReply> = match client.preprocess(message).await {
+        let response: Response<working_grpc::PreprocessReply> = match client.preprocess(message).await {
             Ok(response) => response,
             Err(err)     => { return Err(PreprocessError::GrpcRequestError{ what: "PreprocessRequest", endpoint: delegate_address, err }); },
         };
-        let result: PreprocessReply = response.into_inner();
-
-        // Check if it was a success
-        if !result.ok {
-            return Err(PreprocessError::PreprocessError{ endpoint: delegate_address, kind: name.variant().to_string(), name: name.name().into(), err: result.access });
-        }
+        let result: working_grpc::PreprocessReply = response.into_inner();
 
         // If it was, attempt to deserialize the accesskind
         let access: AccessKind = match serde_json::from_str(&result.access) {
@@ -182,22 +170,19 @@ impl VmPlugin for InstancePlugin {
 
         // Prepare the request to send to the delegate node
         debug!("Sending execute request to job node '{}'...", delegate_address);
-        let message: TaskRequest = TaskRequest {
-            api : api_address.serialize().to_string(),
+        let message: working_grpc::ExecuteRequest = working_grpc::ExecuteRequest {
+            api  : api_address.serialize().to_string(),
+
             workflow,
+            task : info.id as u64,
 
-            name            : info.name.into(),
-            package_name    : info.package_name.into(),
-            package_version : info.package_version.into(),
-
-            input        : info.input.to_json_map().unwrap(),
-            result       : info.result.clone(),
-            args         : serde_json::to_string(&info.args).unwrap(),
-            requirements : info.requirements.iter().map(|c| serde_json::to_string(&c).unwrap()).collect(),
+            input  : info.input.to_json_map().unwrap(),
+            result : info.result.clone(),
+            args   : serde_json::to_string(&info.args).unwrap(),
         };
 
         // Create the client
-        let mut client: grpc::JobServiceClient<Channel> = match proxy.connect_to_job(delegate_address.to_string()).await {
+        let mut client: working_grpc::JobServiceClient = match proxy.connect_to_job(delegate_address.to_string()).await {
             Ok(result) => match result {
                 Ok(client) => client,
                 Err(err)   => { return Err(ExecuteError::GrpcConnectError{ endpoint: delegate_address, err }); },
@@ -206,11 +191,11 @@ impl VmPlugin for InstancePlugin {
         };
 
         // Send the request to the job node
-        let response: Response<Streaming<TaskReply>> = match client.execute(message).await {
+        let response: Response<Streaming<working_grpc::ExecuteReply>> = match client.execute(message).await {
             Ok(response) => response,
-            Err(err)     => { return Err(ExecuteError::GrpcRequestError{ what: "TaskRequest", endpoint: delegate_address, err }); },
+            Err(err)     => { return Err(ExecuteError::GrpcRequestError{ what: "ExecuteRequest", endpoint: delegate_address, err }); },
         };
-        let mut stream: Streaming<TaskReply> = response.into_inner();
+        let mut stream: Streaming<working_grpc::ExecuteReply> = response.into_inner();
 
         // Now we tick off incoming messages
         let mut state  : JobStatus                 = JobStatus::Unknown;
@@ -223,7 +208,7 @@ impl VmPlugin for InstancePlugin {
                 Ok(Some(reply)) => {
                     // Create a JobStatus based on the given ExecuteStatus
                     let status: JobStatus = match JobStatus::from_status(
-                        match TaskStatus::from_i32(reply.status) {
+                        match working_grpc::TaskStatus::from_i32(reply.status) {
                             Some(status) => status,
                             None         => { warn!("Unknown job status '{}' (skipping message)", reply.status); continue; },
                         },
@@ -234,7 +219,7 @@ impl VmPlugin for InstancePlugin {
                     };
 
                     // Match it
-                    debug!("Received status update: {:?}", TaskStatus::from(&status));
+                    debug!("Received status update: {:?}", working_grpc::TaskStatus::from(&status));
                     match &status {
                         JobStatus::Unknown => { warn!("Received JobStatus::Unknown, which doesn't make a whole lot of sense"); },
 
@@ -294,13 +279,13 @@ impl VmPlugin for InstancePlugin {
         debug!("Newline: {}", if newline { "yes" } else { "no" });
 
         // Get the TX (so that the lock does not live over an `.await`)
-        let tx: Arc<Sender<Result<ExecuteReply, Status>>> = {
+        let tx: Arc<Sender<Result<driving_grpc::ExecuteReply, Status>>> = {
             let state: RwLockReadGuard<GlobalState> = global.read().unwrap();
             state.tx.as_ref().expect("Missing `tx` in GlobalState; did you forget to update it before this poll?").clone()
         };
 
         // Write stdout to the tx
-        if let Err(err) = tx.send(Ok(ExecuteReply {
+        if let Err(err) = tx.send(Ok(driving_grpc::ExecuteReply {
             stdout : Some(format!("{}{}", text, if newline { "\n" } else { "" })),
             stderr : None,
             debug  : None,
@@ -357,13 +342,13 @@ impl VmPlugin for InstancePlugin {
 
         // Prepare the request to send to the delegate node
         debug!("Sending commit request to job node '{}'...", delegate_address);
-        let message: CommitRequest = CommitRequest {
-            name      : name.into(),
-            data_name : data_name.into(),
+        let message: working_grpc::CommitRequest = working_grpc::CommitRequest {
+            result_name : name.into(),
+            data_name   : data_name.into(),
         };
 
         // Create the client
-        let mut client: grpc::JobServiceClient<Channel> = match proxy.connect_to_job(delegate_address.to_string()).await {
+        let mut client: working_grpc::JobServiceClient = match proxy.connect_to_job(delegate_address.to_string()).await {
             Ok(result) => match result {
                 Ok(client) => client,
                 Err(err)   => { return Err(CommitError::GrpcConnectError{ endpoint: delegate_address, err }); },
@@ -372,16 +357,11 @@ impl VmPlugin for InstancePlugin {
         };
 
         // Send the request to the job node
-        let response: Response<CommitReply> = match client.commit(message).await {
+        let response: Response<working_grpc::CommitReply> = match client.commit(message).await {
             Ok(response) => response,
             Err(err)     => { return Err(CommitError::GrpcRequestError{ what: "CommitRequest", endpoint: delegate_address, err }); },
         };
-        let result: CommitReply = response.into_inner();
-
-        // Check if it was a success
-        if !result.ok {
-            return Err(CommitError::CommitError{ endpoint: delegate_address, name: name.into(), err: result.error });
-        }
+        let _: working_grpc::CommitReply = response.into_inner();
 
         // Done (nothing to return)
         Ok(())
@@ -442,7 +422,7 @@ impl InstanceVm {
     /// 
     /// # Returns
     /// The result of the workflow, if any. It also returns `self` again for subsequent runs.
-    pub async fn exec(self, tx: Sender<Result<ExecuteReply, Status>>, workflow: Workflow, profile: &mut VmProfile) -> (Self, Result<FullValue, Error>) {
+    pub async fn exec(self, tx: Sender<Result<driving_grpc::ExecuteReply, Status>>, workflow: Workflow, profile: &mut VmProfile) -> (Self, Result<FullValue, Error>) {
         let _ = profile.snippet.guard();
 
         // Step 1: Plan
@@ -468,11 +448,13 @@ impl InstanceVm {
         let this: Arc<RwLock<Self>> = Arc::new(RwLock::new(self));
 
         // Run the VM and get self back
-        let result: Result<FullValue, VmError> = Self::run::<InstancePlugin>(this.clone(), plan).await;
+        profile.running.start();
+        let result: Result<FullValue, VmError> = Self::run::<InstancePlugin>(this.clone(), plan, &mut profile.running_details).await;
         let this: Self = match Arc::try_unwrap(this) {
             Ok(this) => this.into_inner().unwrap(),
             Err(_)   => { panic!("Could not get self back"); },
         };
+        profile.running.stop();
 
 
 

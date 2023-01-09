@@ -4,7 +4,7 @@
 //  Created:
 //    24 Oct 2022, 16:42:17
 //  Last edited:
-//    06 Jan 2023, 17:19:24
+//    09 Jan 2023, 13:05:39
 //  Auto updated?
 //    Yes
 // 
@@ -20,9 +20,9 @@ use uuid::Uuid;
 
 use brane_ast::Workflow;
 use brane_exe::FullValue;
+use specifications::working::TaskStatus;
 
 use crate::errors::{ExecuteError, IdError, PlanError};
-use crate::grpc::TaskStatus;
 
 
 /***** HELPER MACROS *****/
