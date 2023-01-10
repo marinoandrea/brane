@@ -4,7 +4,7 @@
 //  Created:
 //    27 Oct 2022, 10:14:26
 //  Last edited:
-//    09 Jan 2023, 16:02:48
+//    10 Jan 2023, 13:39:57
 //  Auto updated?
 //    Yes
 // 
@@ -423,7 +423,7 @@ impl InstanceVm {
     /// # Returns
     /// The result of the workflow, if any. It also returns `self` again for subsequent runs.
     pub async fn exec(self, tx: Sender<Result<driving_grpc::ExecuteReply, Status>>, workflow: Workflow, profile: &mut VmProfile) -> (Self, Result<FullValue, Error>) {
-        let _ = profile.snippet.guard();
+        let _guard = profile.snippet.guard();
 
         // Step 1: Plan
         debug!("Planning workflow on Kafka planner...");

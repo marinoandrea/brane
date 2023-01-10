@@ -4,7 +4,7 @@
 //  Created:
 //    12 Sep 2022, 16:42:57
 //  Last edited:
-//    09 Jan 2023, 18:51:22
+//    10 Jan 2023, 13:32:12
 //  Auto updated?
 //    Yes
 // 
@@ -13,17 +13,19 @@
 // 
 
 use std::borrow::Cow;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
 
 use console::style;
+use enum_debug::EnumDebug as _;
 use tempfile::{tempdir, TempDir};
 
 use brane_ast::{compile_snippet, CompileResult, ParserOptions, Workflow};
 use brane_ast::state::CompileState;
+use brane_ast::ast::{Edge, EdgeInstr};
 // use brane_cfg::certs::{load_cert, load_keypair};
 use brane_dsl::Language;
 use brane_exe::FullValue;
@@ -31,6 +33,7 @@ use brane_tsk::spec::{LOCALHOST, AppId};
 use specifications::data::{AccessKind, DataIndex, DataInfo};
 use specifications::driving::{CreateSessionRequest, DriverServiceClient, ExecuteRequest};
 use specifications::package::PackageIndex;
+use specifications::profiling::{EdgeTimings, ThreadProfile, Timing};
 use specifications::registry::RegistryConfig;
 
 pub use crate::errors::RunError as Error;
@@ -40,7 +43,108 @@ use crate::utils::{ensure_datasets_dir, ensure_packages_dir, get_datasets_dir, g
 use crate::vm::OfflineVm;
 
 
+/***** HELPER MACROS *****/
+/// Generates the given number of spaces as a String.
+macro_rules! spaces {
+    ($n:expr) => {
+        ((0..($n)).map(|_| ' ').collect::<String>())
+    };
+}
+
+
+
+
+
 /***** HELPER FUNCTIONS *****/
+/// Shows the profiles for the given ThreadProfile.
+/// 
+/// # Arguments
+/// - `f`: The Formatter to write the timings to.
+/// - `profile`: The ThreadProfile to show.
+/// - `workflow`: The Workflow we can use to resolve indices to variant names and such.
+/// - `indent`: The amount of indents (as number of spaces) to print before the whole thing.
+/// 
+/// # Errors
+/// This function might error if we failed to write to the given formatter.
+/// 
+/// It might also print some errors to stderr if they are not fatal.
+fn show_thread_profile(out: &mut impl Write, profile: ThreadProfile, workflow: &Workflow, indent: usize) -> Result<(), Error> {
+    // Compute the longest edge we have
+    let mut longest_edge: usize = 0;
+    for e in &profile.edges {
+        let edge_len: usize = workflow.edge((e.func as usize, e.edge as usize)).variant().to_string().len();
+        if edge_len > longest_edge {
+            longest_edge = edge_len;
+        }
+    }
+
+    // Print all them edges
+    for e in profile.edges {
+        // Get the edge's type
+        let edge: &Edge  = workflow.edge((e.func as usize, e.edge as usize));
+        let kind: String = edge.variant().to_string();
+
+        // Get the main edge timing
+        let timings: EdgeTimings = match e.timings {
+            Some(timings) => timings,
+            None          => { error!("Edge {}:{} ({}) has no timings", e.func, e.edge, kind); continue; }
+        };
+
+        // We always show the edge itself
+        writeln!(out, "{} - {} {}:{}{} : {}", spaces!(indent), kind, e.func, e.edge, (0..(longest_edge - kind.len())).map(|_| ' ').collect::<String>(), timings.edge_timing().display())?;
+
+        // Show more complex timings, if need be
+        match timings {
+            // A Node has some of the most extensive profiling attached to it
+            EdgeTimings::Node(prof) => {
+                /* TODO */
+            },
+            // A Linear edge shows the per-instruction profiles
+            EdgeTimings::Linear(prof) => {
+                // Get the list of instructions
+                let instrs: &[EdgeInstr] = if let Edge::Linear{ instrs, .. } = edge {
+                    instrs
+                } else {
+                    error!("Edge {}:{} ({}) is not a linear edge, but has a linear timing", e.func, e.edge, kind);
+                    continue;
+                };
+
+                // Print their timings
+                let longest_instr: usize = (0..prof.instrs.len()).map(|i| instrs[i].variant().to_string().len()).max().unwrap_or(0);
+                writeln!(out, "{}   Instructions :", spaces!(indent))?;
+                for timing in prof.instrs {
+                    let instr_kind: String = instrs[timing.index as usize].variant().to_string();
+                    writeln!(out, "{}    - {}: {}{} : {}", spaces!(indent), timing.index, instr_kind, (0..(longest_instr - instr_kind.len())).map(|_| ' ').collect::<String>(), timing.timing.display())?;
+                }
+            },
+            // A Join edge shows the per-branch individual timings (as nested threads)
+            EdgeTimings::Join(prof) => {
+                // Show the threadprofiles with extra indentation
+                writeln!(out, "{}   Branches times :", spaces!(indent))?;
+                for b in prof.branches {
+                    show_thread_profile(out, b, workflow, indent + 3)?;
+                }
+            },
+            // A Call edge shows any potential builtin timings
+            EdgeTimings::Call(prof) => {
+                // If there is any, show the builtin timing
+                write!(out, "{}   To '{}'", spaces!(indent), prof.name)?;
+                if let Some(timing) = prof.builtin {
+                    writeln!(out, " : {}", timing.display())?;
+                } else {
+                    writeln!(out)?;
+                }
+            },
+
+            // Other edge just show their own timing, which we already did
+            EdgeTimings::Other(_) => {}
+        }
+    }
+
+    // Done
+    Ok(())
+}
+
 /// Compiles the given worfklow string to a Workflow.
 /// 
 /// # Arguments
@@ -404,6 +508,7 @@ pub async fn run_instance_vm(endpoint: impl AsRef<str>, state: &mut InstanceVmSt
                         println!("    - Execution : {}", profile.execution_details.running.display());
                         println!("       - Snippet : {}", profile.execution_details.running_details.snippet.display());
                         println!("       - Edges   :");
+                        show_thread_profile(&mut std::io::stdout(), profile.execution_details.running_details, &workflow, 9)?;
                     }
                 }
 

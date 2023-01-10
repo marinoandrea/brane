@@ -4,7 +4,7 @@
 //  Created:
 //    06 Jan 2023, 11:47:00
 //  Last edited:
-//    09 Jan 2023, 18:50:45
+//    10 Jan 2023, 18:04:02
 //  Auto updated?
 //    Yes
 // 
@@ -26,7 +26,65 @@ use serde::de::{self, Deserializer, SeqAccess, Visitor};
 use serde::ser::{Serializer, SerializeTuple};
 
 
-// /***** HELPER MACROS *****/
+/***** HELPER MACROS *****/
+/// A helper macro for generating the given number of strings.
+macro_rules! spaces {
+    ($n:expr) => {
+        (0..($n)).map(|_| ' ').collect::<String>()
+    };
+}
+
+// /// A helper macro that wraps the normal write to do some other things
+// macro_rules! write {
+//     // Nothing given
+//     ($f:expr) => {
+//         core::write!($f)
+//     };
+
+//     // Only format string
+//     ($f:expr, $fmt:literal) => {
+//         core::write!($f, $fmt)
+//     };
+//     // Format string with bonus
+//     ($f:expr, $fmt:literal, $($t:tt)+) => {
+//         core::write!($f, $fmt, $($t)+)
+//     };
+
+//     // Indent given
+//     ($f:expr, $indent:expr, $fmt:literal) => {
+//         core::write!($f, concat!("{}", $fmt), spaces!($indent))
+//     };
+//     // Indent given with bonus
+//     ($f:expr, $indent:expr, $fmt:literal, $($t:tt)+) => {
+//         core::write!($f, concat!("{}", $fmt), spaces!($indent), $($t)+)
+//     };
+// }
+/// A helper macro that wraps the normal writeln to do some other things
+macro_rules! writeln {
+    // Nothing given
+    ($f:expr) => {
+        core::writeln!($f)
+    };
+
+    // Only format string
+    ($f:expr, $fmt:literal) => {
+        core::writeln!($f, $fmt)
+    };
+    // Format string with bonus
+    ($f:expr, $fmt:literal, $($t:tt)+) => {
+        core::writeln!($f, $fmt, $($t)+)
+    };
+
+    // Indent given
+    ($f:expr, $indent:expr, $fmt:literal) => {
+        core::writeln!($f, concat!("{}", $fmt), spaces!($indent))
+    };
+    // Indent given with bonus
+    ($f:expr, $indent:expr, $fmt:literal, $($t:tt)+) => {
+        core::writeln!($f, concat!("{}", $fmt), spaces!($indent), $($t)+)
+    };
+}
+
 // /// A helper macro for immediately showing the timing from a string.
 // #[macro_export]
 // macro_rules! timing {
@@ -39,7 +97,7 @@ use serde::ser::{Serializer, SerializeTuple};
 
 
 
-/***** AUXILLARY *****/
+/***** FORMATTERS *****/
 /// Defines a formatter for the timing that writes it in milliseconds, microseconds or nanoseconds.
 /// 
 /// It tries to write the biggest of those _unless_ it is zero.
@@ -51,24 +109,177 @@ pub struct TimingFormatter<'a> {
 impl<'a> Display for TimingFormatter<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
         // Try milliseconds first
-        let time: u128 = self.timing.elapsed_ms();
-        if time > 0 {
-            return write!(f, "{}ms", time);
+        let time: u128 = self.timing.elapsed_ns();
+        if time < 1000 {
+            return write!(f, "{}ns", time);
         }
 
         // Microseconds next
         let time: u128 = self.timing.elapsed_us();
-        if time > 0 {
+        if time < 1000 {
             return write!(f, "{}us", time);
         }
 
         // Nanoseconds as last
-        write!(f, "{}ns", self.timing.elapsed_ns())
+        write!(f, "{}ms", self.timing.elapsed_ms())
     }
 }
 
 
 
+/// Defines a formatter for a DriverProfile that prints the timings in a neat overview.
+#[derive(Debug)]
+pub struct DriverProfileFormatter<'a> {
+    /// The profile we are formatting.
+    profile : &'a DriverProfile,
+    /// The indentation we use.
+    indent  : usize,
+}
+impl<'a> Display for DriverProfileFormatter<'a> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
+        // Write the header
+        writeln!(f, self.indent, "<<< Driver Profile Results >>> [")?;
+        writeln!(f, self.indent, "    Total : {}", self.profile.snippet.display())?;
+        writeln!(f)?;
+
+        // Write the overhead
+        writeln!(f, self.indent, "    Request overhead : {}", self.profile.request_overhead.display())?;
+        writeln!(f, self.indent, "        Workflow parsing : {}", self.profile.workflow_parse.display())?;
+        writeln!(f)?;
+
+        // Write the execution
+        // writeln!(f, self.indent, "    Execution total (Driver-side) : {}", self.profile.execution.display())?;
+        writeln!(f, "{}", self.profile.execution_details.display_indented(self.indent + 4))?;
+
+        // Done
+        writeln!(f, self.indent, "]")?;
+        Ok(())
+    }
+}
+
+/// Defines a formatter for a VmProfile that prints the timings in a neat overview.
+#[derive(Debug)]
+pub struct VmProfileFormatter<'a> {
+    /// The profile we are formatting.
+    profile : &'a VmProfile,
+    /// The indentation we use.
+    indent  : usize,
+}
+impl<'a> Display for VmProfileFormatter<'a> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
+        // Write the header
+        writeln!(f, self.indent, "<<< VM Profile Results >>> [")?;
+        writeln!(f, self.indent, "    Total : {}", self.profile.snippet.display())?;
+        writeln!(f)?;
+
+        // Write planning results
+        writeln!(f, self.indent, "    Planning total (Driver-side) : {}", self.profile.planning.display())?;
+        writeln!(f, "{}", self.profile.planning_details.display_indented(self.indent + 4))?;
+        writeln!(f)?;
+
+        // Write execution results
+        writeln!(f, self.indent, "    Execution total : {}", self.profile.running.display())?;
+        writeln!(f, "{}", self.profile.running_details.display_indented(self.indent + 4))?;
+        writeln!(f)?;
+
+        // Done
+        writeln!(f, self.indent, "]")?;
+        Ok(())
+    }
+}
+
+/// Defines a formatter for a PlannerProfile that prints the timings in a neat overview.
+#[derive(Debug)]
+pub struct PlannerProfileFormatter<'a> {
+    /// The profile we are formatting.
+    profile : &'a PlannerProfile,
+    /// The indentation we use.
+    indent  : usize,
+}
+impl<'a> Display for PlannerProfileFormatter<'a> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
+        // Write the header
+        writeln!(f, self.indent, "<<< Planner Profile Results >>> [")?;
+        writeln!(f, self.indent, "    Total (Planner-side) : {}", self.profile.snippet.display())?;
+        writeln!(f)?;
+
+        // Write the request overhead
+        writeln!(f, self.indent, "    Request overhead : {}", self.profile.request_overhead.display())?;
+        writeln!(f, self.indent, "        Workflow parsing : {}", self.profile.workflow_parse.display())?;
+        writeln!(f, self.indent, "        Index retrieval  : {}", self.profile.information_overhead.display())?;
+        writeln!(f)?;
+
+        // Write the planning itself
+        writeln!(f, self.indent, "    Planning algorithm : {}", self.profile.planning.display())?;
+        writeln!(f, self.indent, "        Main planning     : {}", self.profile.main_planning.display())?;
+        writeln!(f, self.indent, "            '<<<main>>>' planning : {}", self.profile.func_planning.iter().find(|f| f.name == "<<<main>>>").unwrap().timing.display())?;
+        writeln!(f, self.indent, "        Function planning : {}", self.profile.funcs_planning.display())?;
+        let longest_name: usize = self.profile.func_planning.iter().map(|f| if f.name != "<<<main>>>" { f.name.len() } else { 0 }).max().unwrap_or(0);
+        for func in &self.profile.func_planning {
+            writeln!(f, self.indent, "            '{}' planning{} : {}", func.name, spaces!(longest_name - func.name.len()), func.timing.display())?;
+        }
+
+        // Done
+        writeln!(f, self.indent, "]")?;
+        Ok(())
+    }
+}
+
+/// Defines a formatter for a ThreadProfile that prints the timings in a neat overview.
+#[derive(Debug)]
+pub struct ThreadProfileFormatter<'a> {
+    /// The profile we are formatting.
+    profile : &'a ThreadProfile,
+    /// The indentation we use.
+    indent  : usize,
+}
+impl<'a> Display for ThreadProfileFormatter<'a> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
+        // Write the header
+        writeln!(f, self.indent, "<<< Thread Profile Results >>> [")?;
+        writeln!(f, self.indent, "    Total : {}", self.profile.snippet.display())?;
+        writeln!(f)?;
+
+        // Show the per-edge timings
+        writeln!(f, self.indent, "    Edges :")?;
+        for edge in self.profile.edges {
+            writeln!(f, "{}", edge.display_indented(self.indent + 4))?;
+        }
+
+        // Done
+        writeln!(f, self.indent, "]")?;
+        Ok(())
+    }
+}
+
+/// Defines a formatter for an EdgeProfile that prints the timings in a neat overview.
+#[derive(Debug)]
+pub struct EdgeProfileFormatter<'a> {
+    /// The profile we are formatting.
+    profile : &'a EdgeProfile,
+    /// The indentation we use.
+    indent  : usize,
+}
+impl<'a> Display for EdgeProfileFormatter<'a> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
+        // Write the header
+        writeln!(f, self.indent, "<<< Edge '{}' Profile Results >>> [")?;
+        writeln!(f, self.indent, "    Total : {}", self.profile.timings.unwrap_or_else(|| panic!("Cannot display timings for Edge {}:{} because they are not there", self.profile.func, self.profile.edge)).edge_timing().display())?;
+        writeln!(f)?;
+
+        // 
+
+        // Done
+        writeln!(f, self.indent, "]")?;
+        Ok(())
+    }
+}
+
+
+
+
+
+/***** AUXILLARY *****/
 /// Defines a helper type that automatically calls `Timing::start()` when created and `Timing::stop()` when destroyed.
 #[derive(Debug)]
 pub struct TimingGuard<'t>(&'t mut Timing);
@@ -305,7 +516,23 @@ impl<'de> Deserialize<'de> for Timing {
 
 /***** LIBRARY *****/
 /// Defines some useful trait for unifying access to profiles.
-pub trait Profile<'de>: Clone + Debug + Deserialize<'de> + Message + Serialize {}
+pub trait Profile<'de>: Clone + Debug + Deserialize<'de> + Message + Serialize {
+    type Formatter<'s> where Self: 's;
+
+    /// Returns a formatter that writes this profile's results in a pretty and clear way.
+    /// 
+    /// # Returns
+    /// A `Self::Formatter` that implements `Display` for this profile.
+    fn display<'s>(&'s self) -> Self::Formatter<'s>;
+    /// Returns a formatter that writes this profile's results in a pretty and clear way, with the given number of spaces preceding each line.
+    /// 
+    /// # Arguments
+    /// - `indent`: The number of spaces to write before each line.
+    /// 
+    /// # Returns
+    /// A `Self::Formatter` that implements `Display` for this profile.
+    fn display_indented<'s>(&'s self, indent: usize) -> Self::Formatter<'s>;
+}
 
 
 
@@ -356,7 +583,15 @@ impl AsRef<DriverProfile> for DriverProfile {
     #[inline]
     fn as_ref(&self) -> &Self { self }
 }
-impl<'de> Profile<'de> for DriverProfile {}
+impl<'de> Profile<'de> for DriverProfile {
+    type Formatter<'s> = DriverProfileFormatter<'s>;
+
+    #[inline]
+    fn display<'s>(&'s self) -> Self::Formatter<'s> { DriverProfileFormatter{ profile: self, indent: 0 } }
+
+    #[inline]
+    fn display_indented<'s>(&'s self, indent: usize) -> Self::Formatter<'s> { DriverProfileFormatter{ profile: self, indent } }
+}
 
 
 
@@ -403,7 +638,15 @@ impl AsRef<VmProfile> for VmProfile {
     #[inline]
     fn as_ref(&self) -> &Self { self }
 }
-impl<'de> Profile<'de> for VmProfile {}
+impl<'de> Profile<'de> for VmProfile {
+    type Formatter<'s> = VmProfileFormatter<'s>;
+
+    #[inline]
+    fn display<'s>(&'s self) -> Self::Formatter<'s> { VmProfileFormatter{ profile: self, indent: 0 } }
+
+    #[inline]
+    fn display_indented<'s>(&'s self, indent: usize) -> Self::Formatter<'s> { VmProfileFormatter{ profile: self, indent } }
+}
 
 
 
@@ -491,7 +734,15 @@ impl AsRef<PlannerProfile> for PlannerProfile {
     #[inline]
     fn as_ref(&self) -> &Self { self }
 }
-impl<'de> Profile<'de> for PlannerProfile {}
+impl<'de> Profile<'de> for PlannerProfile {
+    type Formatter<'s> = PlannerProfileFormatter<'s>;
+
+    #[inline]
+    fn display<'s>(&'s self) -> Self::Formatter<'s> { PlannerProfileFormatter{ profile: self, indent: 0 } }
+
+    #[inline]
+    fn display_indented<'s>(&'s self, indent: usize) -> Self::Formatter<'s> { PlannerProfileFormatter{ profile: self, indent } }
+}
 
 
 
@@ -524,43 +775,15 @@ impl AsRef<ThreadProfile> for ThreadProfile {
     #[inline]
     fn as_ref(&self) -> &Self { self }
 }
-impl<'de> Profile<'de> for ThreadProfile {}
+impl<'de> Profile<'de> for ThreadProfile {
+    type Formatter<'s> = ThreadProfileFormatter<'s>;
 
-// /// Profiles timings for each edge.
-// #[derive(Clone, Deserialize, Message, Serialize)]
-// pub struct EdgeProfile {
-//     /// The function that we're executing in.
-//     #[prost(tag = "1", required, uint64)]
-//     pub func   : u64,
-//     /// The edge we're executing in that function.
-//     #[prost(tag = "2", required, uint64)]
-//     pub edge   : u64,
-//     /// The time it taken this edge in its entirety.
-//     #[prost(tag = "3", required, message)]
-//     pub timing : Timing,
-// }
-// impl EdgeProfile {
-//     /// Constructor for the EdgeProfile that intializes all timings to be unset.
-//     /// 
-//     /// # Arguments
-//     /// - `func`: The index of the function we are executing in.
-//     /// - `edge`: The index of the edge we are executing in that function.
-//     /// 
-//     /// # Returns
-//     /// A new EdgeProfile instance.
-//     #[inline]
-//     pub fn new(func: usize, edge: usize) -> Self {
-//         Self {
-//             func   : func as u64,
-//             edge   : edge as u64,
-//             timing : Timing::new(),
-//         }
-//     }
-// }
-// impl AsRef<EdgeProfile> for EdgeProfile {
-//     #[inline]
-//     fn as_ref(&self) -> &Self { self }
-// }
+    #[inline]
+    fn display<'s>(&'s self) -> Self::Formatter<'s> { ThreadProfileFormatter{ profile: self, indent: 0 } }
+
+    #[inline]
+    fn display_indented<'s>(&'s self, indent: usize) -> Self::Formatter<'s> { ThreadProfileFormatter{ profile: self, indent } }
+}
 
 
 
@@ -615,6 +838,19 @@ impl EdgeProfile {
             timings : Some(timings),
         }
     }
+}
+impl AsRef<EdgeProfile> for EdgeProfile {
+    #[inline]
+    fn as_ref(&self) -> &Self { self }
+}
+impl<'de> Profile<'de> for EdgeProfile {
+    type Formatter<'s> = EdgeProfileFormatter<'s>;
+
+    #[inline]
+    fn display<'s>(&'s self) -> Self::Formatter<'s> { EdgeProfileFormatter{ profile: self, indent: 0 } }
+
+    #[inline]
+    fn display_indented<'s>(&'s self, indent: usize) -> Self::Formatter<'s> { EdgeProfileFormatter{ profile: self, indent } }
 }
 
 /// Contains the actual timings of an edge. What might be found here differs on the type of Edge referenced.
@@ -850,7 +1086,7 @@ pub struct LinearProfile {
     pub edge   : Timing,
     /// The time it takes to execute each instruction.
     #[prost(tag = "2", repeated, message)]
-    pub instrs : Vec<Timing>,
+    pub instrs : Vec<InstrTiming>,
 }
 impl LinearProfile {
     /// Constructor for the LinearProfile that intializes all timings to be unset.
@@ -870,6 +1106,17 @@ impl AsRef<LinearProfile> for LinearProfile {
     fn as_ref(&self) -> &Self { self }
 }
 impl<'de> Profile<'de> for LinearProfile {}
+
+/// Contains the timing for a single instruction.
+#[derive(Clone, Deserialize, Message, Serialize)]
+pub struct InstrTiming {
+    /// The index of this instruction in the parent instruction buffer.
+    #[prost(tag = "1", required, uint64)]
+    pub index  : u64,
+    /// The timing itself
+    #[prost(tag = "2", required, message)]
+    pub timing : Timing,
+}
 
 /// Contains timings for executing a Join edge. Effectively contains the timings of the branches in addition to its own timing.
 #[derive(Clone, Deserialize, Message, Serialize)]

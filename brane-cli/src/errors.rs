@@ -4,7 +4,7 @@
 //  Created:
 //    17 Feb 2022, 10:27:28
 //  Last edited:
-//    09 Jan 2023, 13:59:26
+//    10 Jan 2023, 10:54:22
 //  Auto updated?
 //    Yes
 // 
@@ -686,6 +686,9 @@ impl Error for ReplError {}
 /// Collects errors during the run subcommand.
 #[derive(Debug)]
 pub enum RunError {
+    /// Failed to write to the given formatter.
+    WriteError{ err: std::io::Error },
+
     /// Failed to create the local package index.
     LocalPackageIndexError{ err: brane_tsk::local::Error },
     /// Failed to create the local data index.
@@ -743,6 +746,8 @@ impl Display for RunError {
     fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
         use RunError::*;
         match self {
+            WriteError{ err } => write!(f, "Failed to write to the given formatter: {}", err),
+
             LocalPackageIndexError{ err }  => write!(f, "Failed to fetch local package index: {}", err),
             LocalDataIndexError{ err }     => write!(f, "Failed to fetch local data index: {}", err),
             PackagesDirError{ err }        => write!(f, "Failed to get packages directory: {}", err),
@@ -774,6 +779,11 @@ impl Display for RunError {
 }
 
 impl Error for RunError {}
+
+impl From<std::io::Error> for RunError {
+    #[inline]
+    fn from(value: std::io::Error) -> Self { RunError::WriteError{ err: value } }
+}
 
 
 

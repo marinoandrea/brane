@@ -4,7 +4,7 @@
 //  Created:
 //    09 Sep 2022, 13:23:41
 //  Last edited:
-//    09 Jan 2023, 18:43:27
+//    10 Jan 2023, 13:39:26
 //  Auto updated?
 //    Yes
 // 
@@ -29,7 +29,7 @@ use brane_ast::spec::{BuiltinClasses, BuiltinFunctions};
 use brane_ast::locations::Location;
 use brane_ast::ast::{ClassDef, ComputeTaskDef, DataName, Edge, EdgeInstr, FunctionDef, TaskDef};
 use specifications::data::{AccessKind, AvailabilityKind};
-use specifications::profiling::{CallProfile, EdgeProfile, EdgeTimings, JoinProfile, LinearProfile, NodeProfile, ThreadProfile, Timing};
+use specifications::profiling::{CallProfile, EdgeProfile, EdgeTimings, InstrTiming, JoinProfile, LinearProfile, NodeProfile, ThreadProfile, Timing};
 
 use crate::dbg_node;
 pub use crate::errors::VmError as Error;
@@ -1124,16 +1124,17 @@ impl<G: CustomGlobalState, L: CustomLocalState> Thread<G, L> {
             },
             Linear{ instrs, next } => {
                 // Run the instructions (as long as they don't crash)
-                let mut instr_timings : Vec<Timing> = Vec::with_capacity(instrs.len());
-                let mut instr_pc      : usize       = 0;
+                let mut instr_timings : Vec<InstrTiming> = Vec::with_capacity(instrs.len());
+                let mut instr_pc      : usize            = 0;
                 while instr_pc < instrs.len() {
                     // It looks a bit funky, but we simply add the relative offset after every constrution to the edge-local program counter
-                    let timing: Timing = Timing::new_start();
+                    let timing : Timing = Timing::new_start();
+                    let old_pc : usize  = instr_pc;
                     instr_pc = (instr_pc as i64 + match exec_instr(pc.1, instr_pc, &instrs[instr_pc], &mut self.stack, &mut self.fstack) {
                         Ok(next) => next,
                         Err(err) => { return EdgeResult::Err(err); },
                     }) as usize;
-                    instr_timings.push(timing.into_stop());
+                    instr_timings.push(InstrTiming{ index: old_pc as u64, timing: timing.into_stop() });
                 }
 
                 // Move to the next edge
@@ -1553,6 +1554,7 @@ impl<G: CustomGlobalState, L: CustomLocalState> Thread<G, L> {
         async move {
             // Start executing edges from where we left off
             let mut profile: ThreadProfile = ThreadProfile::new();
+            profile.snippet.start();
             loop {
                 // Run the edge
                 self.pc = match self.exec_edge::<P>(self.pc).await {
@@ -1560,6 +1562,7 @@ impl<G: CustomGlobalState, L: CustomLocalState> Thread<G, L> {
                     EdgeResult::Ok(value, eprof) => {
                         if profile.edges.len() == profile.edges.capacity() { profile.edges.reserve(profile.edges.len()); }
                         profile.edges.push(eprof);
+                        profile.snippet.stop();
                         return Ok((value, profile));
                     },
                     EdgeResult::Pending(next, eprof) => {
@@ -1588,6 +1591,7 @@ impl<G: CustomGlobalState, L: CustomLocalState> Thread<G, L> {
         async move {
             // Start executing edges from where we left off
             let mut profile: ThreadProfile = ThreadProfile::new();
+            profile.snippet.start();
             loop {
                 // Run the edge
                 self.pc = match self.exec_edge::<P>(self.pc).await {
@@ -1596,6 +1600,7 @@ impl<G: CustomGlobalState, L: CustomLocalState> Thread<G, L> {
                     EdgeResult::Ok(value, eprof) => {
                         if profile.edges.len() == profile.edges.capacity() { profile.edges.reserve(profile.edges.len()); }
                         profile.edges.push(eprof);
+                        profile.snippet.stop();
                         return Ok((value, self.into_state(), profile));
                     },
                     EdgeResult::Pending(next, eprof) => {
