@@ -4,7 +4,7 @@
 //  Created:
 //    09 Sep 2022, 13:23:41
 //  Last edited:
-//    10 Jan 2023, 13:39:26
+//    12 Jan 2023, 16:35:10
 //  Auto updated?
 //    Yes
 // 
@@ -29,7 +29,7 @@ use brane_ast::spec::{BuiltinClasses, BuiltinFunctions};
 use brane_ast::locations::Location;
 use brane_ast::ast::{ClassDef, ComputeTaskDef, DataName, Edge, EdgeInstr, FunctionDef, TaskDef};
 use specifications::data::{AccessKind, AvailabilityKind};
-use specifications::profiling::{CallProfile, EdgeProfile, EdgeTimings, InstrTiming, JoinProfile, LinearProfile, NodeProfile, ThreadProfile, Timing};
+use specifications::profiling::{BuiltinTimings, CallProfile, CommitProfile, EdgeProfile, EdgeTimings, InstrTiming, JoinProfile, LinearProfile, NodeProfile, ThreadProfile, Timing};
 
 use crate::dbg_node;
 pub use crate::errors::VmError as Error;
@@ -1498,7 +1498,7 @@ impl<G: CustomGlobalState, L: CustomLocalState> Thread<G, L> {
                     if let Err(err) = self.stack.push(Value::Data{ name: data_name }) { return EdgeResult::Err(Error::StackError { edge: pc.1, instr: None, err }); }
 
                     // We can then go to the next one immediately
-                    ((pc.0, *next), EdgeProfile::with_timings(pc.0, pc.1, EdgeTimings::Call(CallProfile{ name: BuiltinFunctions::CommitResult.name().into(), edge: edge_timing.into_stop(), builtin: builtin_timing.into_stop() })))
+                    ((pc.0, *next), EdgeProfile::with_timings(pc.0, pc.1, EdgeTimings::Call(CallProfile{ name: BuiltinFunctions::CommitResult.name().into(), edge: edge_timing.into_stop(), builtin: Some(BuiltinTimings::Commit(CommitProfile{ builtin: builtin_timing.into_stop() })) })))
 
                 } else {
                     // Push the return address onto the frame stack and then go to the correct function

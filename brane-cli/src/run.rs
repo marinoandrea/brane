@@ -4,7 +4,7 @@
 //  Created:
 //    12 Sep 2022, 16:42:57
 //  Last edited:
-//    10 Jan 2023, 13:32:12
+//    12 Jan 2023, 16:48:23
 //  Auto updated?
 //    Yes
 // 
@@ -33,7 +33,7 @@ use brane_tsk::spec::{LOCALHOST, AppId};
 use specifications::data::{AccessKind, DataIndex, DataInfo};
 use specifications::driving::{CreateSessionRequest, DriverServiceClient, ExecuteRequest};
 use specifications::package::PackageIndex;
-use specifications::profiling::{EdgeTimings, ThreadProfile, Timing};
+use specifications::profiling::{DriverProfile, EdgeProfile, EdgeTimings, PlannerProfile, ThreadProfile, VmProfile};
 use specifications::registry::RegistryConfig;
 
 pub use crate::errors::RunError as Error;
@@ -44,10 +44,68 @@ use crate::vm::OfflineVm;
 
 
 /***** HELPER MACROS *****/
-/// Generates the given number of spaces as a String.
+/// A helper macro for computing the number of digits in a number.
+macro_rules! digits {
+    ($n:expr) => {
+        (($n as f32).log10() + 1.0) as usize
+    };
+}
+
+/// A helper macro for generating the given number of strings.
 macro_rules! spaces {
     ($n:expr) => {
-        ((0..($n)).map(|_| ' ').collect::<String>())
+        (0..($n)).map(|_| ' ').collect::<String>()
+    };
+}
+
+// /// A helper macro that wraps the normal write to do some other things
+// macro_rules! write {
+//     // Nothing given
+//     ($f:expr) => {
+//         core::write!($f)
+//     };
+
+//     // Only format string
+//     ($f:expr, $fmt:literal) => {
+//         core::write!($f, $fmt)
+//     };
+//     // Format string with bonus
+//     ($f:expr, $fmt:literal, $($t:tt)+) => {
+//         core::write!($f, $fmt, $($t)+)
+//     };
+
+//     // Indent given
+//     ($f:expr, $indent:expr, $fmt:literal) => {
+//         core::write!($f, concat!("{}", $fmt), spaces!($indent))
+//     };
+//     // Indent given with bonus
+//     ($f:expr, $indent:expr, $fmt:literal, $($t:tt)+) => {
+//         core::write!($f, concat!("{}", $fmt), spaces!($indent), $($t)+)
+//     };
+// }
+/// A helper macro that wraps the normal writeln to do some other things
+macro_rules! writeln {
+    // Nothing given
+    ($f:expr) => {
+        core::writeln!($f)
+    };
+
+    // Only format string
+    ($f:expr, $fmt:literal) => {
+        core::writeln!($f, $fmt)
+    };
+    // Format string with bonus
+    ($f:expr, $fmt:literal, $($t:tt)+) => {
+        core::writeln!($f, $fmt, $($t)+)
+    };
+
+    // Indent given
+    ($f:expr, $indent:expr, $fmt:literal) => {
+        core::writeln!($f, concat!("{}", $fmt), spaces!($indent))
+    };
+    // Indent given with bonus
+    ($f:expr, $indent:expr, $fmt:literal, $($t:tt)+) => {
+        core::writeln!($f, concat!("{}", $fmt), spaces!($indent), $($t)+)
     };
 }
 
@@ -55,95 +113,337 @@ macro_rules! spaces {
 
 
 
-/***** HELPER FUNCTIONS *****/
-/// Shows the profiles for the given ThreadProfile.
+/***** FORMATTING FUNCTIONS *****/
+/// Prints the given DriverProfile to the given `Write`r.
+/// 
+/// Note that printing this always results in a newline at the end.
 /// 
 /// # Arguments
-/// - `f`: The Formatter to write the timings to.
-/// - `profile`: The ThreadProfile to show.
-/// - `workflow`: The Workflow we can use to resolve indices to variant names and such.
-/// - `indent`: The amount of indents (as number of spaces) to print before the whole thing.
+/// - `out`: The Writer to write to.
+/// - `profile`: The DriverProfile to write.
+/// - `workflow`: The Workflow to resolve function & edge indices with.
+/// - `indent`: Any indentation to write before each line (in number of spaces).
+/// 
+/// # Returns
+/// Nothing, but does write to the given writer.
 /// 
 /// # Errors
-/// This function might error if we failed to write to the given formatter.
+/// This function error if we fail to write to the given writer.
+fn write_driver_profile(out: &mut impl Write, profile: &DriverProfile, workflow: &Workflow, indent: usize) -> Result<(), Error> {
+    // Write the header
+    writeln!(out, indent, "<<< Driver Profile Results >>> [")?;
+    writeln!(out, indent, "    Total : {}", profile.snippet.display())?;
+    writeln!(out)?;
+
+    // Write the overhead
+    writeln!(out, indent, "    Request overhead : {}", profile.request_overhead.display())?;
+    writeln!(out, indent, "        Workflow parsing : {}", profile.workflow_parse.display())?;
+    writeln!(out)?;
+
+    // Write the execution
+    // writeln!(f, self.indent, "    Execution total (Driver-side) : {}", self.profile.execution.display())?;
+    write_vm_profile(out, &profile.execution_details, workflow, indent + 4)?;
+
+    // Done
+    writeln!(out, indent, "]")?;
+    Ok(())
+}
+
+/// Prints the given VmProfile to the given `Write`r.
 /// 
-/// It might also print some errors to stderr if they are not fatal.
-fn show_thread_profile(out: &mut impl Write, profile: ThreadProfile, workflow: &Workflow, indent: usize) -> Result<(), Error> {
-    // Compute the longest edge we have
-    let mut longest_edge: usize = 0;
-    for e in &profile.edges {
-        let edge_len: usize = workflow.edge((e.func as usize, e.edge as usize)).variant().to_string().len();
-        if edge_len > longest_edge {
-            longest_edge = edge_len;
-        }
-    }
+/// Note that printing this always results in a newline at the end.
+/// 
+/// # Arguments
+/// - `out`: The Writer to write to.
+/// - `profile`: The VmProfile to write.
+/// - `workflow`: The Workflow to resolve function & edge indices with.
+/// - `indent`: Any indentation to write before each line (in number of spaces).
+/// 
+/// # Returns
+/// Nothing, but does write to the given writer.
+/// 
+/// # Errors
+/// This function error if we fail to write to the given writer.
+fn write_vm_profile(out: &mut impl Write, profile: &VmProfile, workflow: &Workflow, indent: usize) -> Result<(), Error> {
+    // Write the header
+    writeln!(out, indent, "<<< VM Profile Results >>> [")?;
+    writeln!(out, indent, "    Total : {}", profile.snippet.display())?;
+    writeln!(out)?;
 
-    // Print all them edges
-    for e in profile.edges {
-        // Get the edge's type
-        let edge: &Edge  = workflow.edge((e.func as usize, e.edge as usize));
-        let kind: String = edge.variant().to_string();
+    // Write planning results
+    writeln!(out, indent, "    Planning total (Driver-side) : {}", profile.planning.display())?;
+    write_planner_profile(out, &profile.planning_details, indent + 4)?;
+    writeln!(out)?;
 
-        // Get the main edge timing
-        let timings: EdgeTimings = match e.timings {
-            Some(timings) => timings,
-            None          => { error!("Edge {}:{} ({}) has no timings", e.func, e.edge, kind); continue; }
-        };
+    // Write execution results
+    writeln!(out, indent, "    Execution total : {}", profile.running.display())?;
+    write_thread_profile(out, &profile.running_details, workflow, indent + 4)?;
+    writeln!(out)?;
 
-        // We always show the edge itself
-        writeln!(out, "{} - {} {}:{}{} : {}", spaces!(indent), kind, e.func, e.edge, (0..(longest_edge - kind.len())).map(|_| ' ').collect::<String>(), timings.edge_timing().display())?;
+    // Done
+    writeln!(out, indent, "]")?;
+    Ok(())
+}
 
-        // Show more complex timings, if need be
-        match timings {
-            // A Node has some of the most extensive profiling attached to it
-            EdgeTimings::Node(prof) => {
-                /* TODO */
-            },
-            // A Linear edge shows the per-instruction profiles
-            EdgeTimings::Linear(prof) => {
-                // Get the list of instructions
-                let instrs: &[EdgeInstr] = if let Edge::Linear{ instrs, .. } = edge {
-                    instrs
-                } else {
-                    error!("Edge {}:{} ({}) is not a linear edge, but has a linear timing", e.func, e.edge, kind);
-                    continue;
-                };
+/// Prints the given PlannerProfile to the given `Write`r.
+/// 
+/// Note that printing this always results in a newline at the end.
+/// 
+/// # Arguments
+/// - `out`: The Writer to write to.
+/// - `profile`: The PlannerProfile to write.
+/// - `indent`: Any indentation to write before each line (in number of spaces).
+/// 
+/// # Returns
+/// Nothing, but does write to the given writer.
+/// 
+/// # Errors
+/// This function error if we fail to write to the given writer.
+fn write_planner_profile(out: &mut impl Write, profile: &PlannerProfile, indent: usize) -> Result<(), Error> {
+    // Write the header
+    writeln!(out, indent, "<<< Planner Profile Results >>> [")?;
+    writeln!(out, indent, "    Total (Planner-side) : {}", profile.snippet.display())?;
+    writeln!(out)?;
 
-                // Print their timings
-                let longest_instr: usize = (0..prof.instrs.len()).map(|i| instrs[i].variant().to_string().len()).max().unwrap_or(0);
-                writeln!(out, "{}   Instructions :", spaces!(indent))?;
-                for timing in prof.instrs {
-                    let instr_kind: String = instrs[timing.index as usize].variant().to_string();
-                    writeln!(out, "{}    - {}: {}{} : {}", spaces!(indent), timing.index, instr_kind, (0..(longest_instr - instr_kind.len())).map(|_| ' ').collect::<String>(), timing.timing.display())?;
-                }
-            },
-            // A Join edge shows the per-branch individual timings (as nested threads)
-            EdgeTimings::Join(prof) => {
-                // Show the threadprofiles with extra indentation
-                writeln!(out, "{}   Branches times :", spaces!(indent))?;
-                for b in prof.branches {
-                    show_thread_profile(out, b, workflow, indent + 3)?;
-                }
-            },
-            // A Call edge shows any potential builtin timings
-            EdgeTimings::Call(prof) => {
-                // If there is any, show the builtin timing
-                write!(out, "{}   To '{}'", spaces!(indent), prof.name)?;
-                if let Some(timing) = prof.builtin {
-                    writeln!(out, " : {}", timing.display())?;
-                } else {
-                    writeln!(out)?;
-                }
-            },
+    // Write the request overhead
+    writeln!(out, indent, "    Request overhead : {}", profile.request_overhead.display())?;
+    writeln!(out, indent, "        Workflow parsing : {}", profile.workflow_parse.display())?;
+    writeln!(out, indent, "        Index retrieval  : {}", profile.information_overhead.display())?;
+    writeln!(out)?;
 
-            // Other edge just show their own timing, which we already did
-            EdgeTimings::Other(_) => {}
-        }
+    // Write the planning itself
+    writeln!(out, indent, "    Planning algorithm : {}", profile.planning.display())?;
+    writeln!(out, indent, "        Main planning     : {}", profile.main_planning.display())?;
+    writeln!(out, indent, "            '<<<main>>>' planning : {}", profile.func_planning.iter().find(|f| f.name == "<<<main>>>").unwrap().timing.display())?;
+    writeln!(out, indent, "        Function planning : {}", profile.funcs_planning.display())?;
+    let longest_name: usize = profile.func_planning.iter().map(|f| if f.name != "<<<main>>>" { f.name.len() } else { 0 }).max().unwrap_or(0);
+    for func in &profile.func_planning {
+        if func.name == "<<<main>>>" { continue; }
+        writeln!(out, indent, "            '{}' planning{} : {}", func.name, spaces!(longest_name - func.name.len()), func.timing.display())?;
     }
 
     // Done
+    writeln!(out, indent, "]")?;
     Ok(())
 }
+
+/// Prints the given ThreadProfile to the given `Write`r.
+/// 
+/// Note that printing this always results in a newline at the end.
+/// 
+/// # Arguments
+/// - `out`: The Writer to write to.
+/// - `profile`: The ThreadProfile to write.
+/// - `workflow`: The Workflow to resolve function & edge indices with.
+/// - `indent`: Any indentation to write before each line (in number of spaces).
+/// 
+/// # Returns
+/// Nothing, but does write to the given writer.
+/// 
+/// # Errors
+/// This function error if we fail to write to the given writer.
+fn write_thread_profile(out: &mut impl Write, profile: &ThreadProfile, workflow: &Workflow, indent: usize) -> Result<(), Error> {
+    // Write the header
+    writeln!(out, indent, "<<< Thread Profile Results >>> [")?;
+    writeln!(out, indent, "    Total : {}", profile.snippet.display())?;
+    writeln!(out)?;
+
+    // Show the per-edge timings
+    writeln!(out, indent, "    Edges :")?;
+    for edge in &profile.edges {
+        write_edge_profile(out, edge, workflow, indent + 4)?;
+    }
+
+    // Done
+    writeln!(out, indent, "]")?;
+    Ok(())
+}
+
+/// Prints the given EdgeProfile to the given `Write`r.
+/// 
+/// Note that printing this always results in a newline at the end.
+/// 
+/// # Arguments
+/// - `out`: The Writer to write to.
+/// - `profile`: The EdgeProfile to write.
+/// - `workflow`: The Workflow to resolve function & edge indices with.
+/// - `indent`: Any indentation to write before each line (in number of spaces).
+/// 
+/// # Returns
+/// Nothing, but does write to the given writer.
+/// 
+/// # Errors
+/// This function error if we fail to write to the given writer.
+fn write_edge_profile(out: &mut impl Write, profile: &EdgeProfile, workflow: &Workflow, indent: usize) -> Result<(), Error> {
+    // Get the timings
+    let timings: &EdgeTimings = profile.timings.as_ref().unwrap_or_else(|| panic!("Cannot display timings for Edge {}:{} because they are not there", profile.func, profile.edge));
+
+    // Write the header
+    writeln!(out, indent, "<<< Edge '{}' Profile Results >>> [", workflow.edge((profile.func as usize, profile.edge as usize)).variant())?;
+    writeln!(out, indent, "    Total : {}", timings.edge_timing().display())?;
+
+    // Write the edge timings, if any
+    match timings {
+        EdgeTimings::Node(nprof) => {
+            writeln!(out)?;
+
+            // Write the more closely reported times
+            writeln!(out, indent, "    Preparation time     : {}", nprof.pre.display())?;
+            writeln!(out, indent, "    Call time            : {}", nprof.exec.display())?;
+            writeln!(out, indent, "    Post-processing time : {}", nprof.post.display())?;
+        },
+
+        EdgeTimings::Linear(lprof) => {
+            writeln!(out)?;
+
+            // Find the list of instructions
+            let instrs: &[EdgeInstr] = if let Edge::Linear{ instrs, .. } = workflow.edge((profile.func as usize, profile.edge as usize)) {
+                instrs
+            } else {
+                panic!("Edge {}:{} is {}, but profiled as a linear edge", profile.func, profile.edge, workflow.edge((profile.func as usize, profile.edge as usize)).variant());
+            };
+
+            // Find the longest instruction number & name
+            let longest_index : usize = if !instrs.is_empty() { digits!(instrs.len() - 1) } else { 0 };
+            let longest_instr : usize = instrs.iter().map(|i| i.variant().to_string().len()).max().unwrap_or(0);
+
+            // Write the instruction timings in this edge
+            writeln!(out, indent, "    Instructions :")?;
+            for i in &lprof.instrs {
+                // Get the instruction reference
+                let instr: &EdgeInstr = if (i.index as usize) < instrs.len() {
+                    &instrs[i.index as usize]
+                } else {
+                    panic!("Instruction index {} is out-of-range for linear edge {}:{} with {} instructions", i.index, profile.func, profile.edge, instrs.len())
+                };
+
+                // Write it
+                writeln!(out, indent, "      - {}{}) {}{} : {}", i.index, spaces!(longest_index - digits!(i.index)), instr.variant(), spaces!(longest_instr - instr.variant().to_string().len()), i.timing.display())?;
+            }
+        },
+
+        EdgeTimings::Join(jprof) => {
+            writeln!(out)?;
+
+            // Print the branch times
+            writeln!(out, indent, "     Branch times : [")?;
+            for (i, b) in jprof.branches.iter().enumerate() {
+                if i > 0 { writeln!(out)?; }
+                write_thread_profile(out, b, workflow, indent + 4)?;
+            }
+            writeln!(out, indent, "     ]")?;
+        },
+
+        EdgeTimings::Call(cprof) => {
+            // Write any reported builtin times
+            if let Some(builtin) = &cprof.builtin {
+                writeln!(out)?;
+                writeln!(out, indent, "    Builtin '{}' time : {}", cprof.name, builtin.timing().display())?;
+            }
+        },
+
+        // The rest does not have anything else
+        EdgeTimings::Other(_) => {},
+    }
+
+    // Done
+    writeln!(out, indent, "]")?;
+    Ok(())
+}
+
+
+
+
+
+/***** HELPER FUNCTIONS *****/
+// /// Shows the profiles for the given ThreadProfile.
+// /// 
+// /// # Arguments
+// /// - `f`: The Formatter to write the timings to.
+// /// - `profile`: The ThreadProfile to show.
+// /// - `workflow`: The Workflow we can use to resolve indices to variant names and such.
+// /// - `indent`: The amount of indents (as number of spaces) to print before the whole thing.
+// /// 
+// /// # Errors
+// /// This function might error if we failed to write to the given formatter.
+// /// 
+// /// It might also print some errors to stderr if they are not fatal.
+// fn show_thread_profile(out: &mut impl Write, profile: ThreadProfile, workflow: &Workflow, indent: usize) -> Result<(), Error> {
+//     // Compute the longest edge we have
+//     let mut longest_edge: usize = 0;
+//     for e in &profile.edges {
+//         let edge_len: usize = workflow.edge((e.func as usize, e.edge as usize)).variant().to_string().len();
+//         if edge_len > longest_edge {
+//             longest_edge = edge_len;
+//         }
+//     }
+
+//     // Print all them edges
+//     for e in profile.edges {
+//         // Get the edge's type
+//         let edge: &Edge  = workflow.edge((e.func as usize, e.edge as usize));
+//         let kind: String = edge.variant().to_string();
+
+//         // Get the main edge timing
+//         let timings: EdgeTimings = match e.timings {
+//             Some(timings) => timings,
+//             None          => { error!("Edge {}:{} ({}) has no timings", e.func, e.edge, kind); continue; }
+//         };
+
+//         // We always show the edge itself
+//         writeln!(out, "{} - {} {}:{}{} : {}", spaces!(indent), kind, e.func, e.edge, (0..(longest_edge - kind.len())).map(|_| ' ').collect::<String>(), timings.edge_timing().display())?;
+
+//         // Show more complex timings, if need be
+//         match timings {
+//             // A Node has some of the most extensive profiling attached to it
+//             EdgeTimings::Node(prof) => {
+//                 /* TODO */
+//             },
+//             // A Linear edge shows the per-instruction profiles
+//             EdgeTimings::Linear(prof) => {
+//                 // Get the list of instructions
+//                 let instrs: &[EdgeInstr] = if let Edge::Linear{ instrs, .. } = edge {
+//                     instrs
+//                 } else {
+//                     error!("Edge {}:{} ({}) is not a linear edge, but has a linear timing", e.func, e.edge, kind);
+//                     continue;
+//                 };
+
+//                 // Print their timings
+//                 let longest_instr: usize = (0..prof.instrs.len()).map(|i| instrs[i].variant().to_string().len()).max().unwrap_or(0);
+//                 writeln!(out, "{}   Instructions :", spaces!(indent))?;
+//                 for timing in prof.instrs {
+//                     let instr_kind: String = instrs[timing.index as usize].variant().to_string();
+//                     writeln!(out, "{}    - {}: {}{} : {}", spaces!(indent), timing.index, instr_kind, (0..(longest_instr - instr_kind.len())).map(|_| ' ').collect::<String>(), timing.timing.display())?;
+//                 }
+//             },
+//             // A Join edge shows the per-branch individual timings (as nested threads)
+//             EdgeTimings::Join(prof) => {
+//                 // Show the threadprofiles with extra indentation
+//                 writeln!(out, "{}   Branches times :", spaces!(indent))?;
+//                 for b in prof.branches {
+//                     show_thread_profile(out, b, workflow, indent + 3)?;
+//                 }
+//             },
+//             // A Call edge shows any potential builtin timings
+//             EdgeTimings::Call(prof) => {
+//                 // If there is any, show the builtin timing
+//                 write!(out, "{}   To '{}'", spaces!(indent), prof.name)?;
+//                 if let Some(timing) = prof.builtin {
+//                     writeln!(out, " : {}", timing.display())?;
+//                 } else {
+//                     writeln!(out)?;
+//                 }
+//             },
+
+//             // Other edge just show their own timing, which we already did
+//             EdgeTimings::Other(_) => {}
+//         }
+//     }
+
+//     // Done
+//     Ok(())
+// }
 
 /// Compiles the given worfklow string to a Workflow.
 /// 
@@ -479,36 +779,37 @@ pub async fn run_instance_vm(endpoint: impl AsRef<str>, state: &mut InstanceVmSt
                 // Show profile times
                 if profile {
                     if let Some(profile) = reply.profile {
-                        println!("Remote reports profile times:");
-                        println!(" - Snippet : {}", profile.snippet.display());
-                        println!();
-                        println!(" - Request overhead   : {}", profile.request_overhead.display());
-                        println!(" - Request processing : {}", profile.request_processing.display());
-                        println!();
-                        println!(" - Workflow parsing : {}", profile.workflow_parse.display());
-                        println!();
-                        println!(" - Execution : {}", profile.execution.display());
-                        println!("    - Snippet : {}", profile.execution_details.snippet.display());
-                        println!();
-                        println!("    - Planning: {}", profile.execution_details.planning.display());
-                        println!("       - Snippet : {}", profile.execution_details.planning_details.snippet.display());
-                        println!();
-                        println!("       - Request overhead     : {}", profile.execution_details.planning_details.request_overhead.display());
-                        println!("       - Workflow parsing     : {}", profile.execution_details.planning_details.workflow_parse.display());
-                        println!("       - Information overhead : {}", profile.execution_details.planning_details.information_overhead.display());
-                        println!();
-                        println!("       - Planning : {}", profile.execution_details.planning_details.planning.display());
-                        println!("          - Main planning      : {}", profile.execution_details.planning_details.main_planning.display());
-                        println!("          - Functions planning : {}", profile.execution_details.planning_details.funcs_planning.display());
-                        let longest_name: usize = profile.execution_details.planning_details.func_planning.iter().map(|p| p.name.len()).max().unwrap_or(0);
-                        for profile in profile.execution_details.planning_details.func_planning {
-                            println!("             - Function '{}' planning{} : {}", profile.name, (0..(longest_name - profile.name.len())).map(|_| ' ').collect::<String>(), profile.timing.display());
-                        }
-                        println!();
-                        println!("    - Execution : {}", profile.execution_details.running.display());
-                        println!("       - Snippet : {}", profile.execution_details.running_details.snippet.display());
-                        println!("       - Edges   :");
-                        show_thread_profile(&mut std::io::stdout(), profile.execution_details.running_details, &workflow, 9)?;
+                        write_driver_profile(&mut std::io::stdout(), &profile, &workflow, 0)?;
+                        // println!("Remote reports profile times:");
+                        // println!(" - Snippet : {}", profile.snippet.display());
+                        // println!();
+                        // println!(" - Request overhead   : {}", profile.request_overhead.display());
+                        // println!(" - Request processing : {}", profile.request_processing.display());
+                        // println!();
+                        // println!(" - Workflow parsing : {}", profile.workflow_parse.display());
+                        // println!();
+                        // println!(" - Execution : {}", profile.execution.display());
+                        // println!("    - Snippet : {}", profile.execution_details.snippet.display());
+                        // println!();
+                        // println!("    - Planning: {}", profile.execution_details.planning.display());
+                        // println!("       - Snippet : {}", profile.execution_details.planning_details.snippet.display());
+                        // println!();
+                        // println!("       - Request overhead     : {}", profile.execution_details.planning_details.request_overhead.display());
+                        // println!("       - Workflow parsing     : {}", profile.execution_details.planning_details.workflow_parse.display());
+                        // println!("       - Information overhead : {}", profile.execution_details.planning_details.information_overhead.display());
+                        // println!();
+                        // println!("       - Planning : {}", profile.execution_details.planning_details.planning.display());
+                        // println!("          - Main planning      : {}", profile.execution_details.planning_details.main_planning.display());
+                        // println!("          - Functions planning : {}", profile.execution_details.planning_details.funcs_planning.display());
+                        // let longest_name: usize = profile.execution_details.planning_details.func_planning.iter().map(|p| p.name.len()).max().unwrap_or(0);
+                        // for profile in profile.execution_details.planning_details.func_planning {
+                        //     println!("             - Function '{}' planning{} : {}", profile.name, (0..(longest_name - profile.name.len())).map(|_| ' ').collect::<String>(), profile.timing.display());
+                        // }
+                        // println!();
+                        // println!("    - Execution : {}", profile.execution_details.running.display());
+                        // println!("       - Snippet : {}", profile.execution_details.running_details.snippet.display());
+                        // println!("       - Edges   :");
+                        // show_thread_profile(&mut std::io::stdout(), profile.execution_details.running_details, &workflow, 9)?;
                     }
                 }
 
