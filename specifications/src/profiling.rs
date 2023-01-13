@@ -4,7 +4,7 @@
 //  Created:
 //    06 Jan 2023, 11:47:00
 //  Last edited:
-//    12 Jan 2023, 16:34:21
+//    13 Jan 2023, 12:23:31
 //  Auto updated?
 //    Yes
 // 
@@ -542,7 +542,7 @@ pub struct EdgeProfile {
     pub edge : u64,
 
     /// The timings for this edge.
-    #[prost(tags = "3,4,5,6", oneof = "EdgeTimings")]
+    #[prost(tags = "3,4,5,6,7", oneof = "EdgeTimings")]
     pub timings : Option<EdgeTimings>,
 }
 impl EdgeProfile {
@@ -784,7 +784,7 @@ pub struct NodeProfile {
 
     /// The time it takes to prepare the call in the VM.
     #[prost(tag = "2", required, message)]
-    pub pre  : Timing,
+    pub pre  : PreprocessProfile,
     /// The time it takes to do the external call itself.
     #[prost(tag = "3", required, message)]
     pub exec : Timing,
@@ -802,7 +802,7 @@ impl NodeProfile {
         Self {
             edge : Timing::new(),
 
-            pre  : Timing::new(),
+            pre  : PreprocessProfile::new(),
             exec : Timing::new(),
             post : Timing::new(),
         }
@@ -921,6 +921,332 @@ impl AsRef<CallProfile> for CallProfile {
     fn as_ref(&self) -> &Self { self }
 }
 impl<'de> Profile<'de> for CallProfile {}
+
+
+
+/// Contains profile information about the preprocessing step when executing a Node.
+#[derive(Clone, Deserialize, Message, Serialize)]
+pub struct PreprocessProfile {
+    /// The total time it takes to preprocess all arguments.
+    #[prost(tag = "1", required, message)]
+    pub total : Timing,
+
+    /// Records the time it takes to pop the node arguments off the stack.
+    #[prost(tag = "2", required, message)]
+    pub stack_popping : Timing,
+
+    /// The time it takes to preprocess all values.
+    #[prost(tag = "3", required, message)]
+    pub all_values : Timing,
+    /// The time it takes to preprocess a single value.
+    #[prost(tag = "4", repeated, message)]
+    pub values     : Vec<ValuePreprocessProfile>,
+}
+impl PreprocessProfile {
+    /// Constructor for the PreprocessProfile that intializes all timings to be unset.
+    /// 
+    /// # Returns
+    /// A new PreprocessProfile instance.
+    #[inline]
+    pub fn new() -> Self {
+        Self {
+            total : Timing::new(),
+
+            stack_popping : Timing::new(),
+
+            all_values : Timing::new(),
+            values     : vec![],
+        }
+    }
+}
+impl AsRef<PreprocessProfile> for PreprocessProfile {
+    #[inline]
+    fn as_ref(&self) -> &Self { self }
+}
+impl<'de> Profile<'de> for PreprocessProfile {}
+
+/// Defines an identifier that we can use to talk about the specific value we are preprocessing.
+#[derive(Clone, Deserialize, EnumDebug, Oneof, Serialize)]
+pub enum ArgumentId {
+    /// It's an index in a list
+    #[prost(tag = "1", uint64)]
+    Index(u64),
+    /// It's a name in an instance.
+    #[prost(tag = "2", string)]
+    Field(String),
+}
+
+/// Contains profile information about preprocessing a single value in the given node.
+#[derive(Clone, Deserialize, Message, Serialize)]
+pub struct ValuePreprocessProfile {
+    /// Some identifier for the value itself.
+    #[prost(tags = "1,2", oneof="ArgumentId")]
+    pub id : Option<ArgumentId>,
+
+    /// The time it takes to spawn the preprocessing of this value.
+    #[prost(tag = "3", required, message)]
+    pub spawn        : Timing,
+    /// The time it takes to spawn the preprocessing of any nested values, if any.
+    #[prost(tag = "4", repeated, message)]
+    pub spawn_values : Vec<Box<Self>>,
+
+    /// The time it took this value to preprocess.
+    #[prost(tag = "5", required, message)]
+    pub preprocess        : VmPreprocessProfile,
+    /// The time it took nested values to preprocess, if any.
+    #[prost(tag = "6", repeated, message)]
+    pub preprocess_values : Vec<VmPreprocessProfile>,
+}
+impl ValuePreprocessProfile {
+    /// Constructor for the PreprocessProfile that intializes all timings to be unset.
+    /// 
+    /// # Arguments
+    /// - `id`: The identifier that somehow allows us to discover what we are talking about.
+    /// 
+    /// # Returns
+    /// A new PreprocessProfile instance.
+    #[inline]
+    pub fn new(id: ArgumentId) -> Self {
+        Self {
+            id : Some(id.clone()),
+
+            spawn        : Timing::new(),
+            spawn_values : vec![],
+
+            preprocess        : VmPreprocessProfile::with_id(id),
+            preprocess_values : vec![],
+        }
+    }
+}
+impl AsRef<ValuePreprocessProfile> for ValuePreprocessProfile {
+    #[inline]
+    fn as_ref(&self) -> &Self { self }
+}
+impl<'de> Profile<'de> for ValuePreprocessProfile {}
+
+/// Contains the profiling information for the time it takes to process a single value.
+#[derive(Clone, Deserialize, Message, Serialize)]
+pub struct VmPreprocessProfile {
+    /// The identifier of the argument we preprocess.
+    #[prost(tags = "1,2", oneof = "ArgumentId")]
+    pub id      : Option<ArgumentId>,
+    /// The timings for the preprocessing step.
+    #[prost(tags = "3,4,5", oneof = "VmPreprocessTimings")]
+    pub timings : Option<VmPreprocessTimings>,
+}
+impl VmPreprocessProfile {
+    /// Constructor for the PreprocessProfile that intializes all timings to be unset.
+    /// 
+    /// # Returns
+    /// A new PreprocessProfile instance.
+    #[inline]
+    pub fn new() -> Self {
+        Self {
+            id      : None,
+            timings : None,
+        }
+    }
+    /// Constructor for the PreprocessProfile that intializes it with the given ID.
+    /// 
+    /// # Arguments
+    /// - `id`: The ArgumentId that we use to identify which (part of an) argument we are preprocessing specifically.
+    /// 
+    /// # Returns
+    /// A new PreprocessProfile instance.
+    #[inline]
+    pub fn with_id(id: ArgumentId) -> Self {
+        Self {
+            id      : Some(id),
+            timings : None,
+        }
+    }
+/// Constructor for the PreprocessProfile that intializes the timings to the given ones.
+    /// 
+    /// # Arguments
+    /// - `timings`: The timings to set.
+    /// 
+    /// # Returns
+    /// A new PreprocessProfile instance.
+    #[inline]
+    pub fn with_timings(timings: VmPreprocessTimings) -> Self {
+        Self {
+            id      : None,
+            timings : Some(timings),
+        }
+    }
+}
+impl AsRef<VmPreprocessProfile> for VmPreprocessProfile {
+    #[inline]
+    fn as_ref(&self) -> &Self { self }
+}
+impl<'de> Profile<'de> for VmPreprocessProfile {}
+
+/// Contains the possible timings that a VmPreprocessTimings can have.
+#[derive(Clone, Deserialize, EnumDebug, Oneof, Serialize)]
+pub enum VmPreprocessTimings {
+    /// Preprocessing in a local context.
+    #[prost(tag = "3", message)]
+    Local(LocalPreprocessProfile),
+    /// Preprocessing in an instance context.
+    #[prost(tag = "4", message)]
+    Instance(InstancePreprocessProfile),
+
+    /// No preprocessing happening
+    #[prost(tag = "5", message)]
+    Nothing(Timing),
+}
+impl VmPreprocessTimings {
+    /// Returns the internal LocalPreprocessProfile as if this was a `VmPreprocessTimings::Local`.
+    /// 
+    /// # Returns
+    /// A reference to the internal LocalPreprocessProfile struct.
+    /// 
+    /// # Panics
+    /// This function panics if we were not, in fact, `VmPreprocessTimings::Local`.
+    #[inline]
+    pub fn local(&self) -> &LocalPreprocessProfile {
+        if let Self::Local(prof) = self {
+            prof
+        } else {
+            panic!("Cannot unwrap VmPreprocessTimings::{} as VmPreprocessTimings::Local", self.variant());
+        }
+    }
+    /// Returns the internal LocalPreprocessProfile mutably, as if this was a `VmPreprocessTimings::Local`.
+    /// 
+    /// # Returns
+    /// A mutable reference to the internal LocalPreprocessProfile struct.
+    /// 
+    /// # Panics
+    /// This function panics if we were not, in fact, `VmPreprocessTimings::Local`.
+    #[inline]
+    pub fn local_mut(&mut self) -> &mut LocalPreprocessProfile {
+        if let Self::Local(prof) = self {
+            prof
+        } else {
+            panic!("Cannot unwrap VmPreprocessTimings::{} as VmPreprocessTimings::Local", self.variant());
+        }
+    }
+
+    /// Returns the internal InstancePreprocessProfile as if this was a `VmPreprocessTimings::Instance`.
+    /// 
+    /// # Returns
+    /// A reference to the internal InstancePreprocessProfile struct.
+    /// 
+    /// # Panics
+    /// This function panics if we were not, in fact, `VmPreprocessTimings::Instance`.
+    #[inline]
+    pub fn instance(&self) -> &InstancePreprocessProfile {
+        if let Self::Instance(prof) = self {
+            prof
+        } else {
+            panic!("Cannot unwrap VmPreprocessTimings::{} as VmPreprocessTimings::Instance", self.variant());
+        }
+    }
+    /// Returns the internal InstancePreprocessProfile mutably, as if this was a `VmPreprocessTimings::Instance`.
+    /// 
+    /// # Returns
+    /// A mutable reference to the internal InstancePreprocessProfile struct.
+    /// 
+    /// # Panics
+    /// This function panics if we were not, in fact, `VmPreprocessTimings::Instance`.
+    #[inline]
+    pub fn instance_mut(&mut self) -> &mut InstancePreprocessProfile {
+        if let Self::Instance(prof) = self {
+            prof
+        } else {
+            panic!("Cannot unwrap VmPreprocessTimings::{} as VmPreprocessTimings::Instance", self.variant());
+        }
+    }
+
+    /// Returns the internal Timing as if this was a `VmPreprocessTimings::Nothing`.
+    /// 
+    /// # Returns
+    /// A reference to the internal Timing struct.
+    /// 
+    /// # Panics
+    /// This function panics if we were not, in fact, `VmPreprocessTimings::Nothing`.
+    #[inline]
+    pub fn nothing(&self) -> &Timing {
+        if let Self::Nothing(timing) = self {
+            timing
+        } else {
+            panic!("Cannot unwrap VmPreprocessTimings::{} as VmPreprocessTimings::Instance", self.variant());
+        }
+    }
+    /// Returns the internal Timing mutably, as if this was a `VmPreprocessTimings::Nothing`.
+    /// 
+    /// # Returns
+    /// A mutable reference to the internal Timing struct.
+    /// 
+    /// # Panics
+    /// This function panics if we were not, in fact, `VmPreprocessTimings::Nothing`.
+    #[inline]
+    pub fn nothing_mut(&mut self) -> &mut Timing {
+        if let Self::Nothing(timing) = self {
+            timing
+        } else {
+            panic!("Cannot unwrap VmPreprocessTimings::{} as VmPreprocessTimings::Nothing", self.variant());
+        }
+    }
+}
+impl AsRef<VmPreprocessTimings> for VmPreprocessTimings {
+    #[inline]
+    fn as_ref(&self) -> &Self { self }
+}
+
+/// Defines the profiling of a preprocessing step in a local context.
+#[derive(Clone, Deserialize, Message, Serialize)]
+pub struct LocalPreprocessProfile {
+    
+}
+impl LocalPreprocessProfile {
+    /// Constructor for the LocalPreprocessProfile that intializes all timings to be unset.
+    /// 
+    /// # Arguments
+    /// - `id`: The identifier that somehow allows us to discover what we are talking about.
+    /// 
+    /// # Returns
+    /// A new LocalPreprocessProfile instance.
+    #[inline]
+    pub fn new() -> Self {
+        Self {
+            
+        }
+    }
+}
+impl AsRef<LocalPreprocessProfile> for LocalPreprocessProfile {
+    #[inline]
+    fn as_ref(&self) -> &Self { self }
+}
+impl<'de> Profile<'de> for LocalPreprocessProfile {}
+
+/// Defines the profiling of a preprocessing step in an instance-based context.
+#[derive(Clone, Deserialize, Message, Serialize)]
+pub struct InstancePreprocessProfile {
+    
+}
+impl InstancePreprocessProfile {
+    /// Constructor for the InstancePreprocessProfile that intializes all timings to be unset.
+    /// 
+    /// # Arguments
+    /// - `id`: The identifier that somehow allows us to discover what we are talking about.
+    /// 
+    /// # Returns
+    /// A new InstancePreprocessProfile instance.
+    #[inline]
+    pub fn new() -> Self {
+        Self {
+            
+        }
+    }
+}
+impl AsRef<InstancePreprocessProfile> for InstancePreprocessProfile {
+    #[inline]
+    fn as_ref(&self) -> &Self { self }
+}
+impl<'de> Profile<'de> for InstancePreprocessProfile {}
+
+
 
 /// Contains builtin-specific timings for the CallProfile.
 #[derive(Clone, Deserialize, EnumDebug, Oneof, Serialize)]

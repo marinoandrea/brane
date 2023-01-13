@@ -4,7 +4,7 @@
 //  Created:
 //    09 Sep 2022, 13:23:41
 //  Last edited:
-//    12 Jan 2023, 16:35:10
+//    13 Jan 2023, 12:21:30
 //  Auto updated?
 //    Yes
 // 
@@ -29,7 +29,7 @@ use brane_ast::spec::{BuiltinClasses, BuiltinFunctions};
 use brane_ast::locations::Location;
 use brane_ast::ast::{ClassDef, ComputeTaskDef, DataName, Edge, EdgeInstr, FunctionDef, TaskDef};
 use specifications::data::{AccessKind, AvailabilityKind};
-use specifications::profiling::{BuiltinTimings, CallProfile, CommitProfile, EdgeProfile, EdgeTimings, InstrTiming, JoinProfile, LinearProfile, NodeProfile, ThreadProfile, Timing};
+use specifications::profiling::{ArgumentId,BuiltinTimings, CallProfile, CommitProfile, EdgeProfile, EdgeTimings, InstrTiming, JoinProfile, LinearProfile, NodeProfile, ThreadProfile, Timing, ValuePreprocessProfile, VmPreprocessTimings};
 
 use crate::dbg_node;
 pub use crate::errors::VmError as Error;
@@ -150,15 +150,27 @@ enum EdgeResult {
 /// Preprocesses any datasets / intermediate results in the given value.
 /// 
 /// # Arguments
+/// - `global`: The global VM plugin state to use when actually preprocessing a dataset.
+/// - `local`: The local VM plugin state to use when actually preprocessing a dataset.
+/// - `pc`: The current program counter index.
+/// - `task`: The Task definition for which we are preprocessing.
+/// - `at`: The location where we are preprocessing.
+/// - `id`: The current index (or field name) of the argument we are preprocessing.
+/// - `value`: The FullValue that might contain a to-be-processed dataset or intermediate result (or recurse into a value that does).
+/// - `input`: The input map for the upcoming task so that we know where the value is planned to be.
+/// - `data`: The map that we will populate with the access methods once available.
 /// 
 /// # Returns
-/// Nothing, but does add any preprocessed datasets to `data`.
+/// Adds any preprocessed datasets to `data`, then returns the ValuePreprocessProfile to discover how long it took us to do so.
 /// 
 /// # Errors
 /// This function may error if the given `input` does not contain any of the data in the value _or_ if the referenced input is not yet planned.
 #[async_recursion]
 #[allow(clippy::too_many_arguments)]
-async fn preprocess_value<P: VmPlugin>(global: &Arc<RwLock<P::GlobalState>>, local: &P::LocalState, pc: (usize, usize), task: &TaskDef, at: &Location, value: &FullValue, input: &HashMap<DataName, Option<AvailabilityKind>>, data: &mut HashMap<DataName, JoinHandle<Result<AccessKind, P::PreprocessError>>>) -> Result<(), Error> {
+async fn preprocess_value<P: VmPlugin>(global: &Arc<RwLock<P::GlobalState>>, local: &P::LocalState, pc: (usize, usize), task: &TaskDef, at: &Location, id: ArgumentId, value: &FullValue, input: &HashMap<DataName, Option<AvailabilityKind>>, data: &mut HashMap<DataName, JoinHandle<Result<(AccessKind, VmPreprocessTimings), P::PreprocessError>>>) -> Result<ValuePreprocessProfile, Error> {
+    let mut prof: ValuePreprocessProfile = ValuePreprocessProfile::new(id);
+    prof.spawn.start();
+
     // If it's a data or intermediate result, get it; skip it otherwise
     let name: DataName = match value {
         // The data and intermediate result, of course
@@ -166,11 +178,28 @@ async fn preprocess_value<P: VmPlugin>(global: &Arc<RwLock<P::GlobalState>>, loc
         FullValue::IntermediateResult(name) => DataName::IntermediateResult(name.into()),
 
         // Also handle any nested stuff
-        FullValue::Array(values)      => { for v in values { preprocess_value::<P>(global, local, pc, task, at, v, input, data).await?; } return Ok(()); },
-        FullValue::Instance(_, props) => { for v in props.values() { preprocess_value::<P>(global, local, pc, task, at, v, input, data).await?; } return Ok(()); },
+        FullValue::Array(values)      => {
+            prof.spawn_values.reserve(values.len());
+            for (i, v) in values.iter().enumerate() {
+                prof.spawn_values.push(Box::new(preprocess_value::<P>(global, local, pc, task, at, ArgumentId::Index(i as u64), v, input, data).await?));
+            }
+            prof.spawn.stop();
+            return Ok(prof);
+        },
+        FullValue::Instance(_, props) => {
+            prof.spawn_values.reserve(props.len());
+            for (n, v) in props {
+                prof.spawn_values.push(Box::new(preprocess_value::<P>(global, local, pc, task, at, ArgumentId::Field(n.clone()), v, input, data).await?));
+            }
+            prof.spawn.stop();
+            return Ok(prof);
+        },
 
         // The rest is irrelevant
-        _ => { return Ok(()); },
+        _ => {
+            prof.spawn.stop();
+            return Ok(prof);
+        },
     };
 
     // Fetch it from the input
@@ -183,10 +212,10 @@ async fn preprocess_value<P: VmPlugin>(global: &Arc<RwLock<P::GlobalState>>, loc
     };
 
     // If it is unavailable, download it and make it available
-    let access: JoinHandle<_> = match avail {
+    let access: JoinHandle<Result<(AccessKind, VmPreprocessTimings), P::PreprocessError>> = match avail {
         AvailabilityKind::Available { how }   => {
             debug!("{} '{}' is locally available", name.variant(), name.name());
-            tokio::spawn(async move { Ok(how) })
+            tokio::spawn(async move { Ok((how, VmPreprocessTimings::Nothing(Timing::none()))) })
         },
         AvailabilityKind::Unavailable { how } => {
             debug!("{} '{}' is remotely available", name.variant(), name.name());
@@ -202,7 +231,8 @@ async fn preprocess_value<P: VmPlugin>(global: &Arc<RwLock<P::GlobalState>>, loc
 
     // Insert it into the map, done
     data.insert(name, access);
-    Ok(())
+    prof.spawn.stop();
+    Ok(prof)
 }
 
 /// Runs a single instruction, modifying the given stack and variable register.
@@ -1020,7 +1050,8 @@ impl<G: CustomGlobalState, L: CustomLocalState> Thread<G, L> {
                         debug!("Calling compute task '{}' ('{}' v{})", task.name(), package, version);
 
                         // Collect the arguments from the stack (remember, reverse order)
-                        nprof.pre.start();
+                        nprof.pre.total.start();
+                        nprof.pre.stack_popping.start();
                         let mut args: HashMap<String, FullValue> = HashMap::with_capacity(function.args.len());
                         for i in 0..function.args.len() {
                             let i: usize = function.args.len() - 1 - i;
@@ -1038,6 +1069,7 @@ impl<G: CustomGlobalState, L: CustomLocalState> Thread<G, L> {
                             // Add it to the list
                             args.insert(args_names[i].clone(), value.into_full(self.fstack.table()));
                         }
+                        nprof.pre.stack_popping.stop();
 
                         // Unwrap the location
                         let at: &Location = match at {
@@ -1047,22 +1079,29 @@ impl<G: CustomGlobalState, L: CustomLocalState> Thread<G, L> {
 
                         // Next, fetch all the datasets required by calling the external transfer function;
                         // The map created maps data names to ways of accessing them locally that may be passed to the container itself.
-                        let mut handles: HashMap<DataName, JoinHandle<Result<AccessKind, P::PreprocessError>>> = HashMap::new();
-                        for value in args.values() {
+                        nprof.pre.all_values.start();
+                        let mut handles: HashMap<DataName, JoinHandle<Result<(AccessKind, VmPreprocessTimings), P::PreprocessError>>> = HashMap::new();
+                        for (i, value) in args.values().enumerate() {
                             // Preprocess the given value
-                            if let Err(err) = preprocess_value::<P>(&self.global, &self.local, pc, task, at, value, input, &mut handles).await { return EdgeResult::Err(err); };
+                            nprof.pre.values.push(match preprocess_value::<P>(&self.global, &self.local, pc, task, at, ArgumentId::Index(i as u64), value, input, &mut handles).await {
+                                Ok(prof) => prof,
+                                Err(err) => { return EdgeResult::Err(err); },
+                            });
                         }
                         // Join the handles
                         let mut data: HashMap<DataName, AccessKind> = HashMap::with_capacity(handles.len());
                         for (name, handle) in handles {
                             match handle.await {
                                 Ok(res)  => match res {
-                                    Ok(access) => { data.insert(name, access); },
-                                    Err(err)   => { return EdgeResult::Err(Error::Custom{ edge: pc.1, err: Box::new(err) }); },
+                                    Ok((access, timings)) => {
+                                        data.insert(name, access);
+                                    },
+                                    Err(err)              => { return EdgeResult::Err(Error::Custom{ edge: pc.1, err: Box::new(err) }); },
                                 },
                                 Err(err) => { return EdgeResult::Err(Error::Custom{ edge: pc.1, err: Box::new(err) }); },
                             }
                         }
+                        nprof.pre.all_values.stop();
 
                         // Prepare the TaskInfo for the call
                         let info: TaskInfo = TaskInfo {
@@ -1078,7 +1117,7 @@ impl<G: CustomGlobalState, L: CustomLocalState> Thread<G, L> {
                             input    : data,
                             result,
                         };
-                        nprof.pre.stop();
+                        nprof.pre.total.stop();
 
                         // Call the external call function with the correct arguments
                         nprof.exec.start();
