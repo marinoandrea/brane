@@ -4,7 +4,7 @@
 //  Created:
 //    26 Aug 2022, 18:26:40
 //  Last edited:
-//    13 Jan 2023, 12:18:19
+//    15 Jan 2023, 16:11:34
 //  Auto updated?
 //    Yes
 // 
@@ -22,7 +22,6 @@ use brane_ast::locations::Location;
 use brane_ast::ast::{DataName, SymTable};
 use specifications::data::{AccessKind, PreprocessKind};
 use specifications::package::Capability;
-use specifications::profiling::VmPreprocessTimings;
 use specifications::version::Version;
 
 use crate::value::FullValue;
@@ -83,13 +82,13 @@ pub trait VmPlugin: 'static + Send + Sync {
     /// - `preprocess`: The PreprocessKind that determines what you must do to make the dataset available.
     /// 
     /// # Returns
-    /// This function should return a pair of an AccessKind, that describes how to access the preprocessed data, and a VmPreprocessTimings that details how long each part of the processing took.
+    /// This function should return an AccessKind which describes how to access the preprocessed data.
     /// 
     /// It is expected that the preprocessed data is available the moment the function returns.
     /// 
     /// # Errors
     /// This function may error whenever it likes.
-    async fn preprocess(global: Arc<RwLock<Self::GlobalState>>, local: Self::LocalState, loc: Location, name: DataName, preprocess: PreprocessKind) -> Result<(AccessKind, VmPreprocessTimings), Self::PreprocessError>;
+    async fn preprocess(global: Arc<RwLock<Self::GlobalState>>, local: Self::LocalState, loc: Location, name: DataName, preprocess: PreprocessKind) -> Result<AccessKind, Self::PreprocessError>;
 
 
 

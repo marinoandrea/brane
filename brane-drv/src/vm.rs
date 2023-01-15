@@ -4,7 +4,7 @@
 //  Created:
 //    27 Oct 2022, 10:14:26
 //  Last edited:
-//    10 Jan 2023, 13:39:57
+//    15 Jan 2023, 16:21:45
 //  Auto updated?
 //    Yes
 // 
@@ -38,7 +38,6 @@ use brane_tsk::errors::{CommitError, ExecuteError, PreprocessError, StdoutError}
 use brane_tsk::spec::{AppId, JobStatus};
 use specifications::data::{AccessKind, PreprocessKind};
 use specifications::driving as driving_grpc;
-use specifications::profiling::VmProfile;
 use specifications::working as working_grpc;
 
 pub use crate::errors::RemoteVmError as Error;
@@ -292,8 +291,6 @@ impl VmPlugin for InstancePlugin {
             value  : None,
 
             close : false,
-
-            profile : None,
         })).await {
             return Err(StdoutError::TxWriteError{ err });
         }
@@ -418,21 +415,16 @@ impl InstanceVm {
     /// # Arguments
     /// - `tx`: The transmission channel to send feedback to the client on.
     /// - `workflow`: The Workflow to execute.
-    /// - `profile`: The VmProfile struct to populate with detailled timings about various VM parts.
     /// 
     /// # Returns
     /// The result of the workflow, if any. It also returns `self` again for subsequent runs.
-    pub async fn exec(self, tx: Sender<Result<driving_grpc::ExecuteReply, Status>>, workflow: Workflow, profile: &mut VmProfile) -> (Self, Result<FullValue, Error>) {
-        let _guard = profile.snippet.guard();
-
+    pub async fn exec(self, tx: Sender<Result<driving_grpc::ExecuteReply, Status>>, workflow: Workflow) -> (Self, Result<FullValue, Error>) {
         // Step 1: Plan
         debug!("Planning workflow on Kafka planner...");
-        profile.planning.start();
-        let plan: Workflow = match self.planner.plan(workflow, &mut profile.planning_details).await {
+        let plan: Workflow = match self.planner.plan(workflow).await {
             Ok(plan) => plan,
             Err(err) => { return (self, Err(Error::PlanError{ err })); },
         };
-        profile.planning.stop();
 
         // Also update the TX & workflow in the internal state
         {
@@ -448,13 +440,11 @@ impl InstanceVm {
         let this: Arc<RwLock<Self>> = Arc::new(RwLock::new(self));
 
         // Run the VM and get self back
-        profile.running.start();
-        let result: Result<FullValue, VmError> = Self::run::<InstancePlugin>(this.clone(), plan, &mut profile.running_details).await;
+        let result: Result<FullValue, VmError> = Self::run::<InstancePlugin>(this.clone(), plan).await;
         let this: Self = match Arc::try_unwrap(this) {
             Ok(this) => this.into_inner().unwrap(),
             Err(_)   => { panic!("Could not get self back"); },
         };
-        profile.running.stop();
 
 
 

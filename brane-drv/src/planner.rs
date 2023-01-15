@@ -4,7 +4,7 @@
 //  Created:
 //    25 Oct 2022, 11:35:00
 //  Last edited:
-//    09 Jan 2023, 14:16:56
+//    15 Jan 2023, 16:23:34
 //  Auto updated?
 //    Yes
 // 
@@ -35,7 +35,6 @@ use brane_shr::kafka::{ensure_topics, restore_committed_offsets};
 use brane_tsk::errors::PlanError;
 use brane_tsk::spec::TaskId;
 use specifications::planning::{PlanningStatus, PlanningStatusKind, PlanningUpdate};
-use specifications::profiling::PlannerProfile;
 
 
 /***** CONSTANTS *****/
@@ -52,7 +51,7 @@ struct WaitUntilPlanned {
     /// The correlation ID of the plan we're waiting for.
     correlation_id : String,
     /// The event-monitor updated list of states we use to check the plan's status.
-    updates        : Arc<DashMap<String, (PlanningStatus, Option<PlannerProfile>)>>,
+    updates        : Arc<DashMap<String, PlanningStatus>>,
     /// The waker used by the event monitor.
     waker          : Arc<Mutex<Option<Waker>>>,
 
@@ -65,7 +64,7 @@ struct WaitUntilPlanned {
 }
 
 impl Future for WaitUntilPlanned {
-    type Output = Option<(PlanningStatus, Option<PlannerProfile>)>;
+    type Output = Option<PlanningStatus>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         // If not started yet, possibly timeout
@@ -84,7 +83,7 @@ impl Future for WaitUntilPlanned {
         }
 
         // Otherwise, if not timed out, switch on the state
-        if let Some((_, (status, profile))) = self.updates.remove(&self.correlation_id) {
+        if let Some((_, status)) = self.updates.remove(&self.correlation_id) {
             match status {
                 // The planning was started
                 PlanningStatus::Started(name) => {
@@ -107,7 +106,7 @@ impl Future for WaitUntilPlanned {
                 PlanningStatus::Failed(_)  |
                 PlanningStatus::Error(_)   => {
                     debug!("Planning of workflow '{}' completed", self.correlation_id);
-                    return Poll::Ready(Some((status, profile)));
+                    return Poll::Ready(Some(status));
                 },
 
                 // The rest means pending
@@ -143,11 +142,11 @@ impl Future for WaitUntilPlanned {
 /// 
 /// # Errors
 /// This function errors if we either failed to wait on Kafka, or if the remote planner failed.
-async fn wait_planned(correlation_id: impl AsRef<str>, waker: Arc<Mutex<Option<Waker>>>, updates: Arc<DashMap<String, (PlanningStatus, Option<PlannerProfile>)>>) -> Result<(Workflow, Option<PlannerProfile>), PlanError> {
+async fn wait_planned(correlation_id: impl AsRef<str>, waker: Arc<Mutex<Option<Waker>>>, updates: Arc<DashMap<String, PlanningStatus>>) -> Result<Workflow, PlanError> {
     let correlation_id: &str = correlation_id.as_ref();
 
     // Wait until a plan result occurs
-    let res: Option<(PlanningStatus, Option<PlannerProfile>)> = WaitUntilPlanned {
+    let res: Option<PlanningStatus> = WaitUntilPlanned {
         correlation_id : correlation_id.to_string(),
         updates,
         waker,
@@ -158,13 +157,13 @@ async fn wait_planned(correlation_id: impl AsRef<str>, waker: Arc<Mutex<Option<W
     }.await;
 
     // Match on timeouts
-    let res: (PlanningStatus, Option<PlannerProfile>) = match res {
+    let res: PlanningStatus = match res {
         Some(res) => res,
         None      => { return Err(PlanError::PlanningTimeout{ correlation_id: correlation_id.into(), timeout: DEFAULT_PLANNING_STARTED_TIMEOUT }); },
     };
 
     // Match the result itself
-    match res.0 {
+    match res {
         // The planning was done
         PlanningStatus::Success(wf) => {
             // We attempt to parse the result itself as a Workflow
@@ -174,7 +173,7 @@ async fn wait_planned(correlation_id: impl AsRef<str>, waker: Arc<Mutex<Option<W
             };
 
             // Done, return
-            Ok((workflow, res.1))
+            Ok(workflow)
         },
 
         // Otherwise, no plan available
@@ -201,7 +200,7 @@ pub struct InstancePlanner {
     /// The waker triggered by the event monitor to trigger futures waiting for event updates.
     waker     : Arc<Mutex<Option<Waker>>>,
     /// The list of states that contains the most recently received planner updates.
-    updates   : Arc<DashMap<String, (PlanningStatus, Option<PlannerProfile>)>>,
+    updates   : Arc<DashMap<String, PlanningStatus>>,
 }
 
 impl InstancePlanner {
@@ -263,7 +262,7 @@ impl InstancePlanner {
 
         // Run the Kafka consumer to monitor the planning events on a new thread (or at least, concurrently)
         let waker   : Arc<Mutex<Option<Waker>>>                                      = self.waker.clone();
-        let updates : Arc<DashMap<String, (PlanningStatus, Option<PlannerProfile>)>> = self.updates.clone();
+        let updates : Arc<DashMap<String, PlanningStatus>> = self.updates.clone();
         tokio::spawn(async move {
             loop {
                 if let Err(err) = consumer.stream().try_for_each(|borrowed_message| {
@@ -284,7 +283,7 @@ impl InstancePlanner {
                             match PlanningStatusKind::from_i32(msg.kind) {
                                 Some(PlanningStatusKind::Started) => {
                                     debug!("Status update: Workflow '{}' is now being planned{}", msg.id, if let Some(name) = &msg.result { format!(" by planner '{}'", name) } else { String::new() });
-                                    owned_updates.insert(msg.id, (PlanningStatus::Started(msg.result), msg.profile));
+                                    owned_updates.insert(msg.id, PlanningStatus::Started(msg.result));
                                 },
         
                                 Some(PlanningStatusKind::Success) => {
@@ -297,16 +296,16 @@ impl InstancePlanner {
                                     };
         
                                     // Store it
-                                    owned_updates.insert(msg.id, (PlanningStatus::Success(plan), msg.profile));
+                                    owned_updates.insert(msg.id, PlanningStatus::Success(plan));
                                 },
                                 Some(PlanningStatusKind::Failed) => {
                                     debug!("Status update: Workflow '{}' failed to been planned{}", msg.id, if let Some(reason) = &msg.result { format!(": {}", reason) } else { String::new() });
-                                    owned_updates.insert(msg.id, (PlanningStatus::Failed(msg.result), msg.profile));
+                                    owned_updates.insert(msg.id, PlanningStatus::Failed(msg.result));
                                 },
                                 Some(PlanningStatusKind::Error) => {
                                     let err: String = msg.result.unwrap_or_else(|| String::from("<unknown error>"));
                                     debug!("Status update: Workflow '{}' has caused errors to appear: {}", msg.id, err);
-                                    owned_updates.insert(msg.id, (PlanningStatus::Error(err), msg.profile));
+                                    owned_updates.insert(msg.id, PlanningStatus::Error(err));
                                 },
         
                                 None => { error!("Unknown PlanningStatusKind '{}'", msg.kind); return Ok(()); },
@@ -344,11 +343,10 @@ impl InstancePlanner {
     /// 
     /// # Arguments
     /// - `workflow`: The Workflow to plan.
-    /// - `profile`: The PlannerProfile struct to populate with planning timings if any.
     /// 
     /// # Returns
     /// The same workflow as given, but now with all tasks and data transfers planned.
-    pub async fn plan(&self, workflow: Workflow, profile: &mut PlannerProfile) -> Result<Workflow, PlanError> {
+    pub async fn plan(&self, workflow: Workflow) -> Result<Workflow, PlanError> {
         // Ensure that the to-be-send-on topic exists
         let brokers: String = self.node_config.node.central().services.brokers.iter().map(|a| a.to_string()).collect::<Vec<String>>().join(",");
         if let Err(err) = ensure_topics(vec![ &self.node_config.node.central().topics.planner_command ], &brokers).await { return Err(PlanError::KafkaTopicError { brokers, topics: vec![ self.node_config.node.central().topics.planner_command.clone() ], err }); };
@@ -371,10 +369,9 @@ impl InstancePlanner {
         }
 
         // Now we wait until the message has been planned.
-        let (plan, prof): (Workflow, Option<PlannerProfile>) = wait_planned(&correlation_id, self.waker.clone(), self.updates.clone()).await?;
+        let plan: Workflow = wait_planned(&correlation_id, self.waker.clone(), self.updates.clone()).await?;
 
         // Done
-        if let Some(prof) = prof { *profile = prof; }
         Ok(plan)
     }
 }

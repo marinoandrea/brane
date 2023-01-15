@@ -4,7 +4,7 @@
 //  Created:
 //    28 Sep 2022, 10:33:37
 //  Last edited:
-//    06 Jan 2023, 14:42:04
+//    15 Jan 2023, 16:10:40
 //  Auto updated?
 //    Yes
 // 
@@ -14,8 +14,6 @@
 // 
 
 use prost::{Enumeration, Message};
-
-use crate::profiling::PlannerProfile;
 
 
 /***** NETWORKING *****/
@@ -64,10 +62,6 @@ pub struct PlanningUpdate {
     /// For any other value, this field is ignored.
     #[prost(tag = "3", optional, string)]
     pub result : Option<String>,
-
-    /// Defines an optional profile information.
-    #[prost(tag = "4", optional, message)]
-    pub profile : Option<PlannerProfile>,
 }
 
 

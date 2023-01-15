@@ -4,7 +4,7 @@
 //  Created:
 //    12 Sep 2022, 17:41:33
 //  Last edited:
-//    09 Jan 2023, 16:09:22
+//    15 Jan 2023, 16:18:43
 //  Auto updated?
 //    Yes
 // 
@@ -18,7 +18,6 @@ use std::sync::{Arc, RwLock};
 use async_trait::async_trait;
 
 use brane_ast::{SymTable, Workflow};
-use specifications::profiling::ThreadProfile;
 
 use crate::errors::VmError;
 use crate::spec::{CustomGlobalState, CustomLocalState, RunState, VmPlugin};
@@ -104,7 +103,7 @@ pub mod tests {
                     println!("{}", (0..40).map(|_| "- ").collect::<String>());
 
                     // Run the VM on this snippet
-                    match DummyVm::run::<DummyPlugin>(vm.clone(), workflow, &mut ThreadProfile::new()).await {
+                    match DummyVm::run::<DummyPlugin>(vm.clone(), workflow).await {
                         Ok(value) => {
                             println!("Workflow stdout:");
                             vm.read().unwrap().flush_stdout();
@@ -191,11 +190,10 @@ pub trait Vm {
     /// 
     /// # Arguments
     /// - `snippet`: The snippet to compile. This is either the entire workflow, or a snippet of it. In the case of the latter, the internal state will be used (and updated).
-    /// - `profile`: The ThreadProfile data that we will attempt to populate further based on the execution times we manage.
     /// 
     /// # Returns
     /// The result if the Workflow returned any.
-    async fn run<P: VmPlugin<GlobalState = Self::GlobalState, LocalState = Self::LocalState>>(this: Arc<RwLock<Self>>, snippet: Workflow, profile: &mut ThreadProfile) -> Result<FullValue, VmError>
+    async fn run<P: VmPlugin<GlobalState = Self::GlobalState, LocalState = Self::LocalState>>(this: Arc<RwLock<Self>>, snippet: Workflow) -> Result<FullValue, VmError>
     where
         Self: Sync,
     {
@@ -208,7 +206,7 @@ pub trait Vm {
 
         // Run the workflow
         match main.run_snippet::<P>().await {
-            Ok((res, state, prof)) => {
+            Ok((res, state)) => {
                 // Convert the value into a full value (if any)
                 let res: FullValue = res.into_full(state.fstack.table());
 
@@ -216,7 +214,6 @@ pub trait Vm {
                 Self::store_state(&this, state)?;
 
                 // Done, return
-                *profile = prof;
                 Ok(res)
             },
             Err(err) => Err(err),

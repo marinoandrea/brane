@@ -4,7 +4,7 @@
 //  Created:
 //    06 Jan 2023, 14:43:35
 //  Last edited:
-//    09 Jan 2023, 13:52:13
+//    15 Jan 2023, 16:10:50
 //  Auto updated?
 //    Yes
 // 
@@ -30,7 +30,6 @@ use tonic::transport::{Channel, Endpoint};
 use tonic::transport::NamedService;
 
 pub use DriverServiceError as Error;
-use crate::profiling::DriverProfile;
 
 
 /***** ERRORS *****/
@@ -103,10 +102,6 @@ pub struct ExecuteReply {
     /// If given, then the workflow has returned a value to use (FullValue encoded as JSON).
     #[prost(tag = "5", optional, string)]
     pub value  : Option<String>,
-
-    /// If given, then the workflow has returned profiling information to show to the user.
-    #[prost(tag = "6", optional, message)]
-    pub profile : Option<DriverProfile>,
 }
 
 
