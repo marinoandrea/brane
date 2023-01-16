@@ -4,7 +4,7 @@
 //  Created:
 //    12 Sep 2022, 16:18:11
 //  Last edited:
-//    15 Jan 2023, 16:24:03
+//    16 Jan 2023, 12:11:22
 //  Auto updated?
 //    Yes
 // 
@@ -27,6 +27,7 @@ use brane_exe::FullValue;
 use brane_prx::client::ProxyClient;
 use brane_tsk::spec::AppId;
 use specifications::driving::{CreateSessionReply, CreateSessionRequest, DriverService, ExecuteReply, ExecuteRequest};
+use specifications::profiling::TimingReport;
 
 use crate::errors::RemoteVmError;
 use crate::planner::InstancePlanner;
@@ -136,6 +137,9 @@ impl DriverService for DriverHandler {
     /// # Errors
     /// This function doesn't typically error.
     async fn create_session(&self, _request: Request<CreateSessionRequest>) -> Result<Response<CreateSessionReply>, Status> {
+        let report = TimingReport::auto_report("brane-drv DriverHandler::create_session", std::io::stdout());
+        let _guard = report.guard("total");
+
         // Create a new VM for this session
         let app_id: AppId = AppId::generate();
         self.sessions.insert(app_id.clone(), InstanceVm::new(&self.node_config_path, app_id.clone(), self.proxy.clone(), self.planner.clone()));
@@ -159,6 +163,9 @@ impl DriverService for DriverHandler {
     /// # Errors
     /// This function may error for any reason a job might fail.
     async fn execute(&self, request: Request<ExecuteRequest>) -> Result<Response<Self::ExecuteStream>, Status> {
+        let report   = TimingReport::auto_report("brane-drv DriverHandler::execute", std::io::stdout());
+        let overhead = report.guard("handle overhead");
+
         let request = request.into_inner();
         debug!("Receiving execute request for session '{}'", request.uuid);
 
@@ -171,15 +178,6 @@ impl DriverService for DriverHandler {
             Err(err)   => { fatal_err!(tx, rx, Status::invalid_argument, err); },
         };
 
-        // // Load the config, making sure it's a central config
-        // let node_config: NodeConfig = match NodeConfig::from_path(&self.node_config_path) {
-        //     Ok(config) => config,
-        //     Err(err)   => {
-        //         error!("Failed to load the NodeConfig: {}", err);
-        //         fatal_err!(tx, rx, Status::internal, "An internal error has occurred.");
-        //     },
-        // };
-
         // Fetch the VM
         let sessions: Arc<DashMap<AppId, InstanceVm>> = self.sessions.clone();
         let vm: InstanceVm = match sessions.get(&app_id) {
@@ -188,7 +186,9 @@ impl DriverService for DriverHandler {
         };
 
         // We're gonna run the rest asynchronous, to allow the client to earlier receive callbacks
+        overhead.stop();
         tokio::spawn(async move {
+            let _guard = report.guard("handle async");
             debug!("Executing workflow for session '{}'", app_id);
     
             // We assume that the input is an already compiled workflow; so no need to fire up any parsers/compilers
@@ -203,18 +203,9 @@ impl DriverService for DriverHandler {
                 },
             };
 
-            // // Spend some time resolving the workflow with the planner
-            // debug!("Planning workflow on Kafka topic '{}'", node_config.node.central().topics.planner_command);
-            // profile.planning.start();
-            // let plan: Workflow = match planner.plan(workflow, &mut profile.planning_details).await {
-            //     Ok(plan) => plan,
-            //     Err(err) => { fatal_err!(tx, Status::internal, err); },
-            // };
-            // profile.planning.stop();
-
             // We now have a runnable plan ( ͡° ͜ʖ ͡°), so run it
             debug!("Executing workflow of {} edges", workflow.graph.len());
-            let (vm, res): (InstanceVm, Result<FullValue, RemoteVmError>) = vm.exec(tx.clone(), workflow).await;
+            let (vm, res): (InstanceVm, Result<FullValue, RemoteVmError>) = report.fut("VM execution", vm.exec(tx.clone(), workflow)).await;
 
             // Insert the VM again
             debug!("Saving state session state");

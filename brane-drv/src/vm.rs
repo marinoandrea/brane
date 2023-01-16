@@ -4,7 +4,7 @@
 //  Created:
 //    27 Oct 2022, 10:14:26
 //  Last edited:
-//    15 Jan 2023, 16:21:45
+//    16 Jan 2023, 12:14:37
 //  Auto updated?
 //    Yes
 // 
@@ -38,6 +38,7 @@ use brane_tsk::errors::{CommitError, ExecuteError, PreprocessError, StdoutError}
 use brane_tsk::spec::{AppId, JobStatus};
 use specifications::data::{AccessKind, PreprocessKind};
 use specifications::driving as driving_grpc;
+use specifications::profiling::TimingReport;
 use specifications::working as working_grpc;
 
 pub use crate::errors::RemoteVmError as Error;
@@ -76,6 +77,10 @@ impl VmPlugin for InstancePlugin {
         info!("Preprocessing {} '{}' on '{}' in a distributed environment...", name.variant(), name.name(), loc);
         debug!("Preprocessing to be done: {:?}", preprocess);
 
+        // Setup profiling
+        let report = TimingReport::auto_report("brane-drv VM preprocess", std::io::stdout());
+        let _guard = report.guard("total");
+
         // Resolve the location to an address (and get the proxy while we have a lock anyway)
         let (proxy, delegate_address): (Arc<ProxyClient>, Address) = {
             // Load the node config file to get the path to...
@@ -106,6 +111,7 @@ impl VmPlugin for InstancePlugin {
         };
 
         // Create the client
+        let job = report.guard(format!("on {}", delegate_address));
         let mut client: working_grpc::JobServiceClient = match proxy.connect_to_job(delegate_address.to_string()).await {
             Ok(result) => match result {
                 Ok(client) => client,
@@ -120,6 +126,7 @@ impl VmPlugin for InstancePlugin {
             Err(err)     => { return Err(PreprocessError::GrpcRequestError{ what: "PreprocessRequest", endpoint: delegate_address, err }); },
         };
         let result: working_grpc::PreprocessReply = response.into_inner();
+        job.stop();
 
         // If it was, attempt to deserialize the accesskind
         let access: AccessKind = match serde_json::from_str(&result.access) {
@@ -140,6 +147,10 @@ impl VmPlugin for InstancePlugin {
         debug!("Result: {:?}", info.result);
         debug!("Input arguments: {:#?}", info.args);
         debug!("Requirements: {:?}", info.requirements);
+
+        // Setup profiling
+        let report = TimingReport::auto_report("brane-drv VM execute", std::io::stdout());
+        let _guard = report.guard("total");
 
         // Resolve the location to an address (and get the proxy and the workflow while we have a lock anyway)
         let (proxy, api_address, delegate_address, workflow): (Arc<ProxyClient>, Address, Address, String) = {
@@ -181,6 +192,7 @@ impl VmPlugin for InstancePlugin {
         };
 
         // Create the client
+        let job = report.guard(format!("on {}", delegate_address));
         let mut client: working_grpc::JobServiceClient = match proxy.connect_to_job(delegate_address.to_string()).await {
             Ok(result) => match result {
                 Ok(client) => client,
@@ -259,6 +271,7 @@ impl VmPlugin for InstancePlugin {
                 },
             }
         }
+        job.stop();
 
         // Now we simply match on the value to see if we got something
         let result: FullValue = match result {
@@ -276,6 +289,10 @@ impl VmPlugin for InstancePlugin {
     async fn stdout(global: &Arc<RwLock<Self::GlobalState>>, _local: &Self::LocalState, text: &str, newline: bool) -> Result<(), Self::StdoutError> {
         info!("Writing '{}' to stdout in a distributed environment...", text);
         debug!("Newline: {}", if newline { "yes" } else { "no" });
+
+        // Setup profiling
+        let report = TimingReport::auto_report("brane-drv VM stdout", std::io::stdout());
+        let _guard = report.guard("total");
 
         // Get the TX (so that the lock does not live over an `.await`)
         let tx: Arc<Sender<Result<driving_grpc::ExecuteReply, Status>>> = {
@@ -305,6 +322,10 @@ impl VmPlugin for InstancePlugin {
         info!("Publicizing intermediate result '{}' living at '{}' in a distributed environment...", name, loc);
         debug!("File: '{}'", path.display());
 
+        // Setup profiling
+        let report = TimingReport::auto_report("brane-drv VM publicize", std::io::stdout());
+        let _guard = report.guard("total");
+
         // There's nothing to do, since the registry and delegate share the same data folder
 
         Ok(())
@@ -313,6 +334,10 @@ impl VmPlugin for InstancePlugin {
     async fn commit(global: &Arc<RwLock<Self::GlobalState>>, _local: &Self::LocalState, loc: &Location, name: &str, path: &Path, data_name: &str) -> Result<(), Self::CommitError> {
         info!("Committing intermediate result '{}' living at '{}' as '{}' in a distributed environment...", name, loc, data_name);
         debug!("File: '{}'", path.display());
+
+        // Setup profiling
+        let report = TimingReport::auto_report("brane-drv VM commit", std::io::stdout());
+        let _guard = report.guard("total");
 
         // We submit a commit request to the job node
 
@@ -345,6 +370,7 @@ impl VmPlugin for InstancePlugin {
         };
 
         // Create the client
+        let job = report.guard(format!("on {}", delegate_address));
         let mut client: working_grpc::JobServiceClient = match proxy.connect_to_job(delegate_address.to_string()).await {
             Ok(result) => match result {
                 Ok(client) => client,
@@ -359,6 +385,7 @@ impl VmPlugin for InstancePlugin {
             Err(err)     => { return Err(CommitError::GrpcRequestError{ what: "CommitRequest", endpoint: delegate_address, err }); },
         };
         let _: working_grpc::CommitReply = response.into_inner();
+        job.stop();
 
         // Done (nothing to return)
         Ok(())
@@ -419,9 +446,12 @@ impl InstanceVm {
     /// # Returns
     /// The result of the workflow, if any. It also returns `self` again for subsequent runs.
     pub async fn exec(self, tx: Sender<Result<driving_grpc::ExecuteReply, Status>>, workflow: Workflow) -> (Self, Result<FullValue, Error>) {
+        let report = TimingReport::auto_report("brane-drv VM", std::io::stdout());
+        let _guard = report.guard("total");
+
         // Step 1: Plan
         debug!("Planning workflow on Kafka planner...");
-        let plan: Workflow = match self.planner.plan(workflow).await {
+        let plan: Workflow = match report.fut("planning", self.planner.plan(workflow)).await {
             Ok(plan) => plan,
             Err(err) => { return (self, Err(Error::PlanError{ err })); },
         };
@@ -440,7 +470,7 @@ impl InstanceVm {
         let this: Arc<RwLock<Self>> = Arc::new(RwLock::new(self));
 
         // Run the VM and get self back
-        let result: Result<FullValue, VmError> = Self::run::<InstancePlugin>(this.clone(), plan).await;
+        let result: Result<FullValue, VmError> = report.fut("execution", Self::run::<InstancePlugin>(this.clone(), plan)).await;
         let this: Self = match Arc::try_unwrap(this) {
             Ok(this) => this.into_inner().unwrap(),
             Err(_)   => { panic!("Could not get self back"); },

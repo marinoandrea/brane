@@ -4,7 +4,7 @@
 //  Created:
 //    25 Oct 2022, 11:35:00
 //  Last edited:
-//    15 Jan 2023, 16:23:34
+//    16 Jan 2023, 11:46:34
 //  Auto updated?
 //    Yes
 // 
@@ -35,6 +35,7 @@ use brane_shr::kafka::{ensure_topics, restore_committed_offsets};
 use brane_tsk::errors::PlanError;
 use brane_tsk::spec::TaskId;
 use specifications::planning::{PlanningStatus, PlanningStatusKind, PlanningUpdate};
+use specifications::profiling::TimingReport;
 
 
 /***** CONSTANTS *****/
@@ -347,6 +348,12 @@ impl InstancePlanner {
     /// # Returns
     /// The same workflow as given, but now with all tasks and data transfers planned.
     pub async fn plan(&self, workflow: Workflow) -> Result<Workflow, PlanError> {
+        let prof = TimingReport::auto_report("brane-drv planning", std::io::stdout());
+
+        // Generate the ID
+        let correlation_id: String = format!("{}", TaskId::generate());
+        let _guard = prof.guard(format!("workflow '{}'", correlation_id));
+
         // Ensure that the to-be-send-on topic exists
         let brokers: String = self.node_config.node.central().services.brokers.iter().map(|a| a.to_string()).collect::<Vec<String>>().join(",");
         if let Err(err) = ensure_topics(vec![ &self.node_config.node.central().topics.planner_command ], &brokers).await { return Err(PlanError::KafkaTopicError { brokers, topics: vec![ self.node_config.node.central().topics.planner_command.clone() ], err }); };
@@ -358,18 +365,19 @@ impl InstancePlanner {
         };
 
         // Populate a "PlanningCommand" with that (i.e., just populate a future record with the string)
-        let correlation_id: String = format!("{}", TaskId::generate());
         let message: FutureRecord<String, [u8]> = FutureRecord::to(&self.node_config.node.central().topics.planner_command)
             .key(&correlation_id)
             .payload(swork.as_bytes());
 
         // Send the message
+        let remote = prof.guard(format!("workflow '{}' on brane-plr", correlation_id));
         if let Err((err, _)) = self.producer.send(message, Timeout::After(Duration::from_secs(5))).await {
             return Err(PlanError::KafkaSendError { correlation_id, topic: self.node_config.node.central().topics.planner_command.clone(), err });
         }
 
         // Now we wait until the message has been planned.
         let plan: Workflow = wait_planned(&correlation_id, self.waker.clone(), self.updates.clone()).await?;
+        remote.stop();
 
         // Done
         Ok(plan)
