@@ -4,7 +4,7 @@
 //  Created:
 //    15 Jan 2023, 16:28:37
 //  Last edited:
-//    15 Jan 2023, 18:14:31
+//    16 Jan 2023, 11:32:28
 //  Auto updated?
 //    Yes
 // 
@@ -13,10 +13,13 @@
 //!   of the framework (and also workflows / tasks, while at it).
 // 
 
-use std::cell::RefCell;
-use std::collections::HashMap;
+use std::cell::{Ref, RefCell, RefMut};
 use std::fmt::{Debug, Display, Formatter, Result as FResult};
+use std::future::Future;
 use std::io::Write;
+use std::marker::PhantomData;
+use std::ops::Deref;
+use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use log::error;
@@ -33,14 +36,53 @@ use serde::{Deserialize, Serialize};
 /// 
 /// # Errors
 /// This function errors if we failed to write to the given writer.
-fn write_report(mut writer: impl Write, name: impl AsRef<str>, timings: &HashMap<String, RefCell<Timing>>) -> Result<(), std::io::Error> {
-    writeln!(&mut writer, "Timing report '{}':", name.as_ref())?;
-    for (what, timing) in timings {
-        writeln!(&mut writer, "  - Timing results for {}: {}", what, timing.borrow().display())?;
+fn write_report(writer: &mut impl Write, name: impl AsRef<str>, timings: Ref<Vec<ReportedTiming>>, indent: usize) -> Result<(), std::io::Error> {
+    writeln!(writer, "Timing report '{}':", name.as_ref())?;
+    for timing in timings.iter() {
+        // Match on the kind
+        match timing {
+            ReportedTiming::Timing(what, timing) => { writeln!(writer, "{}  - Timing results for {}: {}", (0..indent).map(|_| ' ').collect::<String>(), what, timing.borrow().display())?; },
+            ReportedTiming::Report(report)       => { write!(writer, "{}  - ", (0..indent).map(|_| ' ').collect::<String>())?; write_report(writer, &report.name, report.timings.borrow(), indent + 4)?; },
+        }
     }
 
     // Done
     Ok(())
+}
+
+
+
+
+
+/***** HELPERS *****/
+/// Wraps around either a Timing or a TimingReport.
+#[derive(Debug, Deserialize, Serialize)]
+enum ReportedTiming<'r> {
+    /// It's a naked timing
+    Timing(String, Rc<RefCell<Timing>>),
+    /// It's a nested report
+    Report(Rc<TimingReport<'r>>),
+}
+impl<'r> ReportedTiming<'r> {
+    /// Returns a reference to the internal Timing _if_ this was a `ReportedTiming::Timing`.
+    /// 
+    /// # Returns
+    /// A reference to the internal `RefCell<Timing>`.
+    /// 
+    /// # Panics
+    /// This function panics if we were not, in fact, a `ReportedTiming::Timing`.
+    #[inline]
+    fn timing(&self) -> &Rc<RefCell<Timing>> { if let Self::Timing(_, timing) = self { timing } else { panic!("Cannot unwrap a ReportedTiming::Report as a ReportedTiming::Timing"); } }
+
+    /// Returns a reference to the internal report _if_ this was a `ReportedTiming::Report`.
+    /// 
+    /// # Returns
+    /// A reference to the internal `TimingReport`.
+    /// 
+    /// # Panics
+    /// This function panics if we were not, in fact, a `ReportedTiming::Report`.
+    #[inline]
+    fn report(&self) -> &Rc<TimingReport<'r>> { if let Self::Report(report) = self { report } else { panic!("Cannot unwrap a ReportedTiming::Timing as a ReportedTiming::Report"); } }
 }
 
 
@@ -68,7 +110,10 @@ pub struct TimingGuard<'t> {
     /// The start time of the guard.
     start  : Instant,
     /// The timing that we want to populate, eventually.
-    timing : &'t RefCell<Timing>,
+    timing : Rc<RefCell<Timing>>,
+
+    /// Fake reference to the parent for better lifetime helpings.
+    _parent : PhantomData<&'t ()>,
 }
 impl<'t> TimingGuard<'t> {
     /// Consumes this TimingGuard to return the time early.
@@ -80,6 +125,20 @@ impl<'t> Drop for TimingGuard<'t> {
         // Update the time it took us in the internal timing
         *self.timing.borrow_mut() = self.start.elapsed().into();
     }
+}
+
+/// Defines the ReportGuard, which takes a nested report for easy modification.
+#[derive(Clone, Debug)]
+pub struct ReportGuard<'w, 'r> {
+    /// The report that we want to populate.
+    report  : Rc<TimingReport<'w>>,
+    /// Fake reference to the parent for better lifetime helpings.
+    _parent : PhantomData<&'r ()>,
+}
+impl<'w, 'r> Deref for ReportGuard<'w, 'r> {
+    type Target = TimingReport<'w>;
+
+    fn deref(&self) -> &Self::Target { &self.report }
 }
 
 
@@ -182,7 +241,7 @@ pub struct TimingReport<'w> {
     /// The name of the report.
     name    : String,
     /// The timings hidden within this report, together with their description.
-    timings : HashMap<String, RefCell<Timing>>,
+    timings : RefCell<Vec<ReportedTiming<'w>>>,
 }
 
 impl<'w> TimingReport<'w> {
@@ -199,7 +258,7 @@ impl<'w> TimingReport<'w> {
             auto_report : None,
 
             name    : name.into(),
-            timings : HashMap::new(),
+            timings : RefCell::new(Vec::new()),
         }
     }
 
@@ -217,7 +276,7 @@ impl<'w> TimingReport<'w> {
             auto_report : Some(Box::new(writer)),
 
             name    : name.into(),
-            timings : HashMap::new(),
+            timings : RefCell::new(Vec::new()),
         }
     }
 
@@ -231,9 +290,10 @@ impl<'w> TimingReport<'w> {
     /// - `what`: Some description of the Timing we are reporting. Should fill in the blank in `Timing results for ...`.
     /// - `timing`: The Timing to register.
     #[inline]
-    pub fn add(&mut self, what: impl Into<String>, timing: impl Into<Timing>) {
-        if self.timings.capacity() == self.timings.len() { self.timings.reserve(self.timings.len()); }
-        self.timings.insert(what.into(), RefCell::new(timing.into()));
+    pub fn add(&self, what: impl Into<String>, timing: impl Into<Timing>) {
+        let mut timings: RefMut<Vec<ReportedTiming>> = self.timings.borrow_mut();
+        if timings.capacity() == timings.len() { let extra: usize = timings.len(); timings.reserve(extra); }
+        timings.push(ReportedTiming::Timing(what.into(), Rc::new(RefCell::new(timing.into()))));
     }
 
     /// Start recording a timing in this report, returning a TimingGuard that can be used to stop it.
@@ -245,13 +305,19 @@ impl<'w> TimingReport<'w> {
     /// 
     /// # Returns
     /// A TimingGuard instance that can be used to finalize the timing.
-    #[inline]
-    pub fn guard(&mut self, what: impl Into<String>) -> TimingGuard {
-        // Return that timing to be populated by the TimingGuard.
-        if self.timings.capacity() == self.timings.len() { self.timings.reserve(self.timings.len()); }
+    pub fn guard(&self, what: impl Into<String>) -> TimingGuard {
+        // Insert the new timing
+        let mut timings: RefMut<Vec<ReportedTiming>> = self.timings.borrow_mut();
+        if timings.capacity() == timings.len() { let extra: usize = timings.len(); timings.reserve(extra); }
+        timings.push(ReportedTiming::Timing(what.into(), Rc::new(RefCell::new(Timing::none()))));
+
+        // Return the guard for that timing
+        let timings_len: usize = timings.len();
         TimingGuard {
             start  : Instant::now(),
-            timing : self.timings.entry(what.into()).or_insert(RefCell::new(Timing::none()))
+            timing : timings[timings_len - 1].timing().clone(),
+
+            _parent : PhantomData::default(),
         }
     }
 
@@ -264,22 +330,75 @@ impl<'w> TimingReport<'w> {
     /// # Returns
     /// The result of the function we've profiled.
     #[inline]
-    pub fn func<R>(&mut self, what: impl Into<String>, func: impl FnOnce() -> R) -> R {
+    pub fn func<R>(&self, what: impl Into<String>, func: impl FnOnce() -> R) -> R {
         // Profile the function
         let start   : Instant = Instant::now();
         let res     : R       = func();
         let elapsed : Timing  = start.elapsed().into();
 
         // Insert the timing and return the result
-        self.timings.insert(what.into(), RefCell::new(elapsed));
+        let mut timings: RefMut<Vec<ReportedTiming>> = self.timings.borrow_mut();
+        if timings.capacity() == timings.len() { let extra: usize = timings.len(); timings.reserve(extra); }
+        timings.push(ReportedTiming::Timing(what.into(), Rc::new(RefCell::new(elapsed))));
         res
+    }
+    /// Adds the time the given future takes to the report.
+    /// 
+    /// # Arguments
+    /// - `what`: Some description of the Timing we are reporting. Should fill in the blank in `Timing results for ...`.
+    /// - `func`: The Future to profile.
+    /// 
+    /// # Returns
+    /// The result of the function we've profiled.
+    #[inline]
+    pub async fn fut<R>(&self, what: impl Into<String>, func: impl Future<Output = R>) -> R {
+        // Profile the function
+        let start   : Instant = Instant::now();
+        let res     : R       = func.await;
+        let elapsed : Timing  = start.elapsed().into();
+
+        // Insert the timing and return the result
+        let mut timings: RefMut<Vec<ReportedTiming>> = self.timings.borrow_mut();
+        if timings.capacity() == timings.len() { let extra: usize = timings.len(); timings.reserve(extra); }
+        timings.push(ReportedTiming::Timing(what.into(), Rc::new(RefCell::new(elapsed))));
+        res
+    }
+
+
+
+    /// Creates a nested TimingReport, then returns a reference to it such that we may find what we are looking for.
+    /// 
+    /// The nested report will have auto_reported set to `None`, but will still be written when this parent auto-reports (if set to do so).
+    /// 
+    /// # Arguments
+    /// - `name`: The name of the new TimingReport.
+    /// 
+    /// # Returns
+    /// A mutable reference to the new report so that it can be altered immediately.
+    pub fn nested_report<'s>(&'s self, name: impl Into<String>) -> ReportGuard<'w, 's> {
+        // Create the report
+        let mut timings: RefMut<Vec<ReportedTiming>> = self.timings.borrow_mut();
+        if timings.capacity() == timings.len() { let extra: usize = timings.len(); timings.reserve(extra); }
+        timings.push(ReportedTiming::Report(Rc::new(TimingReport {
+            auto_report : None,
+
+            name    : name.into(),
+            timings : RefCell::new(vec![]),
+        })));
+
+        // Return the reference
+        let timings_len: usize = timings.len();
+        ReportGuard {
+            report  : timings[timings_len - 1].report().clone(),
+            _parent : PhantomData::default(),
+        }
     }
 }
 impl<'w> Drop for TimingReport<'w> {
     fn drop(&mut self) {
         // If we automatically report, do so
         if let Some(writer) = &mut self.auto_report {
-            if let Err(err) = write_report(writer, &self.name, &self.timings) { error!("Failed to automatically report TimingReport '{}': {}", self.name, err); }
+            if let Err(err) = write_report(writer, &self.name, self.timings.borrow(), 0) { error!("Failed to automatically report TimingReport '{}': {}", self.name, err); }
         }
     }
 }
@@ -303,4 +422,9 @@ impl<'w> Debug for TimingReport<'w> {
         // Done
         Ok(())
     }
+}
+
+impl<'w> AsRef<TimingReport<'w>> for TimingReport<'w> {
+    #[inline]
+    fn as_ref(&self) -> &Self { self }
 }
