@@ -4,7 +4,7 @@
 //  Created:
 //    31 Aug 2022, 11:32:04
 //  Last edited:
-//    23 Dec 2022, 16:35:59
+//    17 Jan 2023, 15:44:53
 //  Auto updated?
 //    Yes
 // 
@@ -116,8 +116,9 @@ fn compile_func_def(index: usize, args: Vec<Rc<RefCell<VarEntry>>>, code: dsl::B
 
     // Note, important: first write the arguments on the stack to its respective variables (we go back-to-front)
     for a in args.into_iter().rev() {
+        let def: usize = a.borrow().index;
         func_edges.write(ast::Edge::Linear {
-            instrs : vec![ ast::EdgeInstr::VarSet { def: a.borrow().index } ],
+            instrs : vec![ ast::EdgeInstr::VarDec{ def }, ast::EdgeInstr::VarSet { def } ],
             next   : usize::MAX,
         });
     }
@@ -442,7 +443,7 @@ fn pass_stmt(stmt: dsl::Stmt, edges: &mut EdgeBuffer, f_edges: &mut HashMap<usiz
 
                 // Write the edge setting its value
                 edges.write(ast::Edge::Linear {
-                    instrs : vec![ ast::EdgeInstr::VarSet { def: index } ],
+                    instrs : vec![ ast::EdgeInstr::VarDec{ def: index }, ast::EdgeInstr::VarSet { def: index } ],
                     next   : usize::MAX,
                 });
             }
@@ -450,13 +451,26 @@ fn pass_stmt(stmt: dsl::Stmt, edges: &mut EdgeBuffer, f_edges: &mut HashMap<usiz
 
         // Run let assigns as assigns, since the actual variable creation and removal is done at runtime
         LetAssign{ value, st_entry, .. } => {
-            // Prepare the stack by writing the expression
-            pass_expr(value, edges, table);
-            // Write the instruction
+            let def: usize = st_entry.unwrap().borrow().index;
+
+            // We always write a declare instruction first
             edges.write(ast::Edge::Linear {
-                instrs : vec![ ast::EdgeInstr::VarSet { def: st_entry.unwrap().borrow().index } ],
+                instrs : vec![ ast::EdgeInstr::VarDec { def } ],
                 next   : usize::MAX,
             });
+
+            // If there is a non-null value, write a set immediately after
+            if let dsl::Expr::Literal{ literal: dsl::Literal::Null{ .. } } = value {
+                /* Do nothing */
+            } else {
+                // Prepare the stack by writing the expression
+                pass_expr(value, edges, table);
+                // Write the instruction
+                edges.write(ast::Edge::Linear {
+                    instrs : vec![ ast::EdgeInstr::VarSet { def } ],
+                    next   : usize::MAX,
+                });
+            }
         },
         Assign{ value, st_entry, .. } => {
             // Prepare the stack by writing the expression
@@ -727,10 +741,7 @@ fn pass_expr(expr: dsl::Expr, edges: &mut EdgeBuffer, _table: &TableState) {
         Literal{ literal, .. } => {
             // Match the literal itself
             match literal {
-                dsl::Literal::Null { .. } => edges.write(ast::Edge::Linear {
-                    instrs : vec![ ast::EdgeInstr::Null{} ],
-                    next   : usize::MAX,
-                }),
+                dsl::Literal::Null { .. } => panic!("A Literal::Null should not be compiled directly"),
                 dsl::Literal::Boolean { value, .. } => edges.write(ast::Edge::Linear {
                     instrs : vec![ ast::EdgeInstr::Boolean{ value } ],
                     next   : usize::MAX,

@@ -4,7 +4,7 @@
 //  Created:
 //    30 Aug 2022, 11:55:49
 //  Last edited:
-//    10 Jan 2023, 13:29:30
+//    17 Jan 2023, 15:30:28
 //  Auto updated?
 //    Yes
 // 
@@ -777,6 +777,15 @@ pub enum EdgeInstr {
         field : String,
     },
 
+    /// Declares the given variable in the framestack.
+    /// 
+    /// It is a bit of an artificial instruction, mainly used to keep track of initialization status at runtime.
+    #[serde(rename = "vrd")]
+    VarDec {
+        /// The identifier of the variable to declare.
+        #[serde(rename = "d")]
+        def : usize,
+    },
     /// Puts the value of the given variable on top of the stack.
     /// 
     /// # Stack layout
@@ -796,9 +805,6 @@ pub enum EdgeInstr {
     },
 
     // Literals
-    /// Pushes an "uninitialized value" onto the stack.
-    #[serde(rename = "nul")]
-    Null {},
     /// Pushes a boolean value onto the stack.
     #[serde(rename = "bol")]
     Boolean {
@@ -873,10 +879,10 @@ impl Display for EdgeInstr {
             Instance{ .. }   => write!(f, ".inst"),
             Proj{ .. }       => write!(f, ".proj"),
 
+            VarDec { .. } => write!(f, ".dec"),
             VarGet { .. } => write!(f, ".get"),
             VarSet { .. } => write!(f, ".set"),
 
-            Null{ .. }     => write!(f, ".null"),
             Boolean{ .. }  => write!(f, ".bool"),
             Integer{ .. }  => write!(f, ".int"),
             Real{ .. }     => write!(f, ".real"),

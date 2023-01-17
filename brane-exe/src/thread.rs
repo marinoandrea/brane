@@ -4,7 +4,7 @@
 //  Created:
 //    09 Sep 2022, 13:23:41
 //  Last edited:
-//    15 Jan 2023, 16:19:25
+//    17 Jan 2023, 15:29:29
 //  Auto updated?
 //    Yes
 // 
@@ -805,6 +805,11 @@ fn exec_instr(edge: usize, idx: usize, instr: &EdgeInstr, stack: &mut Stack, fst
             1
         },
 
+        VarDec{ def } => {
+            // Simply declare it
+            if let Err(err) = fstack.declare(*def) { return Err(Error::VarDecError{ edge, instr: idx, err }); }
+            1
+        },
         VarGet{ def } => {
             // Attempt to get the value from the variable register
             let value: Value = match fstack.get(*def) {
@@ -828,11 +833,6 @@ fn exec_instr(edge: usize, idx: usize, instr: &EdgeInstr, stack: &mut Stack, fst
             1
         },
 
-        Null{} => {
-            // Push a null
-            stack.push(Value::Null).to_instr(edge, idx)?;
-            1
-        },
         Boolean{ value } => {
             // Push a boolean with the given value
             stack.push(Value::Boolean { value: *value }).to_instr(edge, idx)?;
@@ -1099,7 +1099,7 @@ impl<G: CustomGlobalState, L: CustomLocalState> Thread<G, L> {
                         };
 
                         // If the function returns an intermediate result but returned nothing, that's fine; we inject the result here
-                        if function.ret == DataType::IntermediateResult && (res.is_none() || res.as_ref().unwrap() == &Value::Null || res.as_ref().unwrap() == &Value::Void) {
+                        if function.ret == DataType::IntermediateResult && (res.is_none() || res.as_ref().unwrap() == &Value::Void) {
                             // Make the intermediate result available for next steps by possible pushing it to the next registry
                             let name: &str = result.as_ref().unwrap();
                             if let Err(err) = P::publicize(&self.global, &self.local, at, name, &PathBuf::from(name)).await {
