@@ -21,6 +21,7 @@ console = "0.15"
 cwl = { git = "https://github.com/onnovalkering/cwl-rs" }
 dialoguer = "0.10"
 dotenvy = "0.15"
+enum-debug = { git = "https://github.com/Lut99/enum-debug", features = ["derive"] }
 env_logger = "0.10"
 file-lock = "2.1.6"
 filetime = "0.2.15"

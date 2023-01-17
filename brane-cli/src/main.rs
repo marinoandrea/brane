@@ -4,7 +4,7 @@
 //  Created:
 //    21 Sep 2022, 14:34:28
 //  Last edited:
-//    12 Dec 2022, 13:24:27
+//    06 Jan 2023, 13:12:48
 //  Auto updated?
 //    Yes
 // 
@@ -163,6 +163,9 @@ enum SubCommand {
         bakery: bool,
         #[clap(short, long, action, help = "Clear history before session")]
         clear: bool,
+
+        #[clap(long, help = "If given, shows profile times if they are available.")]
+        profile : bool,
     },
 
     #[clap(name = "run", about = "Run a DSL script locally")]
@@ -179,6 +182,9 @@ enum SubCommand {
         file: PathBuf,
         #[clap(short, long, value_names = &["address[:port]"], help = "Create a remote REPL session")]
         remote: Option<String>,
+
+        #[clap(long, help = "If given, shows profile times if they are available.")]
+        profile : bool,
     },
 
     #[clap(name = "test", about = "Test a package locally")]
@@ -542,11 +548,11 @@ async fn run(options: Cli) -> Result<(), CliError> {
             // Now delegate the parsed pairs to the actual remove() function
             if let Err(err) = packages::remove(force, parsed).await { return Err(CliError::PackageError{ err }); };
         }
-        Repl { certs_dir, proxy_addr, bakery, clear, remote, attach } => {
-            if let Err(err) = repl::start(certs_dir, proxy_addr, remote, attach, if bakery { Language::Bakery } else { Language::BraneScript }, clear).await { return Err(CliError::ReplError{ err }); };
+        Repl { certs_dir, proxy_addr, bakery, clear, remote, attach, profile } => {
+            if let Err(err) = repl::start(certs_dir, proxy_addr, remote, attach, if bakery { Language::Bakery } else { Language::BraneScript }, clear, profile).await { return Err(CliError::ReplError{ err }); };
         }
-        Run { certs_dir, proxy_addr, bakery, file, remote } => {
-            if let Err(err) = run::handle(certs_dir, proxy_addr, if bakery { Language::Bakery } else { Language::BraneScript }, file, remote).await { return Err(CliError::RunError{ err }); };
+        Run { certs_dir, proxy_addr, bakery, file, remote, profile } => {
+            if let Err(err) = run::handle(certs_dir, proxy_addr, if bakery { Language::Bakery } else { Language::BraneScript }, file, remote, profile).await { return Err(CliError::RunError{ err }); };
         }
         Test { name, version, show_result } => {
             if let Err(err) = test::handle(name, version, show_result).await { return Err(CliError::TestError{ err }); };
