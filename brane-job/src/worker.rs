@@ -4,7 +4,7 @@
 //  Created:
 //    31 Oct 2022, 11:21:14
 //  Last edited:
-//    16 Jan 2023, 12:32:26
+//    18 Jan 2023, 10:24:00
 //  Auto updated?
 //    Yes
 // 
@@ -1068,7 +1068,7 @@ impl JobService for WorkerServer {
             Some(name) => name.into(),
             None       => {
                 debug!("Incoming request has invalid data name (dropping it)");
-                return Err(Status::invalid_argument(format!("Unknown data name")));
+                return Err(Status::invalid_argument("Unknown data name"));
             }
         };
 
@@ -1111,7 +1111,7 @@ impl JobService for WorkerServer {
 
             None => {
                 debug!("Incoming request has invalid preprocess kind (dropping it)");
-                Err(Status::invalid_argument(format!("Unknown preprocesskind")))
+                Err(Status::invalid_argument("Unknown preprocesskind"))
             },
         }
     }

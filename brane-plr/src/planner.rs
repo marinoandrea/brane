@@ -4,7 +4,7 @@
 //  Created:
 //    25 Oct 2022, 11:35:00
 //  Last edited:
-//    16 Jan 2023, 11:55:16
+//    18 Jan 2023, 10:23:17
 //  Auto updated?
 //    Yes
 // 
@@ -662,7 +662,7 @@ pub async fn planner_server(node_config_path: impl Into<PathBuf>, node_config: N
                         // Iterate through all of the edges
                         for (idx, edges) in &mut funcs {
                             debug!("Planning '{}' edges...", table.funcs[*idx].name);
-                            if let Err(err) = report.fut(format!("{}", workflow.table.funcs[*idx].name), plan_edges(&mut table, edges, &central.services.api, &dindex, &infra, 0, None, false, &mut HashSet::new())).await {
+                            if let Err(err) = report.fut(workflow.table.funcs[*idx].name.to_string(), plan_edges(&mut table, edges, &central.services.api, &dindex, &infra, 0, None, false, &mut HashSet::new())).await {
                                 error!("Failed to plan function '{}' edges for workflow with correlation ID '{}': {}", table.funcs[*idx].name, id, err);
                                 if let Err(err) = send_update(producer.clone(), &central.topics.planner_results, &id, PlanningStatus::Error(format!("{}", err))).await { error!("Failed to update client that planning has failed: {}", err); }
                                 return Ok(());
