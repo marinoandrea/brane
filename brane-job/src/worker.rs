@@ -4,7 +4,7 @@
 //  Created:
 //    31 Oct 2022, 11:21:14
 //  Last edited:
-//    18 Jan 2023, 10:24:00
+//    18 Jan 2023, 17:35:52
 //  Auto updated?
 //    Yes
 // 
@@ -493,15 +493,26 @@ async fn download_container(node_config: &NodeConfig, proxy: Arc<ProxyClient>, e
 
     // Check if we have already downloaded it, by any chance
     let cache = report.guard("cache checking");
-    let image_path : PathBuf = node_config.paths.packages.join(format!("{}-{}.tar", image.name, image.version.as_ref().unwrap_or(&"latest".into())));
-    let hash_path  : PathBuf = node_config.paths.packages.join(format!("{}-{}.sha256", image.name, image.version.as_ref().unwrap_or(&"latest".into())));
+    let image_path  : PathBuf = node_config.paths.packages.join(format!("{}-{}.tar", image.name, image.version.as_ref().unwrap_or(&"latest".into())));
+    let digest_path : PathBuf = node_config.paths.packages.join(format!("{}-{}-id.sha256", image.name, image.version.as_ref().unwrap_or(&"latest".into())));
+    let hash_path   : PathBuf = node_config.paths.packages.join(format!("{}-{}-hash.sha256", image.name, image.version.as_ref().unwrap_or(&"latest".into())));
     if image_path.exists() {
         debug!("Image file '{}' already exists; checking if it's up-to-date...", image_path.display());
 
         // Get the digest of the local image
-        let image_digest: String = match docker::get_digest(&image_path).await {
-            Ok(digest) => digest,
-            Err(err)   => { return Err(ExecuteError::DigestError{ path: image_path, err }); },
+        debug!("Seeing if image is up-to-date...");
+        let image_digest: String = if digest_path.exists() {
+            debug!("Loading cached digest...");
+            match tfs::read_to_string(&digest_path).await {
+                Ok(digest) => digest,
+                Err(err)   => { return Err(ExecuteError::DigestReadError{ path: digest_path, err }); },
+            }
+        } else {
+            debug!("Retrieving digest from image file...");
+            match docker::get_digest(&image_path).await {
+                Ok(digest) => digest,
+                Err(err)   => { return Err(ExecuteError::DigestError{ path: image_path, err }); },
+            }
         };
 
         // Compare the digests if they've given us one as well

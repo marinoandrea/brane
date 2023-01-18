@@ -4,7 +4,7 @@
 //  Created:
 //    24 Oct 2022, 15:27:26
 //  Last edited:
-//    09 Jan 2023, 13:56:09
+//    18 Jan 2023, 17:34:26
 //  Auto updated?
 //    Yes
 // 
@@ -331,6 +331,8 @@ pub enum ExecuteError {
     ExecuteError{ endpoint: Address, name: String, status: TaskStatus, err: String },
 
     // Instance-only (worker side)
+    /// Failed to load the digest cache file
+    DigestReadError{ path: PathBuf, err: std::io::Error },
     /// Failed to fetch the digest of an already existing image.
     DigestError{ path: PathBuf, err: DockerError },
     /// Failed to create a reqwest proxy object.
@@ -394,6 +396,7 @@ impl Display for ExecuteError {
             GrpcRequestError{ what, endpoint, err }     => write!(f, "Failed to send {} request to delegate node '{}': {}", what, endpoint, err),
             ExecuteError{ endpoint, name, status, err } => write!(f, "Remote delegate '{}' returned status '{:?}' while executing task '{}': {}", endpoint, status, name, err),
 
+            DigestReadError{ path, err }                     => write!(f, "Failed to read cached digest in '{}': {}", path.display(), err),
             DigestError{ path, err }                         => write!(f, "Failed to read digest of image '{}': {}", path.display(), err),
             ProxyCreateError{ address, err }                 => write!(f, "Failed to create proxy to '{}': {}", address, err),
             ClientCreateError{ err }                         => write!(f, "Failed to create HTTP-client: {}", err),

@@ -4,7 +4,7 @@
 //  Created:
 //    18 Oct 2022, 13:50:11
 //  Last edited:
-//    05 Jan 2023, 15:06:44
+//    18 Jan 2023, 17:27:16
 //  Auto updated?
 //    Yes
 // 
@@ -73,9 +73,11 @@ pub enum Credentials {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct BackendFile {
     /// The capabilities advertised by this domain.
-    pub capabilities : Option<HashSet<Capability>>,
+    pub capabilities    : Option<HashSet<Capability>>,
+    /// Can be specified to disable container hash checking.
+    pub hash_containers : Option<bool>,
     /// The method of connecting
-    pub method       : Credentials,
+    pub method          : Credentials,
 }
 
 impl BackendFile {
