@@ -4,7 +4,7 @@
 //  Created:
 //    12 Sep 2022, 10:45:50
 //  Last edited:
-//    17 Jan 2023, 15:27:26
+//    19 Jan 2023, 15:25:16
 //  Auto updated?
 //    Yes
 // 
@@ -178,7 +178,7 @@ impl FrameStack {
                     DataType::Any
                 };
 
-                // Pop the thing from the thing and return
+                // Return the next pointer after having popped the scope
                 self.table.pop();
                 Ok((frame.ret, ret_type))
             },

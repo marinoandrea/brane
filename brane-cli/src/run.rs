@@ -4,7 +4,7 @@
 //  Created:
 //    12 Sep 2022, 16:42:57
 //  Last edited:
-//    15 Jan 2023, 16:25:12
+//    19 Jan 2023, 14:04:09
 //  Auto updated?
 //    Yes
 // 
@@ -24,9 +24,9 @@ use tempfile::{tempdir, TempDir};
 
 use brane_ast::{compile_snippet, CompileResult, ParserOptions, Workflow};
 use brane_ast::state::CompileState;
-// use brane_cfg::certs::{load_cert, load_keypair};
 use brane_dsl::Language;
 use brane_exe::FullValue;
+use brane_exe::dummy::{DummyVm, Error as DummyVmError};
 use brane_tsk::spec::{LOCALHOST, AppId};
 use specifications::data::{AccessKind, DataIndex, DataInfo};
 use specifications::driving::{CreateSessionRequest, DriverServiceClient, ExecuteRequest};
@@ -270,6 +270,24 @@ fn compile(state: &mut CompileState, source: &mut String, pindex: &PackageIndex,
 
 
 /***** AUXILLARY *****/
+/// A helper struct that contains what we need to know about a compiler + VM state for the dummy use-case.
+pub struct DummyVmState {
+    /// The package index for this session.
+    pub pindex : Arc<PackageIndex>,
+    /// The data index for this session.
+    pub dindex : Arc<DataIndex>,
+
+    /// The state of the compiler.
+    pub state   : CompileState,
+    /// The associated source string, which we use for debugging.
+    pub source  : String,
+    /// Any compiler options we apply.
+    pub options : ParserOptions,
+
+    /// The state of the VM, i.e., the VM. This is wrapped in an 'Option' so we can easily take it if the DummyVmState is only mutably borrowed.
+    pub vm : Option<DummyVm>,
+}
+
 /// A helper struct that contains what we need to know about a compiler + VM state for the offline use-case.
 pub struct OfflineVmState {
     /// The temporary directory where we store results.
@@ -311,6 +329,64 @@ pub struct InstanceVmState {
 }
 
 
+
+/// Function that prepares a local, offline virtual machine that never runs any jobs.
+/// 
+/// It does read the local index to determine if packages are legal.
+/// 
+/// # Arguments
+/// - `options`: The ParserOptions that describe how to parse the given source.
+/// 
+/// # Returns
+/// The newly created virtual machine together with associated states as a DummyVmState.
+/// 
+/// # Errors
+/// This function errors if we failed to get the new package indices or other information.
+pub fn initialize_dummy_vm(options: ParserOptions) -> Result<DummyVmState, Error> {
+    // Get the directory with the packages
+    let packages_dir = match ensure_packages_dir(false) {
+        Ok(dir)  => dir,
+        Err(err) => { return Err(Error::PackagesDirError{ err }); }
+    };
+    // Get the directory with the datasets
+    let datasets_dir = match ensure_datasets_dir(false) {
+        Ok(dir)  => dir,
+        Err(err) => { return Err(Error::DatasetsDirError{ err }); }
+    };
+
+    // Get the package index for the local repository
+    let package_index: Arc<PackageIndex> = match brane_tsk::local::get_package_index(packages_dir) {
+        Ok(index) => Arc::new(index),
+        Err(err)  => { return Err(Error::LocalPackageIndexError{ err }); }
+    };
+    // Get the data index for the local repository
+    let data_index: Arc<DataIndex> = match brane_tsk::local::get_data_index(datasets_dir) {
+        Ok(index) => Arc::new(index),
+        Err(err)  => { return Err(Error::LocalDataIndexError{ err }); }
+    };
+
+    // // Get the local package & dataset directories
+    // let packages_dir: PathBuf = match get_packages_dir() {
+    //     Ok(dir)  => dir,
+    //     Err(err) => { return Err(Error::PackagesDirError{ err }); },
+    // };
+    // let datasets_dir: PathBuf = match get_datasets_dir() {
+    //     Ok(dir)  => dir,
+    //     Err(err) => { return Err(Error::DatasetsDirError{ err }); },
+    // };
+
+    // Prepare some states & options used across loops and return them
+    Ok(DummyVmState {
+        pindex      : package_index,
+        dindex      : data_index,
+
+        state  : CompileState::new(),
+        source : String::new(),
+        options,
+
+        vm : Some(DummyVm::new()),
+    })
+}
 
 /// Function that prepares a local, offline virtual machine by initializing the proper indices and whatnot.
 /// 
@@ -454,6 +530,41 @@ pub async fn initialize_instance_vm(endpoint: impl AsRef<str>, attach: Option<Ap
 
 
 
+/// Function that executes the given workflow snippet to completion on the dummy machine, returning the result it returns.
+/// 
+/// # Arguments
+/// - `state`: The DummyVmState that we use to run the dummy VM.
+/// - `what`: The thing we're running. Either a filename, or something like '<stdin>'.
+/// - `snippet`: The snippet (as raw text) to compile and run.
+/// 
+/// # Returns
+/// The FullValue that the workflow returned, if any. If there was no value, returns FullValue::Void instead.
+/// 
+/// # Errors
+/// This function errors if we failed to compile or run the workflow somehow.
+pub async fn run_dummy_vm(state: &mut DummyVmState, what: impl AsRef<str>, snippet: impl AsRef<str>) -> Result<FullValue, Error> {
+    let what: &str     = what.as_ref();
+    let snippet: &str  = snippet.as_ref();
+
+    // Compile the workflow
+    let workflow: Workflow = compile(&mut state.state, &mut state.source, &state.pindex, &state.dindex, &state.options, what, snippet)?;
+
+    // Run it in the local VM (which is a bit ugly do to the need to consume the VM itself)
+    let res: (DummyVm, Result<FullValue, DummyVmError>) = state.vm.take().unwrap().exec(workflow).await;
+    state.vm = Some(res.0);
+    let res: FullValue = match res.1 {
+        Ok(res)  => res,
+        Err(err) => {
+            error!("{}", err);
+            state.state.offset += 1 + snippet.chars().filter(|c| *c == '\n').count();
+            return Err(Error::ExecError{ err: Box::new(err) });
+        }
+    };
+
+    // Done
+    Ok(res)
+}
+
 /// Function that executes the given workflow snippet to completion on the local machine, returning the result it returns.
 /// 
 /// # Arguments
@@ -481,7 +592,7 @@ pub async fn run_offline_vm(state: &mut OfflineVmState, what: impl AsRef<str>, s
         Err(err) => {
             error!("{}", err);
             state.state.offset += 1 + snippet.chars().filter(|c| *c == '\n').count();
-            return Err(Error::ExecError{ err });
+            return Err(Error::ExecError{ err: Box::new(err) });
         }
     };
 
@@ -595,6 +706,38 @@ pub async fn run_instance_vm(endpoint: impl AsRef<str>, state: &mut InstanceVmSt
 }
 
 
+
+/// Processes the given result of a dummy workflow execution.
+/// 
+/// # Arguments
+/// - `result`: The value to process.
+/// 
+/// # Returns
+/// Nothing, but does print any result to stdout.
+pub fn process_dummy_result(result: FullValue) {
+    // We only print
+    if result != FullValue::Void {
+        println!("\nWorkflow returned value {}", style(format!("'{}'", result)).bold().cyan());
+
+        // Treat some values special
+        match result {
+            // Print sommat additional if it's an intermediate result.
+            FullValue::IntermediateResult(_) => {
+                println!("(Intermediate results are not available; promote it using 'commit_result()')");
+            },
+
+            // If it's a dataset, attempt to download it
+            FullValue::Data(_) => {
+                println!("(Datasets are not committed; run the workflow without '--dummy' to actually create it)");
+            },
+
+            // Nothing for the rest
+            _ => {},
+        }
+    }
+
+    // DOne
+}
 
 /// Processes the given result of an offline workflow execution.
 /// 
@@ -742,6 +885,7 @@ pub async fn process_instance_result(certs_dir: impl AsRef<Path>, proxy_addr: &O
 /// # Arguments
 /// - `certs_dir`: The directory with certificates proving our identity.
 /// - `proxy_addr`: The address to proxy any data transfers through if they occur.
+/// - `dummy`: If given, uses a Dummy VM as backend instead of actually running any jobs.
 /// - `remote`: Whether to (and what) remote Brane instance to run the file on instead.
 /// - `language`: The language with which to compile the file.
 /// - `file`: The file to read and run. Can also be '-', in which case it is read from stdin instead.
@@ -749,7 +893,7 @@ pub async fn process_instance_result(certs_dir: impl AsRef<Path>, proxy_addr: &O
 /// 
 /// # Returns
 /// Nothing, but does print results and such to stdout. Might also produce new datasets.
-pub async fn handle(certs_dir: impl AsRef<Path>, proxy_addr: Option<String>, language: Language, file: PathBuf, remote: Option<String>, profile: bool) -> Result<(), Error> {
+pub async fn handle(certs_dir: impl AsRef<Path>, proxy_addr: Option<String>, language: Language, file: PathBuf, dummy: bool, remote: Option<String>, profile: bool) -> Result<(), Error> {
     // Either read the file or read stdin
     let (what, source_code): (Cow<str>, String) = if file == PathBuf::from("-") {
         let mut result: String = String::new();
@@ -765,15 +909,67 @@ pub async fn handle(certs_dir: impl AsRef<Path>, proxy_addr: Option<String>, lan
     // Prepare the parser options
     let options: ParserOptions = ParserOptions::new(language);
 
-    // Now switch on remote or local mode
-    if let Some(remote) = remote {
-        remote_run(certs_dir, proxy_addr, remote, options, what, source_code, profile).await
+    // Now switch on dummy, local or remote mode
+    if !dummy {
+        if let Some(remote) = remote {
+            remote_run(certs_dir, proxy_addr, remote, options, what, source_code, profile).await
+        } else {
+            local_run(options, what, source_code).await
+        }
     } else {
-        local_run(options, what, source_code).await
+        dummy_run(options, what, source_code).await
     }
 }
 
 
+
+/// Runs the given file in a dummy VM, that is to say, ignore jobs with some default values.
+/// 
+/// # Arguments
+/// - `options`: The ParseOptions that specify how to parse the incoming source.
+/// - `what`: A description of the source we're reading (e.g., the filename or `<stdin>`)
+/// - `source`: The source code to read.
+/// 
+/// # Returns
+/// Nothing, but does print results and such to stdout. Does not produce new datasets.
+async fn dummy_run(options: ParserOptions, what: impl AsRef<str>, source: impl AsRef<str>) -> Result<(), Error> {
+    let what      : &str  = what.as_ref();
+    let source    : &str  = source.as_ref();
+
+    // First we initialize the VM
+    let mut state: DummyVmState = initialize_dummy_vm(options)?;
+    // Next, we run the VM (one snippet only ayway)
+    let res: FullValue = run_dummy_vm(&mut state, what, source).await?;
+    // Then, we collect and process the result
+    process_dummy_result(res);
+
+    // Done
+    Ok(())
+}
+
+/// Runs the given file on the local machine.
+/// 
+/// # Arguments
+/// - `options`: The ParseOptions that specify how to parse the incoming source.
+/// - `what`: A description of the source we're reading (e.g., the filename or `<stdin>`)
+/// - `source`: The source code to read.
+/// 
+/// # Returns
+/// Nothing, but does print results and such to stdout. Might also produce new datasets.
+async fn local_run(options: ParserOptions, what: impl AsRef<str>, source: impl AsRef<str>) -> Result<(), Error> {
+    let what      : &str  = what.as_ref();
+    let source    : &str  = source.as_ref();
+
+    // First we initialize the remote thing
+    let mut state: OfflineVmState = initialize_offline_vm(options)?;
+    // Next, we run the VM (one snippet only ayway)
+    let res: FullValue = run_offline_vm(&mut state, what, source).await?;
+    // Then, we collect and process the result
+    process_offline_result(res)?;
+
+    // Done
+    Ok(())
+}
 
 /// Runs the given file on the remote instance.
 /// 
@@ -800,30 +996,6 @@ async fn remote_run(certs_dir: impl AsRef<Path>, proxy_addr: Option<String>, end
     let res: FullValue = run_instance_vm(endpoint, &mut state, what, source, profile).await?;
     // Then, we collect and process the result
     process_instance_result(certs_dir, &proxy_addr, res).await?;
-
-    // Done
-    Ok(())
-}
-
-/// Runs the given file on the local machine.
-/// 
-/// # Arguments
-/// - `options`: The ParseOptions that specify how to parse the incoming source.
-/// - `what`: A description of the source we're reading (e.g., the filename or `<stdin>`)
-/// - `source`: The source code to read.
-/// 
-/// # Returns
-/// Nothing, but does print results and such to stdout. Might also produce new datasets.
-async fn local_run(options: ParserOptions, what: impl AsRef<str>, source: impl AsRef<str>) -> Result<(), Error> {
-    let what      : &str  = what.as_ref();
-    let source    : &str  = source.as_ref();
-
-    // First we initialize the remote thing
-    let mut state: OfflineVmState = initialize_offline_vm(options)?;
-    // Next, we run the VM (one snippet only ayway)
-    let res: FullValue = run_offline_vm(&mut state, what, source).await?;
-    // Then, we collect and process the result
-    process_offline_result(res)?;
 
     // Done
     Ok(())

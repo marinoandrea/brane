@@ -4,7 +4,7 @@
 //  Created:
 //    24 Oct 2022, 15:27:26
 //  Last edited:
-//    18 Jan 2023, 17:34:26
+//    19 Jan 2023, 11:09:40
 //  Auto updated?
 //    Yes
 // 
@@ -349,6 +349,10 @@ pub enum ExecuteError {
     ImageCreateError{ path: PathBuf, err: std::io::Error },
     /// Failed to write to the file where we write the download stream.
     ImageWriteError{ path: PathBuf, err: std::io::Error },
+    /// Failed to write to the file where we write the container ID.
+    IdWriteError{ path: PathBuf, err: std::io::Error },
+    /// Failed to read from the file where we cached the container ID.
+    IdReadError{ path: PathBuf, err: std::io::Error },
     /// Failed to hash the given container.
     HashError{ err: DockerError },
     /// Failed to write to the file where we write the container hash.
@@ -405,6 +409,8 @@ impl Display for ExecuteError {
             DownloadStreamError{ address, err }              => write!(f, "Failed to get next chunk in download stream from '{}': {}", address, err),
             ImageCreateError{ path, err }                    => write!(f, "Failed to create tarball file '{}': {}", path.display(), err),
             ImageWriteError{ path, err }                     => write!(f, "Failed to write to tarball file '{}': {}", path.display(), err),
+            IdWriteError{ path, err }                        => write!(f, "Failed to write image ID to file '{}': {}", path.display(), err),
+            IdReadError{ path, err }                         => write!(f, "Failed to read image from file '{}': {}", path.display(), err),
             HashError{ err }                                 => write!(f, "Failed to hash image: {}", err),
             HashWriteError{ path, err }                      => write!(f, "Failed to write image hash to file '{}': {}", path.display(), err),
             HashReadError{ path, err }                       => write!(f, "Failed to read image hash from file '{}': {}", path.display(), err),

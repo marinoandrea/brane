@@ -4,7 +4,7 @@
 //  Created:
 //    26 Aug 2022, 18:01:09
 //  Last edited:
-//    17 Jan 2023, 15:29:22
+//    19 Jan 2023, 13:28:52
 //  Auto updated?
 //    Yes
 // 
@@ -439,3 +439,23 @@ impl Display for LocalVmError {
 }
 
 impl Error for LocalVmError {}
+
+
+
+/// Defines errors for the DummyVm.
+#[derive(Debug)]
+pub enum DummyVmError {
+    /// Failed to run a workflow.
+    ExecError{ err: VmError },
+}
+
+impl Display for DummyVmError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
+        use DummyVmError::*;
+        match self {
+            ExecError{ err } => write!(f, "Failed to execute workflow: {}", err),
+        }
+    }
+}
+
+impl Error for DummyVmError {}

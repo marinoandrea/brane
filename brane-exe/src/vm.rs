@@ -4,7 +4,7 @@
 //  Created:
 //    12 Sep 2022, 17:41:33
 //  Last edited:
-//    15 Jan 2023, 16:18:43
+//    19 Jan 2023, 15:17:39
 //  Auto updated?
 //    Yes
 // 
@@ -36,7 +36,7 @@ pub mod tests {
     use specifications::data::DataIndex;
     use specifications::package::PackageIndex;
     use super::*;
-    use crate::dummy::{DummyPlanner, DummyPlugin, DummyVm};
+    use crate::dummy::DummyVm;
 
 
     /// Tests the traversal by generating symbol tables for every file.
@@ -62,9 +62,9 @@ pub mod tests {
                 let dindex: DataIndex    = create_data_index();
 
                 // Run the program but now line-by-line (to test the snippet function)
-                let mut source: String = String::new();
-                let mut state: CompileState = CompileState::new();
-                let vm: Arc<RwLock<DummyVm>> = Arc::new(RwLock::new(DummyVm::new()));
+                let mut source : String       = String::new();
+                let mut state  : CompileState = CompileState::new();
+                let mut vm     : DummyVm      = DummyVm::new();
                 let mut iter = code.split('\n');
                 for (offset, l) in SnippetFetcher::new(|| { Ok(iter.next().map(|l| l.into())) }) {
                     // Append the source (for errors only)
@@ -95,26 +95,24 @@ pub mod tests {
                         _ => { unreachable!(); },
                     };
 
-                    // Run the dummy planner on the workflow
-                    let workflow: Workflow = DummyPlanner::plan(workflow);
-
                     // Print the file itself
                     let workflow = ast::do_traversal(workflow, std::io::stdout()).unwrap();
                     println!("{}", (0..40).map(|_| "- ").collect::<String>());
 
                     // Run the VM on this snippet
-                    match DummyVm::run::<DummyPlugin>(vm.clone(), workflow).await {
-                        Ok(value) => {
+                    vm = match vm.exec(workflow).await {
+                        (vm, Ok(value)) => {
                             println!("Workflow stdout:");
-                            vm.read().unwrap().flush_stdout();
+                            vm.flush_stdout();
                             println!();
                             println!("Workflow returned: {:?}", value);
+                            vm
                         },
-                        Err(err)  => {
-                            err.prettyprint();
+                        (_, Err(err)) => {
+                            eprintln!("{}", err);
                             panic!("Failed to execute workflow (snippet) (see output above)");
                         },
-                    }
+                    };
 
                     // Increment the state offset
                     state.offset += offset.line;

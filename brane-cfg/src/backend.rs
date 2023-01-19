@@ -4,7 +4,7 @@
 //  Created:
 //    18 Oct 2022, 13:50:11
 //  Last edited:
-//    18 Jan 2023, 17:27:16
+//    19 Jan 2023, 11:13:37
 //  Auto updated?
 //    Yes
 // 
@@ -132,4 +132,13 @@ impl BackendFile {
         // Done
         Ok(())
     }
+
+
+
+    /// Returns whether the user wants hash containers to be hashed, generating a default value if they didn't specify it.
+    /// 
+    /// # Returns
+    /// Whether container hash security should be enabled (true) or not (false).
+    #[inline]
+    pub fn hash_containers(&self) -> bool { self.hash_containers.unwrap_or(true) }
 }

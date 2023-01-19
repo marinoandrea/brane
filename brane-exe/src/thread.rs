@@ -4,7 +4,7 @@
 //  Created:
 //    09 Sep 2022, 13:23:41
 //  Last edited:
-//    17 Jan 2023, 15:29:29
+//    19 Jan 2023, 13:38:57
 //  Auto updated?
 //    Yes
 // 
@@ -101,12 +101,12 @@ mod tests {
                 let workflow: Workflow = DummyPlanner::plan(workflow);
 
                 // Now print the file for prettyness
-                let workflow: Workflow = ast::do_traversal(workflow, std::io::stdout()).unwrap();
+                let workflow: Arc<Workflow> = Arc::new(ast::do_traversal(workflow, std::io::stdout()).unwrap());
                 println!("{}", (0..40).map(|_| "- ").collect::<String>());
 
                 // Run the program
                 let text: Arc<Mutex<String>>     = Arc::new(Mutex::new(String::new()));
-                let main: Thread<DummyState, ()> = Thread::new(&workflow, DummyState{ text: text.clone() });
+                let main: Thread<DummyState, ()> = Thread::new(&workflow, DummyState{ workflow: Some(workflow.clone()), text: text.clone() });
                 match main.run::<DummyPlugin>().await {
                     Ok(value) => {
                         println!("Workflow stdout:");

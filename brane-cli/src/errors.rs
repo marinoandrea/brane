@@ -4,7 +4,7 @@
 //  Created:
 //    17 Feb 2022, 10:27:28
 //  Last edited:
-//    10 Jan 2023, 10:54:22
+//    19 Jan 2023, 14:01:09
 //  Auto updated?
 //    Yes
 // 
@@ -724,7 +724,7 @@ pub enum RunError {
     /// Failed to parse the value returned by the remote driver.
     ValueParseError{ address: String, raw: String, err: serde_json::Error },
     /// Failed to run the workflow
-    ExecError{ err: OfflineVmError },
+    ExecError{ err: Box<dyn Error> },
 
     /// The returned dataset was unknown.
     UnknownDataset{ name: String },

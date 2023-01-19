@@ -4,7 +4,7 @@
 //  Created:
 //    31 Oct 2022, 11:21:14
 //  Last edited:
-//    18 Jan 2023, 17:35:52
+//    19 Jan 2023, 11:24:54
 //  Auto updated?
 //    Yes
 // 
@@ -15,6 +15,7 @@
 // 
 
 use std::collections::{HashMap, HashSet};
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -468,6 +469,27 @@ async fn assert_workflow_permission(node_config: &NodeConfig, _workflow: &Workfl
 
 
 
+/// Returns the path of a cached container file if it is cached.
+/// 
+/// # Arguments
+/// - `node_config`: The configuration for this node's environment. For us, contains if and where we should proxy the request through and where we may download package images to.
+/// - `image`: The image name of the image we want to have.
+/// 
+/// # Returns
+/// The path to the file if it exists (and is thus cached), or `None` otherwise. Note that the existance of the image file itself does not mean the hash and ID cache files are there too.
+#[inline]
+fn get_cached_container(node_config: &NodeConfig, image: &Image) -> Option<PathBuf> {
+    // Generate the path
+    let image_path: PathBuf = node_config.paths.packages.join(format!("{}-{}.tar", image.name, image.version.as_ref().unwrap_or(&"latest".into())));
+
+    // Whether we return it determines if it exists
+    if image_path.exists() {
+        Some(image_path)
+    } else {
+        None
+    }
+}
+
 /// Downloads a container to the local registry.
 /// 
 /// # Arguments
@@ -483,87 +505,11 @@ async fn assert_workflow_permission(node_config: &NodeConfig, _workflow: &Workfl
 /// 
 /// # Errors
 /// This function may error if we failed to reach the remote host, download the file or write the file.
-async fn download_container(node_config: &NodeConfig, proxy: Arc<ProxyClient>, endpoint: impl AsRef<str>, image: &mut Image) -> Result<(PathBuf, String), ExecuteError> {
+async fn get_container(node_config: &NodeConfig, proxy: Arc<ProxyClient>, endpoint: impl AsRef<str>, image: &Image) -> Result<PathBuf, ExecuteError> {
     let endpoint: &str = endpoint.as_ref();
     debug!("Downloading image '{}' from '{}'...", image, endpoint);
 
-    // Prepare profiling
-    let report = TimingReport::auto_report("brane-job download container", std::io::stdout());
-    let _guard = report.guard("total");
-
-    // Check if we have already downloaded it, by any chance
-    let cache = report.guard("cache checking");
-    let image_path  : PathBuf = node_config.paths.packages.join(format!("{}-{}.tar", image.name, image.version.as_ref().unwrap_or(&"latest".into())));
-    let digest_path : PathBuf = node_config.paths.packages.join(format!("{}-{}-id.sha256", image.name, image.version.as_ref().unwrap_or(&"latest".into())));
-    let hash_path   : PathBuf = node_config.paths.packages.join(format!("{}-{}-hash.sha256", image.name, image.version.as_ref().unwrap_or(&"latest".into())));
-    if image_path.exists() {
-        debug!("Image file '{}' already exists; checking if it's up-to-date...", image_path.display());
-
-        // Get the digest of the local image
-        debug!("Seeing if image is up-to-date...");
-        let image_digest: String = if digest_path.exists() {
-            debug!("Loading cached digest...");
-            match tfs::read_to_string(&digest_path).await {
-                Ok(digest) => digest,
-                Err(err)   => { return Err(ExecuteError::DigestReadError{ path: digest_path, err }); },
-            }
-        } else {
-            debug!("Retrieving digest from image file...");
-            match docker::get_digest(&image_path).await {
-                Ok(digest) => digest,
-                Err(err)   => { return Err(ExecuteError::DigestError{ path: image_path, err }); },
-            }
-        };
-
-        // Compare the digests if they've given us one as well
-        match &image.digest {
-            Some(digest) => {
-                if digest == &image_digest {
-                    debug!("Local image is up-to-date");
-
-                    debug!("Seeing if hash has already been computed...");
-                    let hash: String = if hash_path.exists() {
-                        debug!("Loading hash...");
-                        match tfs::read_to_string(&hash_path).await {
-                            Ok(hash) => hash,
-                            Err(err) => { return Err(ExecuteError::HashReadError{ path: hash_path, err }); },
-                        }
-                    } else {
-                        debug!("Hashing image (this might take a while)...");
-                        let _hash = report.guard("hashing");
-
-                        // Get the image hash
-                        let hash: String = match docker::hash_container(&image_path).await {
-                            Ok(hash) => hash,
-                            Err(err) => { return Err(ExecuteError::HashError{ err }); },
-                        };
-
-                        // Write it
-                        if let Err(err) = tfs::write(&hash_path, hash.as_bytes()).await {
-                            return Err(ExecuteError::HashWriteError{ path: hash_path, err });
-                        }
-
-                        // Done, return the hash
-                        hash
-                    };
-
-                    // Return both of them
-                    return Ok((image_path, hash));
-                }
-            },
-            None => {
-                warn!("No digest given in request; assuming local image is out-of-date");
-                image.digest = Some(image_digest);
-            },
-        };
-
-        // Otherwise, they don't compare
-        debug!("Local image is outdated; overwriting...");
-    }
-    cache.stop();
-
     // Send a GET-request to the correct location
-    let download = report.guard("download");
     let address: String = format!("{}/packages/{}/{}", endpoint, image.name, image.version.as_ref().unwrap_or(&"latest".into()));
     debug!("Performing request to '{}'...", address);
     let res = match proxy.get(&address, None).await {
@@ -578,6 +524,7 @@ async fn download_container(node_config: &NodeConfig, proxy: Arc<ProxyClient>, e
     }
 
     // With the request success, download it in parts
+    let image_path: PathBuf = node_config.paths.packages.join(format!("{}-{}.tar", image.name, image.version.as_ref().unwrap_or(&"latest".into())));
     debug!("Writing request stream to '{}'...", image_path.display());
     {
         let mut handle: tfs::File = match tfs::File::create(&image_path).await {
@@ -598,30 +545,134 @@ async fn download_container(node_config: &NodeConfig, proxy: Arc<ProxyClient>, e
             }
         }
     }
-    download.stop();
-
-    // Hash the image while at it
-    let hash_timing = report.guard("hashing");
-    debug!("Hashing image (this might take a while)...");
-    let hash: String = {
-        // Get the image hash
-        let hash: String = match docker::hash_container(&image_path).await {
-            Ok(hash) => hash,
-            Err(err) => { return Err(ExecuteError::HashError{ err }); },
-        };
-
-        // Write it
-        if let Err(err) = tfs::write(&hash_path, hash.as_bytes()).await {
-            return Err(ExecuteError::HashWriteError{ path: hash_path, err });
-        }
-
-        // Done, return the hash
-        hash
-    };
-    hash_timing.stop();
 
     // That's OK - now return
-    Ok((image_path, hash))
+    Ok(image_path)
+}
+
+/// Returns the hash and identifier of the given image file.
+/// 
+/// The hash is meant to represent some cryptographically secure footprint, whereas the identifier is the Docker ID of the image we can use to refer to this unique instance in the Docker daemon.
+/// 
+/// Note that the ID itself is _not_ cryptographically secure, since it is not computed but read from the image file. It may thus be tempered with by the sender.
+/// 
+/// # Arguments
+/// - `node_config`: The configuration for this node's environment. For us, contains the location to the `backend` file that determines if we need to compute a hash or not.
+/// - `image_path`: The path to the image file to compute the hash and ID of.
+/// 
+/// # Returns
+/// The ID and hash of this container, respectively. Note that the hash may be empty, in which case the system admin disabled container security.
+/// 
+/// Also note that, for performance reasons, the function generates cache files alongside the image file if they are not present already.
+/// 
+/// # Errors
+/// This function errors if we failed to read the given image file or any other associated cache file.
+async fn get_container_ids(node_config: &NodeConfig, image_path: impl AsRef<Path>) -> Result<(String, Option<String>), ExecuteError> {
+    let image_path: &Path = image_path.as_ref();
+    debug!("Computing ID and hash for '{}'...", image_path.display());
+
+    // Open the backend file
+    let backend: BackendFile = match BackendFile::from_path(&node_config.node.worker().paths.backend) {
+        Ok(backend) => backend,
+        Err(err)    => { return Err(ExecuteError::BackendFileError { path: node_config.node.worker().paths.backend.clone(), err }); },
+    };
+
+    // Get the directory of the image
+    let dir       : &Path  = image_path.parent().unwrap_or(image_path);
+    let file_name : &OsStr = image_path.file_stem().unwrap_or(OsStr::new(""));
+
+    // Check the image ID
+    let id: String = {
+        // Check if the cache file exists
+        let cache_file: PathBuf = dir.join(format!("{}-id.sha256", file_name.to_string_lossy()));
+        if cache_file.exists() {
+            // Attempt to read it
+            match tfs::read_to_string(&cache_file).await {
+                Ok(id)   => id,
+                Err(err) => { return Err(ExecuteError::IdReadError{ path: cache_file, err }); },
+            }
+
+        } else {
+            // Get the ID from the image
+            let id: String = match docker::get_digest(image_path).await {
+                Ok(id)   => id,
+                Err(err) => { return Err(ExecuteError::DigestError{ path: image_path.into(), err }); },
+            };
+
+            // Write it to the cache file
+            if let Err(err) = tfs::write(&cache_file, &id).await { return Err(ExecuteError::IdWriteError { path: cache_file, err }); }
+
+            // Return the ID
+            id
+        }
+    };
+
+    // Check the image hash
+    let hash: Option<String> = if backend.hash_containers() {
+        // Check if the hash file exists
+        let cache_file: PathBuf = dir.join(format!("{}-hash.sha256", file_name.to_string_lossy()));
+        if cache_file.exists() {
+            // Attempt to read it
+            match tfs::read_to_string(&cache_file).await {
+                Ok(hash) => Some(hash),
+                Err(err) => { return Err(ExecuteError::HashReadError{ path: cache_file, err }); },
+            }
+        } else {
+            // Compute the hash
+            let hash: String = match docker::hash_container(image_path).await {
+                Ok(hash) => hash,
+                Err(err) => { return Err(ExecuteError::HashError { err }); },
+            };
+
+            // Write it to the cache file
+            if let Err(err) = tfs::write(&cache_file, &hash).await { return Err(ExecuteError::HashWriteError { path: cache_file, err }); }
+
+            // Return the hash
+            Some(hash)
+        }
+    } else {
+        None
+    };
+
+    // Done
+    Ok((id, hash))
+}
+
+/// Ensures the given image exists, either by finding it in the local cache or by downloading it from the central node.
+/// 
+/// # Arguments
+/// - `node_config`: The configuration for this node's environment. For us, contains if and where we should proxy the request through and where we may download package images to.
+/// - `proxy`: The proxy client we use to proxy the data transfer.
+/// - `endpoint`: The address where to download the container from.
+/// - `image`: The image name (including digest, for caching) to download.
+/// 
+/// # Returns
+/// The path of the downloaded image file combined with the ID of the image and the hash of the image, respectively.
+/// 
+/// It's very good practise to use this path, since the cached path might be changed in this function.
+/// 
+/// The ID may be used to communicate the container to Docker, but it is not cryptographically secure (it is provided by the remote party as-is). Use the hash instead for policies.
+/// 
+/// Also note that if the hash is missing (`None`), then the system administrator disabled container security and no consulting of the checker on this respect should occur.
+/// 
+/// # Errors
+/// This function may error if we failed to reach the remote host, download the file or write the file. If it is cached, then we may fail if we failed to read any of the cached files.
+async fn ensure_container(node_config: &NodeConfig, proxy: Arc<ProxyClient>, endpoint: impl AsRef<str>, image: &Image) -> Result<(PathBuf, String, Option<String>), ExecuteError> {
+    // Prepare profiling
+    let report = TimingReport::auto_report("brane-job download container", std::io::stdout());
+    let _guard = report.guard("total");
+
+    // Download the file if we don't have it locally already
+    let image_path: PathBuf = match report.func("cache checking", || get_cached_container(node_config, image)) {
+        Some(path) => path,
+        None       => report.fut("container downloading", get_container(node_config, proxy, endpoint, image)).await?,
+    };
+
+    // Compute the ID and hash for it
+    let (id, hash): (String, Option<String>) = report.fut("container ID & hash computation", get_container_ids(node_config, &image_path)).await?;
+
+    // Done, return
+    Ok((image_path, id, hash))
 }
 
 
@@ -787,30 +838,34 @@ async fn execute_task(node_config: &NodeConfig, proxy: Arc<ProxyClient>, tx: Sen
     };
 
     // Download the container from the central node
-    let (container_path, container_hash): (PathBuf, String) = download_container(node_config, proxy, &cinfo.api_endpoint, tinfo.image.as_mut().unwrap()).await?;
+    let (container_path, container_id, container_hash): (PathBuf, String, Option<String>) = ensure_container(node_config, proxy, &cinfo.api_endpoint, tinfo.image.as_ref().unwrap()).await?;
+    tinfo.image.as_mut().unwrap().digest = Some(container_id);
     pre.stop();
 
 
 
     /* AUTHORIZATION */
-    // First: make sure that the workflow is allowed by the checker
-    let auth = report.guard("authorization");
-    match assert_workflow_permission(node_config, &workflow, container_hash).await {
-        Ok(true) => {
-            debug!("Checker accepted incoming workflow");
-            if let Err(err) = update_client(&tx, JobStatus::Authorized).await { error!("{}", err); }
-        },
-        Ok(false) => {
-            debug!("Checker rejected incoming workflow");
-            if let Err(err) = update_client(&tx, JobStatus::Denied).await { error!("{}", err); }
-            return Err(ExecuteError::AuthorizationFailure{ checker: node_config.node.worker().services.reg.clone() });
-        },
+    // We only do the container security thing if the user told us to; otherwise, the hash will be empty
+    if let Some(container_hash) = container_hash {
+        // First: make sure that the workflow is allowed by the checker
+        let auth = report.guard("authorization");
+        match assert_workflow_permission(node_config, &workflow, container_hash).await {
+            Ok(true) => {
+                debug!("Checker accepted incoming workflow");
+                if let Err(err) = update_client(&tx, JobStatus::Authorized).await { error!("{}", err); }
+            },
+            Ok(false) => {
+                debug!("Checker rejected incoming workflow");
+                if let Err(err) = update_client(&tx, JobStatus::Denied).await { error!("{}", err); }
+                return Err(ExecuteError::AuthorizationFailure{ checker: node_config.node.worker().services.reg.clone() });
+            },
 
-        Err(err) => {
-            return err!(tx, JobStatus::AuthorizationFailed, ExecuteError::AuthorizationError{ checker: node_config.node.worker().services.reg.clone(), err });
-        },
+            Err(err) => {
+                return err!(tx, JobStatus::AuthorizationFailed, ExecuteError::AuthorizationError{ checker: node_config.node.worker().services.reg.clone(), err });
+            },
+        }
+        auth.stop();
     }
-    auth.stop();
 
 
 
