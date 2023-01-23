@@ -4,7 +4,7 @@
 //  Created:
 //    31 Aug 2022, 11:32:04
 //  Last edited:
-//    17 Jan 2023, 15:44:53
+//    23 Jan 2023, 11:51:37
 //  Auto updated?
 //    Yes
 // 
@@ -321,9 +321,37 @@ fn compile_func_def(index: usize, args: Vec<Rc<RefCell<VarEntry>>>, code: dsl::B
 /// Nothing, but does add the edges in the 'edges' and `workflow` structures.
 fn pass_block(block: dsl::Block, edges: &mut EdgeBuffer, f_edges: &mut HashMap<usize, EdgeBuffer>, table: &TableState, warnings: &mut Vec<Warning>) {
     // Just compile the statements in the block.
+    let mut decs: Vec<usize> = vec![];
     for s in block.stmts {
+        // Before we pass the statement, check if it's a variable we should think about undeclaring
+        match &s {
+            dsl::Stmt::LetAssign{ st_entry, .. } => {
+                let entry: Ref<VarEntry> = st_entry.as_ref().unwrap().borrow();
+                decs.push(entry.index);
+            },
+            dsl::Stmt::Parallel{ st_entry: Some(st_entry), .. } => {
+                let entry: Ref<VarEntry> = st_entry.borrow();
+                decs.push(entry.index);
+            },
+
+            // The rest doesn't declare
+            _ => {},
+        }
+
+        // Pass the statement to compile it
         pass_stmt(s, edges, f_edges, table, warnings);
     }
+
+    // HOWEVER, also write out-of-scope functions for all variables declared within
+    // Note, though, we don't do main to be friendly to snippet execution
+    if block.table.borrow().parent.is_some() {
+        for def in decs {
+            // Write its undeclare
+            edges.insert_at_end(ast::Edge::Linear{ instrs: vec![ ast::EdgeInstr::VarUndec{ def } ], next: usize::MAX });
+        }
+    }
+
+    // Done
 }
 
 /// Traveres Stmts, which are compiled to one or mutiple edges implementing it.

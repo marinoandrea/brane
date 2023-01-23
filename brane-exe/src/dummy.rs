@@ -4,7 +4,7 @@
 //  Created:
 //    13 Sep 2022, 16:43:11
 //  Last edited:
-//    19 Jan 2023, 14:08:55
+//    23 Jan 2023, 11:52:10
 //  Auto updated?
 //    Yes
 // 
@@ -143,7 +143,7 @@ impl VmPlugin for DummyPlugin {
 
         // Returns default values for the various types a function can have
         let ret: &DataType = &state.workflow.as_ref().unwrap().table.tasks[info.id].func().ret;
-        Ok(Some(default_return_value(ret, &state.workflow.as_ref().unwrap(), info.name, info.package_name, info.result)))
+        Ok(Some(default_return_value(ret, state.workflow.as_ref().unwrap(), info.name, info.package_name, info.result)))
     }
 
     async fn stdout(global: &Arc<RwLock<Self::GlobalState>>, _local: &Self::LocalState, text: &str, newline: bool) -> Result<(), Self::StdoutError> {

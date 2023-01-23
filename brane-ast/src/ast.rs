@@ -4,7 +4,7 @@
 //  Created:
 //    30 Aug 2022, 11:55:49
 //  Last edited:
-//    17 Jan 2023, 15:30:28
+//    23 Jan 2023, 10:42:50
 //  Auto updated?
 //    Yes
 // 
@@ -786,6 +786,15 @@ pub enum EdgeInstr {
         #[serde(rename = "d")]
         def : usize,
     },
+    /// Undeclares the given variable in the framestack.
+    /// 
+    /// It's a bit of an artificial instruction, mainly used to keep track of initialization status at runtime.
+    #[serde(rename = "vru")]
+    VarUndec {
+        /// The identifier of the variable to undeclare.
+        #[serde(rename = "d")]
+        def : usize,
+    },
     /// Puts the value of the given variable on top of the stack.
     /// 
     /// # Stack layout
@@ -879,9 +888,10 @@ impl Display for EdgeInstr {
             Instance{ .. }   => write!(f, ".inst"),
             Proj{ .. }       => write!(f, ".proj"),
 
-            VarDec { .. } => write!(f, ".dec"),
-            VarGet { .. } => write!(f, ".get"),
-            VarSet { .. } => write!(f, ".set"),
+            VarDec { .. }   => write!(f, ".dec"),
+            VarUndec { .. } => write!(f, ".undec"),
+            VarGet { .. }   => write!(f, ".get"),
+            VarSet { .. }   => write!(f, ".set"),
 
             Boolean{ .. }  => write!(f, ".bool"),
             Integer{ .. }  => write!(f, ".int"),

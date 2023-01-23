@@ -4,7 +4,7 @@
 //  Created:
 //    31 Oct 2022, 11:21:14
 //  Last edited:
-//    19 Jan 2023, 11:24:54
+//    23 Jan 2023, 11:53:01
 //  Auto updated?
 //    Yes
 // 
@@ -579,7 +579,7 @@ async fn get_container_ids(node_config: &NodeConfig, image_path: impl AsRef<Path
 
     // Get the directory of the image
     let dir       : &Path  = image_path.parent().unwrap_or(image_path);
-    let file_name : &OsStr = image_path.file_stem().unwrap_or(OsStr::new(""));
+    let file_name : &OsStr = image_path.file_stem().unwrap_or_else(|| OsStr::new(""));
 
     // Check the image ID
     let id: String = {

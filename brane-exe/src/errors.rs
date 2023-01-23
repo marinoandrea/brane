@@ -4,7 +4,7 @@
 //  Created:
 //    26 Aug 2022, 18:01:09
 //  Last edited:
-//    19 Jan 2023, 13:28:52
+//    23 Jan 2023, 10:46:59
 //  Auto updated?
 //    Yes
 // 
@@ -174,6 +174,8 @@ pub enum FrameStackError {
     UndeclaredVariable{ name: String },
     /// A certain variable was declared twice.
     DuplicateDeclaration{ name: String },
+    /// A certain variable was undeclared without it ever being declared.
+    UndeclaredUndeclaration{ name: String },
     /// The given variable was declared but not initialized.
     UninitializedVariable{ name: String },
     /// The new value of a variable did not match the expected.
@@ -192,6 +194,7 @@ impl Display for FrameStackError {
 
             UndeclaredVariable{ name }          => write!(f, "Undeclared variable '{}'", name),
             DuplicateDeclaration{ name }        => write!(f, "Cannot declare variable '{}' if it is already declared", name),
+            UndeclaredUndeclaration{ name }     => write!(f, "Cannot undeclare variable '{}' that was never declared", name),
             UninitializedVariable{ name }       => write!(f, "Uninitialized variable '{}'", name),
             VarTypeError{ name, got, expected } => write!(f, "Cannot assign value of type {} to variable '{}' of type {}", got, name, expected),
             VariableNotInScope{ name }          => write!(f, "Variable '{}' is declared but not currently in scope", name),
@@ -258,6 +261,8 @@ pub enum VmError {
     ProjUnknownFieldError{ edge: usize, instr: usize, class: String, field: String },
     /// Could not declare the variable.
     VarDecError{ edge: usize, instr: usize, err: FrameStackError },
+    /// Could not un-declare the variable.
+    VarUndecError{ edge: usize, instr: usize, err: FrameStackError },
     /// Could not get the value of a variable.
     VarGetError{ edge: usize, instr: usize, err: FrameStackError },
     /// Could not set the value of a variable.
@@ -323,6 +328,7 @@ impl VmError {
             ArrIdxOutOfBoundsError { edge, instr, .. } => prettyprint_err_instr(*edge, Some(*instr), self),
             ProjUnknownFieldError{ edge, instr, .. }   => prettyprint_err_instr(*edge, Some(*instr), self),
             VarDecError{ edge, instr, .. }             => prettyprint_err_instr(*edge, Some(*instr), self),
+            VarUndecError{ edge, instr, .. }           => prettyprint_err_instr(*edge, Some(*instr), self),
             VarGetError{ edge, instr, .. }             => prettyprint_err_instr(*edge, Some(*instr), self),
             VarSetError{ edge, instr, .. }             => prettyprint_err_instr(*edge, Some(*instr), self),
 
@@ -369,6 +375,7 @@ impl Display for VmError {
             ArrIdxOutOfBoundsError { got, max, .. }              => write!(f, "Index {} is out-of-bounds for an array of length {}", got, max),
             ProjUnknownFieldError{ class, field, .. }            => write!(f, "Class '{}' has not field '{}'", class, field),
             VarDecError{ err, .. }                               => write!(f, "Could not declare variable: {}", err),
+            VarUndecError{ err, .. }                             => write!(f, "Could not undeclare variable: {}", err),
             VarGetError{ err, .. }                               => write!(f, "Could not get variable: {}", err),
             VarSetError{ err, .. }                               => write!(f, "Could not set variable: {}", err),
 

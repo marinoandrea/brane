@@ -4,7 +4,7 @@
 //  Created:
 //    12 Sep 2022, 10:45:50
 //  Last edited:
-//    19 Jan 2023, 15:25:16
+//    23 Jan 2023, 10:46:22
 //  Auto updated?
 //    Yes
 // 
@@ -208,6 +208,35 @@ impl FrameStack {
                 // Insert it, possibly overriding the old one
                 if f.vars.insert(def, None).is_some() {
                     return Err(Error::DuplicateDeclaration{ name: self.table.var(def).name.clone() });
+                }
+                break;
+            }
+        }
+
+        // Done
+        Ok(())
+    }
+
+    /// DUndclares a variable with the given index, effectively brining it back to uninitialized status.
+    /// 
+    /// # Arguments
+    /// - `def`: The variable to undeclare.
+    /// 
+    /// # Returns
+    /// Nothing, but does require the variable to be declared before it can be used.
+    /// 
+    /// # Errors
+    /// This function may error if the given definition is unknown.
+    pub fn undeclare(&mut self, def: usize) -> Result<(), Error> {
+        // Throw a special error if the stack is empty
+        if self.data.is_empty() { return Err(Error::EmptyError); }
+
+        // Search the frames (in reverse order)
+        for f in self.data.iter_mut().rev() {
+            if def >= f.offset {
+                // Insert it, possibly overriding the old one
+                if f.vars.remove(&def).is_none() {
+                    return Err(Error::UndeclaredUndeclaration{ name: self.table.var(def).name.clone() });
                 }
                 break;
             }

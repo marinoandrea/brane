@@ -4,7 +4,7 @@
 //  Created:
 //    09 Sep 2022, 13:23:41
 //  Last edited:
-//    19 Jan 2023, 13:38:57
+//    23 Jan 2023, 10:43:31
 //  Auto updated?
 //    Yes
 // 
@@ -808,6 +808,11 @@ fn exec_instr(edge: usize, idx: usize, instr: &EdgeInstr, stack: &mut Stack, fst
         VarDec{ def } => {
             // Simply declare it
             if let Err(err) = fstack.declare(*def) { return Err(Error::VarDecError{ edge, instr: idx, err }); }
+            1
+        },
+        VarUndec{ def } => {
+            // Simply undeclare it
+            if let Err(err) = fstack.undeclare(*def) { return Err(Error::VarUndecError{ edge, instr: idx, err }); }
             1
         },
         VarGet{ def } => {
