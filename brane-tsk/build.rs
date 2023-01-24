@@ -17,5 +17,6 @@
 /***** ENTRYPOINT *****/
 fn main() -> Result<(), std::io::Error> {
     tonic_build::configure()
+        .protoc_arg("--experimental_allow_proto3_optional")
         .compile(&["proto/driver.proto", "proto/job.proto"], &["proto"])
 }
