@@ -225,18 +225,23 @@ impl std::fmt::Display for PackageKind {
 
 
 /// Defines if the package has any additional requirements on the system it will run.
+/// Each enum wraps a boolean which determines whether the requested capability is 
+/// optional for the package or strictly required.
 #[derive(Clone, Copy, Deserialize, EnumDebug, Eq, Hash, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Capability {
     /// The package requires access to a CUDA GPU
-    CudaGpu,
+    CudaGpu(bool),
 }
 
 impl std::fmt::Debug for Capability {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         use Capability::*;
         match self {
-            CudaGpu => write!(f, "cuda_gpu"),
+            CudaGpu(is_opt) => {
+              if *is_opt { write!(f, "cuda_gpu?") }
+              else { write!(f, "cuda_gpu") }
+            },
         }
     }
 }
@@ -250,8 +255,11 @@ impl FromStr for Capability {
     type Err = CapabilityParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "cuda_gpu" => Ok(Self::CudaGpu),
+        let is_opt = s.ends_with('?');
+        let cap = if is_opt { &s[..s.len() - 1] } else { s };
+
+        match cap {
+            "cuda_gpu"  => Ok(Self::CudaGpu(is_opt)),
 
             _ => Err(CapabilityParseError::UnknownCapability{ raw: s.into() }),
         }

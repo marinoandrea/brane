@@ -393,7 +393,7 @@ async fn create_and_start_container(docker: &Docker, info: &ExecuteInfo) -> Resu
     #[allow(clippy::unnecessary_filter_map)]
     let device_requests: Vec<DeviceRequest> = info.capabilities.iter().filter_map(|c| match c {
         // We need a CUDA-enabled GPU
-        Capability::CudaGpu => {
+        Capability::CudaGpu(is_opt) => {
             debug!("Requesting CUDA GPU");
             Some(DeviceRequest {
                 driver       : Some("nvidia".into()),
